@@ -1,0 +1,13 @@
+name = "CMBrings"
+uuid = "6ae2c6cc-e263-4871-be65-a2b9ad8d2213"
+authors = ["Ethan Anderes <anderes@ucdavis.edu> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

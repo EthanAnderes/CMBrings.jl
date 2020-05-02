@@ -1,0 +1,15 @@
+*.DS_Store
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fits
+*.fls
+*.jl.*.cov
+*.jl.cov
+*.jl.mem
+*.jld
+*.jld2
+*.log
+*.synctex.gz
+local
