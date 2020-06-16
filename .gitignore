@@ -13,3 +13,4 @@
 *.log
 *.synctex.gz
 local
+Manifest.toml
