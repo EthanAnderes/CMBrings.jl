@@ -1,27 +1,32 @@
 module CMBrings
 
-using Reexport
-@reexport using XFields
-@reexport using FFTransforms
-using FFTransforms: FFTR
+
+using XFields
+using FFTransforms
+using HealpixTransforms
+
 using LinearAlgebra
 using Statistics 
-using HealpixHelper
-const HH = HealpixHelper
+using SharedArrays
+using Distributed
+using FFTW: plan_rfft 
+
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
-include("spin_transforms.jl")
-export RingSpinTransform, RingS2Transform
+include("cov_sheets.jl")
 
-include("xfield_extras.jl")
+#include("fft_ring_transforms.jl")
+#export RingSpinTransform, RingS2Transform
 
-include("grid_extras.jl")
-export	Δpix, Δfreq, nyq, Ωx, Ωk,
-		inv_scale, unitary_scale, ordinary_scale,
-		pix, freq, fullpix, fullfreq, wavenum
+#include("xfield_extras.jl")
 
-include("methods.jl")
-export ωη
+# include("grid_extras.jl")
+# export	Δpix, Δfreq, nyq, Ωx, Ωk,
+# 		inv_scale, unitary_scale, ordinary_scale,
+# 		pix, freq, fullpix, fullfreq, wavenum
+
+# include("methods.jl")
+# export ωη
 
 
 
