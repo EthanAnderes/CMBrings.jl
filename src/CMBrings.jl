@@ -9,11 +9,17 @@ using LinearAlgebra
 using Statistics 
 using SharedArrays
 using Distributed
-using FFTW: plan_rfft 
+using JLD2
+using FFTW
+using ProgressMeter
+
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
 include("cov_sheets.jl")
+
+include("methods.jl")
+
 
 #include("fft_ring_transforms.jl")
 #export RingSpinTransform, RingS2Transform
@@ -25,8 +31,6 @@ include("cov_sheets.jl")
 # 		inv_scale, unitary_scale, ordinary_scale,
 # 		pix, freq, fullpix, fullfreq, wavenum
 
-# include("methods.jl")
-# export ωη
 
 
 

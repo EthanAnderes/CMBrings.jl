@@ -1,10 +1,41 @@
 
+
+# custom pcg with function composition (Minv * A \approx I)
+# ---------------------------------------------------------
+function pcg(Minv::Function, A::Function, b, x=0*b; nsteps::Int=75, rel_tol = 0)
+    r       = b - A(x)
+    z       = Minv(r)
+    p       = deepcopy(z)
+    res     = dot(r,z)
+    reshist = Vector{typeof(res)}()
+    for i = 1:nsteps
+        Ap        = A(p)
+        α         = res / dot(p,Ap)
+        x         = x + α * p
+        r         = r - α * Ap
+        z         = Minv(r)
+        res′      = dot(r,z)
+        p         = z + (res′ / res) * p
+        rel_error = XFields.nan2zero(sqrt(dot(r,r)/dot(b,b)))
+        if rel_error < rel_tol
+            return x, reshist
+        end
+        push!(reshist, rel_error)
+        res = res′
+    end
+    return x, reshist
+end
+
+
+
+
 # White noise simulator
 # ---------------------
-function ωη(sT::RingSpinTransform{Tf}) where {Tf}
-    fd = randn(Tf, size_in(sT)) ./ sqrt(Ωx(sT))
-    return Xmap(sT, fd)
-end
+# function ωη(sT::RingSpinTransform{Tf}) where {Tf}
+#     fd = randn(Tf, size_in(sT)) ./ sqrt(Ωx(sT))
+#     return Xmap(sT, fd)
+# end
+
 
 
 # # Bandpowers
@@ -29,33 +60,6 @@ end
 
 # function power(f::Xfield{ST}; bin::Int=2, kmax=Inf, mult=1) where {ST<:RingSpinTransform}
 #     power(f, f; bin=bin, kmax=kmax, mult=mult)
-# end
-
-
-# # custom pcg with function composition (Minv * A \approx I)
-# # ---------------------------------------------------------
-# function pcg(Minv::Function, A::Function, b, x=0*b; nsteps::Int=75, rel_tol = 0)
-#     r       = b - A(x)
-#     z       = Minv(r)
-#     p       = deepcopy(z)
-#     res     = dot(r,z)
-#     reshist = Vector{typeof(res)}()
-#     for i = 1:nsteps
-#         Ap        = A(p)
-#         α         = res / dot(p,Ap)
-#         x         = x + α * p
-#         r         = r - α * Ap
-#         z         = Minv(r)
-#         res′      = dot(r,z)
-#         p         = z + (res′ / res) * p
-#         rel_error = XFields.nan2zero(sqrt(dot(r,r)/dot(b,b)))
-#         if rel_error < rel_tol
-#             return x, reshist
-#         end
-#         push!(reshist, rel_error)
-#         res = res′
-#     end
-#     return x, reshist
 # end
 
 
