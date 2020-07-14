@@ -101,8 +101,7 @@ function az2az(
 end
 
 
-
-function kazmap(::Type{Te}, f, cs::AzCov{Tf,sz,0}) where {Te, Tf<:Real,sz}
+function kazmap(f, ::Type{Te}, cs::AzCov) where Te
     rtn = Te[]
     for nm ∈ cs.ks_Σs_sheet_names
         ks, Σs  = read(cs.jld2file, nm)
@@ -113,11 +112,12 @@ function kazmap(::Type{Te}, f, cs::AzCov{Tf,sz,0}) where {Te, Tf<:Real,sz}
     rtn 
 end 
 
-
-function azmap(::Type{Te}, f, cs::AzCov{Tf,sz,0}) where {Te, Tf<:Real,sz}
-    kazmap(Te, (k,Σ) -> f(Σ), cs)
+function azmap(f, ::Type{Te}, cs::AzCov) where Te
+    kazmap((k,Σ) -> f(Σ), Te, cs)
 end
 
+
+check_factorization(azc::AzCov) = all(azmap(issuccess, Bool, azc))
 
 
 
