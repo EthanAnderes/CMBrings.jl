@@ -20,6 +20,7 @@ PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 SharedArrays = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
 Spectra = "8da7f3c5-fb1b-42d3-91b9-3c2bc450b4c2"
+SphereTransforms = "b2109e22-118d-4f27-a5aa-3a6f7f43afc7"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 XFields = "6b266097-e72c-4055-8154-82a0a0b3a8e0"
 

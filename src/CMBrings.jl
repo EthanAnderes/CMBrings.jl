@@ -3,9 +3,12 @@ module CMBrings
 
 using XFields
 using FFTransforms
+using SphereTransforms
 using HealpixTransforms
 
+import LinearAlgebra: dot
 using LinearAlgebra
+
 using Statistics 
 using SharedArrays
 using Distributed

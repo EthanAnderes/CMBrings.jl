@@ -1,12 +1,6 @@
-# still workong on the format here ...
-
-
-
 
 # Storage container for memory mapped object holding covariance sheets
 # ==============================================
-
-
 
 mutable struct AzCov{Tf, szf, spin, Fplan<:AbstractFFTs.ScaledPlan}
     filenm::String
@@ -56,9 +50,11 @@ function AzCov(mapΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, f
 end
 
 
-
 # f(k::Number, Σ::AbstractMatrix...) -> AbstractMatrix
-function azmap(f, azc::AZ...; filename="L_kblock.jld2", dirsave=mktempdir()) where {Tf, szf, spin, AZ<:AzCov{Tf, szf, spin}}
+function kazmap(
+        f, azc::AZ...; 
+        filename="L_kblock.jld2", dirsave=mktempdir()
+    ) where {Tf, szf, spin, AZ<:AzCov{Tf, szf, spin}}
         
     filenm   = joinpath(dirsave, filename)
     jld2file = jldopen(filenm, "w")
@@ -89,12 +85,20 @@ function azmap(f, azc::AZ...; filename="L_kblock.jld2", dirsave=mktempdir()) whe
 end
 
 
+# f(Σ::AbstractMatrix...) -> AbstractMatrix
+function azmap(
+        f, azc::AZ...;
+        filename="L_kblock.jld2", 
+        dirsave=mktempdir(),
+    ) where {Tf, szf, spin, AZ<:AzCov{Tf, szf, spin}}
+    kazmap( (k,Σ...)->f(Σ...), azc...; filename=filename, dirsave=dirsave )
+end
+
+
+
 # Computing the covariance matrix of the Fourier coefficient at fixed frequency k 
 # For rings as a function of θcol
 # ==============================================
-
-
-# ------------------------
 
 
 function shared_Σsheets_k(θcol, φcol::Vector{T}, idxk, covf) where T<:Real
@@ -149,7 +153,6 @@ function Σsheets_k(θcol, φcol::Vector{T}, idxk, covf) where T<:Real
     return rtΣTT 
 end
 
-
 # ------------------------
 
 function Σ_chunck!(lowrΣT₁T₂, θcol, φcol, jrange, idxk, covf)
@@ -161,7 +164,6 @@ function Σ_chunck!(lowrΣT₁T₂, θcol, φcol, jrange, idxk, covf)
     end
 end
 
-
 function nonsym_Σ_chunck!(rΣT₁T₂, θcol, φcol, jrange, idxk, covf)
     nθx = length(θcol)
     𝒲col  = plan_rfft(similar(φcol))
@@ -171,16 +173,13 @@ function nonsym_Σ_chunck!(rΣT₁T₂, θcol, φcol, jrange, idxk, covf)
     end
 end
 
-
 # covf should be of the form covf(θ1::Number, θ2::Number, Δφcol::Vector) 
-colΣ(θ1, θ2, φcol, covf) = covf(θ1, θ2, φcol .- φcol[1])    
 
+colΣ(θ1, θ2, φcol, covf) = covf(θ1, θ2, φcol .- φcol[1])    
 
 # AzCov's operating on fields
 # =================================
 
-
-# f(Σ, ifk[:,k]) -> AbstractArray which can multiply m(θvec, k)
 function az2op(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
     ifk  = cs.Urow * fx
     ofk  = zero(ifk)
@@ -194,7 +193,6 @@ function az2op(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
     ofx
 end 
 
-# f!(view(ofk,:,k), Σ, ifk[:,k])
 function az3op(f!, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
     ifk  = cs.Urow * fx
     ofk  = zero(ifk)
@@ -211,96 +209,101 @@ function az3op(f!, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
 end 
 
 
-# TODO: all the following can be obtained from az3op
-# ===========================
-
-# f(Σ) -> AbstractArray which can multiply m(θvec, k)
-function azmul(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
-    ifk  = cs.Urow * fx
-    ofk  = zero(ifk)
-    ofki = ofk[:,1]
-    for nm ∈ cs.ks_Σs_sheet_names
-        ks, Σs  = read(cs.jld2file, nm)
-        for (k, Σ) ∈ zip(ks, Σs)
-            mul!(ofki, f(Σ), ifk[:,k])
-            ofk[:,k] = ofki
-        end
-    end
-    ofx = cs.Urow \ ofk
-    ofx
-end 
-
-
-function azdiv(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
-    ifk  = cs.Urow * fx
-    ofk  = zero(ifk)
-    ofki = ofk[:,1]
-    for nm ∈ cs.ks_Σs_sheet_names
-        ks, Σs  = read(cs.jld2file, nm)
-        for (k, Σ) ∈ zip(ks, Σs)
-            ldiv!(ofki, f(Σ), ifk[:,k])
-            ofk[:,k] = ofki
-        end
-    end
-    ofx = cs.Urow \ ofk
-    ofx
-end 
-
-
+# Siblings of azXop
+# =================================
 
 
 function Base.:*(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
-    ifk  = cs.Urow * fx
-    ofk  = zero(ifk)  
-    for ksΣs_nm ∈ cs.ks_Σs_sheet_names
-        ks, Σs  = read(cs.jld2file, ksΣs_nm)
-        for (k, Σ) ∈ zip(ks, Σs)
-            ΣL = Σ.L
-            mul!(view(ofk,:,k), ΣL', ifk[:,k])
-            lmul!(ΣL, view(ofk,:,k))
-            if !issuccess(Σ)
-                println("warning, cholesky failed at k index ", k)
-            end 
-        end
+    return az2op(cs, fx) do Σ, g 
+        Σ isa Matrix ? Σ*g : Matrix(Σ)*g
     end
-    ofx = cs.Urow \ ofk
-    ofx
-end 
-
-
-function Base.:\(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
-    ifk  = cs.Urow * fx
-    ofk  = zero(ifk)
-    for ksΣs_nm ∈ cs.ks_Σs_sheet_names
-        ks, Σs  = read(cs.jld2file, ksΣs_nm)
-        for (k, Σ) ∈ zip(ks, Σs)
-            ofk[:,k] = Σ \ ifk[:,k]
-            if !issuccess(Σ)
-                println("warning, cholesky failed at k index ", k)
-            end 
-        end
-    end
-    ofx = cs.Urow \ ofk
-    ofx
-end 
-
-
-function ksupport(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
-    ifk  = cs.Urow * fx
-    ofk  = zero(ifk)
-    for ksΣs_nm ∈ cs.ks_Σs_sheet_names
-        ks  = read(cs.jld2file, ksΣs_nm)[1]
-        for k ∈ ks
-            ofk[:,k] = ifk[:,k]
-        end
-    end
-    ofx = cs.Urow \ ofk
-    ofx
 end
 
+function Base.:\(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+    az2op((Σ,g)->Σ\g, cs, fx)
+end
+
+# function Base.:*(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+#     ifk  = cs.Urow * fx
+#     ofk  = zero(ifk)  
+#     for ksΣs_nm ∈ cs.ks_Σs_sheet_names
+#         ks, Σs  = read(cs.jld2file, ksΣs_nm)
+#         for (k, Σ) ∈ zip(ks, Σs)
+#             ΣL = Σ.L
+#             mul!(view(ofk,:,k), ΣL', ifk[:,k])
+#             lmul!(ΣL, view(ofk,:,k))
+#             if !issuccess(Σ)
+#                 println("warning, cholesky failed at k index ", k)
+#             end 
+#         end
+#     end
+#     ofx = cs.Urow \ ofk
+#     ofx
+# end 
 
 
+# function Base.:\(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+#     ifk  = cs.Urow * fx
+#     ofk  = zero(ifk)
+#     for ksΣs_nm ∈ cs.ks_Σs_sheet_names
+#         ks, Σs  = read(cs.jld2file, ksΣs_nm)
+#         for (k, Σ) ∈ zip(ks, Σs)
+#             ofk[:,k] = Σ \ ifk[:,k]
+#             if !issuccess(Σ)
+#                 println("warning, cholesky failed at k index ", k)
+#             end 
+#         end
+#     end
+#     ofx = cs.Urow \ ofk
+#     ofx
+# end 
 
+
+# # f(Σ) -> AbstractArray which can multiply m(θvec, k)
+# function azmul(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+#     ifk  = cs.Urow * fx
+#     ofk  = zero(ifk)
+#     ofki = ofk[:,1]
+#     for nm ∈ cs.ks_Σs_sheet_names
+#         ks, Σs  = read(cs.jld2file, nm)
+#         for (k, Σ) ∈ zip(ks, Σs)
+#             mul!(ofki, f(Σ), ifk[:,k])
+#             ofk[:,k] = ofki
+#         end
+#     end
+#     ofx = cs.Urow \ ofk
+#     ofx
+# end 
+
+
+# function azdiv(f, cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+#     ifk  = cs.Urow * fx
+#     ofk  = zero(ifk)
+#     ofki = ofk[:,1]
+#     for nm ∈ cs.ks_Σs_sheet_names
+#         ks, Σs  = read(cs.jld2file, nm)
+#         for (k, Σ) ∈ zip(ks, Σs)
+#             ldiv!(ofki, f(Σ), ifk[:,k])
+#             ofk[:,k] = ofki
+#         end
+#     end
+#     ofx = cs.Urow \ ofk
+#     ofx
+# end 
+
+
+# function ksupport(cs::AzCov{Tf,sz,0}, fx::Array{Tf,2}) where {Tf<:Real,sz}
+#     ifk  = cs.Urow * fx
+#     ofk  = zero(ifk)
+#     for ksΣs_nm ∈ cs.ks_Σs_sheet_names
+#         ks  = read(cs.jld2file, ksΣs_nm)[1]
+#         for k ∈ ks
+#             ofk[:,k] = ifk[:,k]
+#         end
+#     end
+#     ofx = cs.Urow \ ofk
+#     ofx
+# end
 
 
 # misc 
