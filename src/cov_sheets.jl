@@ -51,7 +51,7 @@ end
 
 
 # f(k::Number, Σ::AbstractMatrix...) -> AbstractMatrix
-function kazmap(
+function kaz2az(
         f, azc::AZ...; 
         filename="L_kblock.jld2", dirsave=mktempdir()
     ) where {Tf, szf, spin, AZ<:AzCov{Tf, szf, spin}}
@@ -85,14 +85,40 @@ function kazmap(
 end
 
 
-# f(Σ::AbstractMatrix...) -> AbstractMatrix
-function azmap(
+"""
+```
+az2az(f, azc::AzCov...;[]) -> AzCov
+``` 
+Construct a new AzCov by broadcasting `f(Σ::AbstractMatrix...) -> AbstractMatrix` to each 
+matrix in the elements of `azc...`. 
+"""
+function az2az(
         f, azc::AZ...;
         filename="L_kblock.jld2", 
         dirsave=mktempdir(),
     ) where {Tf, szf, spin, AZ<:AzCov{Tf, szf, spin}}
-    kazmap( (k,Σ...)->f(Σ...), azc...; filename=filename, dirsave=dirsave )
+    kaz2az( (k,Σ...)->f(Σ...), azc...; filename=filename, dirsave=dirsave )
 end
+
+
+
+function kazmap(::Type{Te}, f, cs::AzCov{Tf,sz,0}) where {Te, Tf<:Real,sz}
+    rtn = Te[]
+    for nm ∈ cs.ks_Σs_sheet_names
+        ks, Σs  = read(cs.jld2file, nm)
+        for (k, Σ) ∈ zip(ks, Σs)
+            push!(rtn, f(k, Σ))
+        end
+    end
+    rtn 
+end 
+
+
+function azmap(::Type{Te}, f, cs::AzCov{Tf,sz,0}) where {Te, Tf<:Real,sz}
+    kazmap(Te, (k,Σ) -> f(Σ), cs)
+end
+
+
 
 
 
