@@ -80,13 +80,22 @@ flatnoisefourier(μK′n::Number, trn) = (μK′n * π / 60 / 180) * whitefourie
 
 simfourier(Cl::DiagOp{<:Xfourier}) = √Cl * whitefourier(fieldtransform(Cl.f))
 
+
+
+# LinearAlgebra Overload 
+# ================================================
+
+LinearAlgebra.adjoint(C::DiagOp) = C  
+
+
 function LinearAlgebra.dot(f::Xmap{FT},g::Xmap{FT}) where FT<:𝕊
     trn  = fieldtransform(f)
-    return  dot(f[:],g[:] .* SphereTransforms.Ωpix(trn))
+    sqrtΩ = sqrt.(SphereTransforms.Ωpix(trn))
+    return  dot(f[:].*sqrtΩ, g[:].*sqrtΩ)
 end
 
 function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕊
-    dot(f[!], f[!])
+    dot(f[!], g[!])
 end
 
 function LinearAlgebra.dot(f::Xfourier{FT},g::Xfourier{FT}) where FT<:ℍ0
@@ -108,20 +117,6 @@ function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:ℍ0
     rtn += dot(real.(fl0),real.(gl0)) 
     return rtn
 end
-
-
-
-# White noise simulator
-# ---------------------
-# function ωη(sT::RingSpinTransform{Tf}) where {Tf}
-#     fd = randn(Tf, size_in(sT)) ./ sqrt(Ωx(sT))
-#     return Xmap(sT, fd)
-# end
-
-
-
-
-
 
 
 

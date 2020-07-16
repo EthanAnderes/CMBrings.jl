@@ -16,8 +16,10 @@ mutable struct AzCov{Tf, szf, spin, Fplan<:AbstractFFTs.ScaledPlan}
     end
 end    
 
-# e.g. mapΣf = Σ -> cholesky(Σ, Val(false), check=false)
-function AzCov(mapΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, filename="L_kblock.jld2", dirsave=mktempdir(), spin=0) where {Tf, AA<:Array{Tf,1}}
+"""
+# e.g. mapkΣf = (k,Σ) -> k^2 * cholesky(Σ, Val(false), check=false)
+"""
+function kAzCov(mapkΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, filename="L_kblock.jld2", dirsave=mktempdir(), spin=0) where {Tf, AA<:Array{Tf,1}}
     
     filenm   = joinpath(dirsave, filename)
     jld2file = jldopen(filenm, "w")
@@ -33,8 +35,8 @@ function AzCov(mapΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, f
         else
             ΣTT = CMBrings.nonsym_shared_Σsheets_k(θcol, φcol, ki, covf)
         end
-        L = map(ΣTT) do mtt
-            mapΣf(mtt)
+        L = map(ki, ΣTT) do k, mtt
+            mapkΣf(k, mtt)
         end
         write(jld2file, "k_Σ$i", (ki, L))
         push!(ks_Σs_sheet_names, "k_Σ$i")  
@@ -49,8 +51,18 @@ function AzCov(mapΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, f
     return AzCov{Tf, szf, spin}(filenm, ks_Σs_sheet_names)
 end
 
+"""
+# e.g. mapΣf = Σ ->  cholesky(Σ, Val(false), check=false)
+"""
+function AzCov(mapΣf, covf, θcol::AA, φcol::AA, kidx_blk; Σsymmetric=true, filename="L_kblock.jld2", dirsave=mktempdir(), spin=0) where {Tf, AA<:Array{Tf,1}}
+    kAzCov((k,Σ) -> mapΣf(Σ), covf, θcol, φcol, kidx_blk; Σsymmetric=Σsymmetric, filename=filename, dirsave=dirsave, spin=spin)
+end
 
-# f(k::Number, Σ::AbstractMatrix...) -> AbstractMatrix
+
+
+"""
+`kaz2az(f, azc::AZ...)` where `f(k::Number, Σ::AbstractMatrix...) -> AbstractMatrix`
+"""
 function kaz2az(
         f, azc::AZ...; 
         filename="L_kblock.jld2", dirsave=mktempdir()
