@@ -77,6 +77,7 @@ function brickplot(imgs::Dict{Int,T};
     nc = size(imgs[nimg])[2] * fφ |> x->round(Int,x)
 
     fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt))
+    ax = nimg==1 ? [ax] : ax
 
     for (i,f) ∈ imgs
         img = ax[i].imshow(f[:,1:nc]) 
@@ -87,17 +88,17 @@ function brickplot(imgs::Dict{Int,T};
         ax[i].set_yticklabels([])
     end
     for (i,s) ∈ txt
-        i ∈ keys(ctxt)
-        ax[i].text(nc*0.7, nr*0.9, s, color=i ∈ keys(ctxt) ? ctxt[i] : "k")
+        ax[i].text(
+            nc*0.98, nr*0.95, s, 
+            color=i ∈ keys(ctxt) ? ctxt[i] : "k",
+            horizontalalignment = "right",
+        )
     end
     fig.subplots_adjust(hspace=0.01, bottom = 0.1, top = 0.98, left = 0.05, right=0.98)
     ## fig.tight_layout()
 
     fig, ax
 end
-
-
-
 
 # Set SphereTransform 
 # ==============================
@@ -245,8 +246,8 @@ run(`ls -lh $(Σaz.filenm)`)
 # Noise model  (Naz, Ns)
 # =============================
 
-μK′n      = 10.0 # 10.0
-ellknee   = 100 # 0
+μK′n      = 7.0 # 10.0
+ellknee   = 150 # 0
 alphaknee = 3
 
 # ### Spectra (white and smooth component separated) and XFields Op
@@ -321,6 +322,45 @@ end
 
 
 
+# Noise pixel weight (Wt, Ws)
+# ==============================
+
+## w_fun  = θ -> 1
+w_fun = θ -> 1 + 0.5 * sin(300 * θ)
+
+# `Ws` is the `SphereTransform` operator for XFields. `Wt` operates on ring maps.
+
+Wt, Wtᴴ, Ws = @sblock let w_fun, θℝ, θ𝕊, φ𝕊, s0
+    w_s0 = w_fun.(θ𝕊) .+ fill(0,(1,length(φ𝕊)))
+    Ws   = DiagOp(Xmap(s0, w_s0))
+    Wt   = Diagonal(w_fun.(θℝ)) # when operating on a column indexed by θ for fixed φ
+    Wtᴴ  = Wt # when operating on a column indexed by θ for fixed φ
+    Wt, Wtᴴ, Ws
+end
+
+# Show the weight effect on a noise simulation (zoomed into 1/2 of azimuth band).
+
+@sblock let Wt, Naz, hide_plots
+    hide_plots && return
+
+    n_az  = azc_sim(Naz)
+    wn_az = Wt * n_az
+
+    imgs = Dict(
+        1 => n_az,
+        2 => abs.(wn_az),
+    )
+    txt =  Dict(
+        1 => "noise",
+        2 => "abs(weight * noise)",
+    )
+    ctxt = Dict(2=>"w")
+    brickplot(imgs; txt=txt, ctxt=ctxt,fφ=1/2)
+end
+
+
+
+
 # Beam/Transfer function (Baz, Bs)
 # ============================
 
@@ -362,8 +402,9 @@ end
 ## end 
 ## --- or make make some beam smoothing in azimuth 
 Baz  = kAzCov(covb_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do k, Σ
-    inv(1 + (k/50)^2) * Σ * Diagonal(Ωℝ)
-end 
+    ## inv(1 + (k/50)^2) * Σ * Diagonal(Ωℝ)
+    inv(1 + (k/75)^2) * Σ * Diagonal(Ωℝ)
+end; 
 
 # ### wrap Baz and transpose(Baz) with functions
 
@@ -371,7 +412,7 @@ Be, Beᴴ = @sblock let Baz
     Be  = x -> Baz * x
     Beᴴ = x -> az2op((Σ,g)->Σ'*g, Baz, x)
     Be, Beᴴ
-end
+end;
 
 # Show the beam effect on a simulation (zoomed into 1/2 of azimuth band)
 
@@ -396,83 +437,86 @@ end
 
 
 
-
-
-# Noise pixel weight (Wt, Ws)
-# ==============================
-
-## w_fun  = θ -> 1
-w_fun = θ -> 1 + 0.5 * sin(300 * θ)
-
-# `Ws` is the `SphereTransform` operator for XFields. `Wt` operates on ring maps.
-
-Wt, Wtᴴ, Ws = @sblock let w_fun, θℝ, θ𝕊, φ𝕊, s0
-    w_s0 = w_fun.(θ𝕊) .+ fill(0,(1,length(φ𝕊)))
-    Ws   = DiagOp(Xmap(s0, w_s0))
-    Wt   = Diagonal(w_fun.(θℝ)) # when operating on a column indexed by θ for fixed φ
-    Wtᴴ  = Wt # when operating on a column indexed by θ for fixed φ
-    Wt, Wtᴴ, Ws
-end
-
-# Show the weight effect on a noise simulation (zoomed into 1/2 of azimuth band).
-
-@sblock let Wt, Naz, hide_plots
-    hide_plots && return
-
-    n_az  = azc_sim(Naz)
-	wn_az = Wt * n_az
-
-    imgs = Dict(
-        1 => abs.(n_az),
-        2 => abs.(wn_az),
-    )
-    txt =  Dict(
-        1 => "noise",
-        2 => "weight * noise",
-    )
-    ctxt = Dict()
-    brickplot(imgs; txt=txt, ctxt=ctxt,fφ=1/2)
-end
-
 # Mask/Projection 
 # ==============================
 
 # This and the lense is the only operator that isn't azmuthally symmetric.
 
+Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, s0, s0_clip
+
+    leftlink =  n::Int -> (cos.(range(-π,0,length=n+2)[2:end-1]) .+ 1)./2
+    rightlink = n::Int -> (cos.(range(0,π,length=n+2)[2:end-1]) .+ 1)./2
+    nwdt′   = 75
+    nwdt′ᶜ  = 4 # 45
+    ma𝕊′  = zeros(size(ma𝕊))
+    ma𝕊′ᶜ = ones(size(ma𝕊))
+    for (i,rw) ∈ enumerate(eachrow(ma𝕊))
+        ma1 = findfirst(rw .> 0)
+        ma2 = findlast(rw .> 0)
+        if !isnothing(ma1)
+            ma𝕊′[i,ma1:ma2] .= 1
+            ma𝕊′ᶜ[i,ma1:ma2] .= 0
+
+            ma𝕊′ᶜ[i,(ma1-1-nwdt′ᶜ):(ma1-1)] .= rightlink(nwdt′ᶜ+1)
+            ma𝕊′ᶜ[i,(ma2+1):end] .= 1
+            ma𝕊′ᶜ[i,(ma2+1):(ma2+1+nwdt′ᶜ)] .= leftlink(nwdt′ᶜ+1)
+
+            ma𝕊′[i,(ma1):(ma1+nwdt′)] .= leftlink(nwdt′+1)
+            ma𝕊′[i,(ma2-nwdt′):(ma2)] .= rightlink(nwdt′+1)
+        end
+    end
+    @assert all((ma𝕊′.>0) .| (ma𝕊′ᶜ.>0))
+
+ 	Qs   = DiagOp(Xmap(s0, ma𝕊′ᶜ));
+ 	Ps   = DiagOp(Xmap(s0, ma𝕊′));
+    
+    maℝ′ = Ps[:][s0_clip,:]
+    maℝᶜ = Qs[:][s0_clip,:]
+    Qr   = x -> maℝᶜ .* x
+    Qrᴴ  = x -> maℝᶜ .* x
+    Pr  = x -> maℝ′  .* x
+    Prᴴ = x -> maℝ′  .* x
+
+    Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
+end
+## ----- or use a smoother mask
+## 
 ## Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let maℝ, ma𝕊, s0
 ## 
 ##     maℝᶜ = .!maℝ
 ##     ma𝕊ᶜ = .!ma𝕊
-##  	Qs   = DiagOp(Xmap(s0, ma𝕊ᶜ));
+##     Qs   = DiagOp(Xmap(s0, ma𝕊ᶜ));
+##     Ps  = DiagOp(Xmap(s0, ma𝕊));
+##     
 ##     Qr   = x -> maℝᶜ .* x
 ##     Qrᴴ  = x -> maℝᶜ .* x
-## 
-##  	Ps  = DiagOp(Xmap(s0, ma𝕊));
 ##     Pr  = x -> maℝ  .* x
 ##     Prᴴ = x -> maℝ  .* x
 ## 
 ##     Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
 ## end
 ## ----- or use a smoother mask
-Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, Bs, s0, s0_clip
+## Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, Bs, s0, s0_clip
+## 
+## 	ma𝕊′ = (Bs^50 * Xmap(s0,   ma𝕊))[:]
+##     ma𝕊ᶜ = (Bs^50 * Xmap(s0, 1 .- ma𝕊′))[:]
+##     ma𝕊ᶜ[ma𝕊ᶜ .< 1e-5] .= 0
+##     
+## 	ma𝕊′[abs.(ma𝕊ᶜ) .> 0.0]  .= 0
+##     Ps  = DiagOp(Xmap(s0, ma𝕊′));
+##     Qs  = DiagOp(Xmap(s0, ma𝕊ᶜ))
+## 
+## 	maℝ′ = Ps[:][s0_clip,:]
+## 	maℝᶜ = Qs[:][s0_clip,:]
+##     Qr   = x -> maℝᶜ .* x
+##     Qrᴴ  = x -> maℝᶜ .* x
+##     Pr   = x -> maℝ′  .* x
+##     Prᴴ  = x -> maℝ′  .* x
+##     
+##     Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
+## end
 
-	ma𝕊′ = (Bs^50 * Xmap(s0,   ma𝕊))[:]
-    ma𝕊ᶜ = (Bs^50 * Xmap(s0, 1 .- ma𝕊′))[:]
-    ma𝕊ᶜ[ma𝕊ᶜ .< 1e-5] .= 0
-    
-	ma𝕊′[abs.(ma𝕊ᶜ) .> 0.0]  .= 0
-    Ps  = DiagOp(Xmap(s0, ma𝕊′));
-    Qs  = DiagOp(Xmap(s0, ma𝕊ᶜ))
 
-	maℝ′ = Ps[:][s0_clip,:]
-	maℝᶜ = Qs[:][s0_clip,:]
-    Qr   = x -> maℝᶜ .* x
-    Qrᴴ  = x -> maℝᶜ .* x
-    Pr   = x -> maℝ′  .* x
-    Prᴴ  = x -> maℝ′  .* x
-    
-    Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
-end
 
 # Plots of the mask (zoomed into 1/2 of azimuth band)
 
@@ -624,7 +668,11 @@ PCG = @sblock let   Ln, Lnᴴ=Ln', Naz, Σaz, BΣBᴴ_WNWᴴ_az,
             nsteps=nsteps, rel_tol=rel_tol,
         )
         @show hist[end] 
-        return Σaz * (Lnᴴ * Beᴴ(Prᴴ(gwf))), hist
+        if lense
+            return Σaz*(Lnᴴ*Beᴴ(Prᴴ(gwf))), hist
+        else 
+            return Σaz*(Beᴴ(Prᴴ(gwf))), hist
+        end
     end
 
     return PCG
@@ -669,11 +717,11 @@ end
 # =======================================
 
 # WF (not accounting for the lensing in the data)
-@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=100);
+@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=250, rel_tol = 0.1);
 
 
 # WF (modeling the lensing)  
-@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=100);
+@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=250, rel_tol = 0.1);
 
 
 # Plot the wiener filters
@@ -696,7 +744,7 @@ end
 
 
 # Plot the errors
-@sblock let twf_1, twf_2, t_az, hide_plots
+@sblock let twf_1, twf_2, t_az, maℝ, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => t_az,
@@ -729,15 +777,15 @@ end
 # =======================================
 
 ## Conditional simulation (not accounting for the lensing in the data)
-@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=200)
+@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=250)
 tsim_1 -= t_az′; 
 
 ## Conditional simulation  (modeling the lensing)  
-@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=200);
+@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=250);
 tsim_2 -= t_az′; 
 
 
-# Plot the wiener filters
+# Plot the conditional simulations from PCG
 @sblock let tsim_1, tsim_2, t_az, hide_plots
     hide_plots && return
     imgs = Dict(
@@ -756,18 +804,20 @@ tsim_2 -= t_az′;
 end
 
 
-# Plot the errors
-@sblock let tsim_1, tsim_2, t_az, hide_plots
+# Plot the errors 
+@sblock let tsim_1, tsim_2, t_az, maℝ, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => t_az,
-        2 => tsim_1 .- maℝ .* t_az,
-        3 => tsim_2 .- maℝ .* t_az,
+        2 => (tsim_1 .-  maℝ .* t_az),
+        3 => (tsim_2 .-  maℝ .* t_az),
+        4 => tsim_1 .- tsim_2,
     )
     txt =  Dict(
         1 => "CMB simulation truth",
         2 => "conditional sim error (not modeling lensing)",
         3 => "conditional sim error (modeling lensing)",
+        4 => "diff of the two sims "
     )
     ctxt = Dict(
     )
@@ -798,31 +848,64 @@ zll_tsim_2 = (dot(tsim_2, Σaz \ tsim_2) - ln_az) / sqrt(2*ln_az) # PCG sim
 
 
 
+# (Under construction) DoF tests for conditional expected value and samples
+# ====================================
+
+DoF_d = sum(abs.(d_az) .> 0)
+DoF_f = length(d_az)
+
+fsim   = tsim_2
+
+Δdfsim = (d_az .- Pr(Be(Ln*fsim))) 
+
+
+ll2f = dot(d_az .- fsim, Σaz \ fsim)
+ll2n = Δdfsim ./ Wt.^2 ./ ... # this can be computed when white noise...  # should have likelihood like Pr(Wt * n_az)
+
+
+@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=250, rel_tol = 0.001);
+
+@sblock let Ln, Pr, Ps, Be, Wt, d_az, n_az, n_az′, fwf=twf_1, s0_clip, hide_plots=false
+    hide_plots && return
+
+    ## 
+    ## Prᵒ = Ps[:][s0_clip,:]
+    Prᵒ = Ps[:][s0_clip,:] .> 0.99
+    ## Prᵒ = falses(size(d_az))
+    ## Prᵒ[:,400:1000] .= true
+    Δ   = Prᵒ .* (d_az .- Pr(Be(Ln*fwf)))
+    wn1 = Prᵒ .* Pr(Wt * n_az)
+    wn2 = Prᵒ .* Pr(Wt * n_az′)
+
+    imgs = Dict(
+        1 => Δ  ,  
+        2 => wn1, 
+        3 => wn2, 
+    )
+    txt =  Dict(
+        1 => "data - Pr * Be * Ln * wf",
+        2 => "Pr * Wt * n_az",
+        3 => "Pr * Wt * n_az′",
+    )
+    brickplot(imgs; txt=txt, fφ=1/2)
+end
 
 
 
-
-
-
-# Full sky (no lensing)
+# Full sky
 # ==============================
+# No lensing or non-stationary beam/transfer. Using FastTransforms
 
-# Data sim
 t_s0 = s0_sim(Σs)
 n_s0 = s0_sim(Ns)
 d_s0 = Ps * (Bs * t_s0 + Ws * n_s0)
 
-# Second simulation for conditional fluctuations
 t_s0′ = s0_sim(Σs)
 n_s0′ = s0_sim(Ns)
 d_s0′ = Ps * (Bs * t_s0′ + Ws * n_s0′)
 
-#-
-## σn²   = abs2(μK′n*π/60/180) ./ Ω𝕊
-σn²   = 1e-2 .* abs2(μK′n*π/60/180) ./ Ω𝕊
+σn²   = abs2(μK′n*π/60/180) ./ Ω𝕊
 σn²Op = DiagOp(Xmap(s0, σn² .* ones(s0.nθ, s0.nφ)))
-## σn²Op = Ws * Ns * Ws'
-## σn²Op = Bs * Σs * Bs' + Ns
 DP₁ = Σs + Ns
 DP₂ = Bs * Σs * Bs' + Ns
 MA₁ = Ps * Bs * Σs * Bs' * Ps'
@@ -830,62 +913,46 @@ MA₂ = Ps * Ws * Ns * Ws' * Ps'
 MA₃ = Qs * σn²Op * Qs'
 MG  = Σs * Bs' * Ps'
 
-#-
-@time g0s0, hist0s0 = pcg(
-        ## w -> DP₁ \ w, 
-        w -> DP₂ \ w, 
+@time g1s0, hist0s0 = pcg(
+        w -> DP₂ \ w, # w -> DP₁ \ w,
         w -> MA₁ * w + MA₂ * w + MA₃ * w,
-        d_s0, 
-        nsteps  = 10,
+        d_s0,
+        nsteps  = 100,
         rel_tol = 1e-10,
 )
-t0_cs0sim = MG * g0s0
+t1_cs0sim = MG * g1s0
 
-#-
-t0_cs0sim[:] |> matshow
-
+t1_cs0sim[:] |> matshow
 
 
 
 
 
 
-
-
-
-
-
-# Noise fill full sky
+# Noise fill full sky 
 # ==============================
+# No lensing or non-stationary beam/transfer. Using FastTransforms
 
-# Data sim
 t_s0 = s0_sim(Σs)
 n_s0 = s0_sim(Ns)
-d_s0 = Ps * (Bs * t_s0) + Ws * n_s0
+d_s0 = Ps * Bs * t_s0 + Ws * n_s0
 
-# Second simulation for conditional fluctuations
 t_s0′ = s0_sim(Σs)
 n_s0′ = s0_sim(Ns)
-d_s0′ = Ps * (Bs * t_s0′) + Ws * n_s0′
 
-#-
 MP₁ = Σs * Bs' / (Bs * Σs * Bs' + Ns) * Ns / Bs'
-MP₂ = Bs' / Ns * Bs + inv(Σs)  
+MP₂ = Bs' / Ns * Bs + inv(Σs)
 MA  = Bs' * Ps' / Ws' / Ns / Ws * Ps * Bs
 DA  = Σs
-MD  = Bs' * Ps' / Ws' / Ns
+MD  = Bs' * Ps' / Ws' / Ns / Ws
 
-#-
 @time t0_cs0sim, hist0s0 = pcg(
-        w -> MP₁ * w, # MP₂ * w,
+        w -> MP₂ * w,
         w -> MA * w + DA \ w,
-        MD * d_s0, # MD * (d_s0 + n_s0′) + DA \ t_s0′,
-        nsteps  = 20,
+        MD * d_s0, # MD * (d_s0 + Ws * n_s0′) + DA \ t_s0′,
+        nsteps  = 100,
         rel_tol = 1e-10,
 )
 
-#-
+
 t0_cs0sim[:] |> matshow
-
-
-

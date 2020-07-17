@@ -10,7 +10,7 @@ The second line runs the notebook.
 
 If you want to save that in another format do the following 
 
-jupyter nbconvert --to html     note.ipynb
+jupyter nbconvert --to html     note.ipynb --output note2.html
 jupyter nbconvert --to markdown note.ipynb
 jupyter nbconvert --to webpdf   note.ipynb
 ```
