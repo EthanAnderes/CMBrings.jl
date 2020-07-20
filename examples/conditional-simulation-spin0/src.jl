@@ -9,11 +9,14 @@ addprocs(2)
 @everywhere using CMBrings
 using CMBrings: AzCov, az2op, az3op, az2az, kazmap
 using CMBrings: flatnoisemap, simfourier, pcg
+using CMBrings: brickplot
+
 using Spectra
 using XFields
 using FieldLensing
-using SphereTransforms
 
+using FFTransforms: r𝕎, 𝕎, ordinary_scale, ⊗, fullfreq
+using SphereTransforms
 const ST = SphereTransforms
 
 using DelimitedFiles
@@ -60,44 +63,6 @@ function (∇!::Nabla!{Tθ,Tφ})(y::A) where {Tθ,Tφ,Tf,A<:Array{Tf,2}}
     ∇y = (similar(y), similar(y))
     ∇!(∇y, (y,y))
     ∇y
-end
-
-
-
-function brickplot(imgs::Dict{Int,T};
-            txt  = Dict{Int,String}(), # overlay text
-            ctxt = Dict{Int,String}(), # color of text
-            fφ = 1/2, # fraction of azimuth 
-            sz = 2,   # Overall size scale
-            hmlt = 0.875, # Hight adjust
-        ) where T
-
-    nimg = maximum(keys(imgs))
-    nr = size(imgs[nimg])[1]
-    nc = size(imgs[nimg])[2] * fφ |> x->round(Int,x)
-
-    fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt))
-    ax = nimg==1 ? [ax] : ax
-
-    for (i,f) ∈ imgs
-        img = ax[i].imshow(f[:,1:nc]) 
-        fig.colorbar(img, ax=ax[i], shrink=0.8, extend="both", pad=0.015)
-    end
-    for i=1:nimg-1
-        ax[i].set_xticklabels([])
-        ax[i].set_yticklabels([])
-    end
-    for (i,s) ∈ txt
-        ax[i].text(
-            nc*0.98, nr*0.95, s, 
-            color=i ∈ keys(ctxt) ? ctxt[i] : "k",
-            horizontalalignment = "right",
-        )
-    end
-    fig.subplots_adjust(hspace=0.01, bottom = 0.1, top = 0.98, left = 0.05, right=0.98)
-    ## fig.tight_layout()
-
-    fig, ax
 end
 
 # Set SphereTransform 
@@ -247,7 +212,7 @@ run(`ls -lh $(Σaz.filenm)`)
 # =============================
 
 μK′n      = 7.0 # 10.0
-ellknee   = 150 # 0
+ellknee   = 0 # 150
 alphaknee = 3
 
 # ### Spectra (white and smooth component separated) and XFields Op
@@ -397,11 +362,8 @@ end
 # Note the additional Ω pre-factor which mimics the 
 # required surface area element
 
-## Baz  = AzCov(covb_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do Σ
-##     Σ * Diagonal(Ωℝ)
-## end 
-## --- or make make some beam smoothing in azimuth 
 Baz  = AzCov(covb_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do k, Σ
+    ## Σ * Diagonal(Ωℝ)
     ## inv(1 + (k/50)^2) * Σ * Diagonal(Ωℝ)
     inv(1 + (k/75)^2) * Σ * Diagonal(Ωℝ)
 end; 
@@ -442,79 +404,48 @@ end
 
 # This and the lense is the only operator that isn't azmuthally symmetric.
 
-Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, s0, s0_clip
+Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, s0, s0_clip, QP_boundry_clearance = 1e-3 # 1e-3
 
-    leftlink =  n::Int -> (cos.(range(-π,0,length=n+2)[2:end-1]) .+ 1)./2
-    rightlink = n::Int -> (cos.(range(0,π,length=n+2)[2:end-1]) .+ 1)./2
-    nwdt′   = 75
-    nwdt′ᶜ  = 4 # 45
-    ma𝕊′  = zeros(size(ma𝕊))
-    ma𝕊′ᶜ = ones(size(ma𝕊))
-    for (i,rw) ∈ enumerate(eachrow(ma𝕊))
-        ma1 = findfirst(rw .> 0)
-        ma2 = findlast(rw .> 0)
-        if !isnothing(ma1)
-            ma𝕊′[i,ma1:ma2] .= 1
-            ma𝕊′ᶜ[i,ma1:ma2] .= 0
+    nθ𝕊, nφ𝕊 = size(ma𝕊)
+    𝕨 = r𝕎(nθ𝕊, π) ⊗ 𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
+    beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
+    beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
+    σ²1 = beamfwhm1^2 / 8 / log(2)
+    σ²2 = beamfwhm2^2 / 8 / log(2)
+    k   = fullfreq(𝕨)
+    bk  = @. exp( - σ²1 * k[1]^2 / 2) * exp( - σ²2 * k[2]^2 / 2)
+    Bt  = DiagOp(Xfourier(𝕨, bk)) 
 
-            ma𝕊′ᶜ[i,(ma1-1-nwdt′ᶜ):(ma1-1)] .= rightlink(nwdt′ᶜ+1)
-            ma𝕊′ᶜ[i,(ma2+1):end] .= 1
-            ma𝕊′ᶜ[i,(ma2+1):(ma2+1+nwdt′ᶜ)] .= leftlink(nwdt′ᶜ+1)
+    ps_qs = ma𝕊 .- .!(ma𝕊 .> 0)
+    Bps_qs =  (Bt * Xmap(𝕨, ps_qs))[:]
+    psBool = @. Bps_qs > 0
 
-            ma𝕊′[i,(ma1):(ma1+nwdt′)] .= leftlink(nwdt′+1)
-            ma𝕊′[i,(ma2-nwdt′):(ma2)] .= rightlink(nwdt′+1)
-        end
-    end
-    @assert all((ma𝕊′.>0) .| (ma𝕊′ᶜ.>0))
+    Aps_qs   = @. abs(Bps_qs)
+    Aps_qs .+= QP_boundry_clearance
+    Aps_qs ./= maximum(Aps_qs)
+    ps = Aps_qs .* psBool
+    qs = Aps_qs .* .!psBool
+    ## ----------
+    ## ps = @. Bps_qs * (Bps_qs > 0) 
+    ## qs = @. (- Bps_qs + 0.001) * (Bps_qs <= 0) 
+    ## qs ./= maximum(qs)
 
- 	Qs   = DiagOp(Xmap(s0, ma𝕊′ᶜ));
- 	Ps   = DiagOp(Xmap(s0, ma𝕊′));
+    @assert all(abs.(qs.*ps) .== 0)
+    @assert all(abs.(qs) .+ abs.(ps) .> 0)
+
+
+    Ps  = DiagOp(Xmap(s0, ps))
+    Qs  = DiagOp(Xmap(s0, qs))
+
+	pr = Ps[:][s0_clip,:]
+	qr = Qs[:][s0_clip,:]
+    Qr   = x -> qr .* x
+    Qrᴴ  = x -> qr .* x
+    Pr   = x -> pr  .* x
+    Prᴴ  = x -> pr  .* x
     
-    maℝ′ = Ps[:][s0_clip,:]
-    maℝᶜ = Qs[:][s0_clip,:]
-    Qr   = x -> maℝᶜ .* x
-    Qrᴴ  = x -> maℝᶜ .* x
-    Pr  = x -> maℝ′  .* x
-    Prᴴ = x -> maℝ′  .* x
-
     Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
 end
-## ----- or use a smoother mask
-## 
-## Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let maℝ, ma𝕊, s0
-## 
-##     maℝᶜ = .!maℝ
-##     ma𝕊ᶜ = .!ma𝕊
-##     Qs   = DiagOp(Xmap(s0, ma𝕊ᶜ));
-##     Ps  = DiagOp(Xmap(s0, ma𝕊));
-##     
-##     Qr   = x -> maℝᶜ .* x
-##     Qrᴴ  = x -> maℝᶜ .* x
-##     Pr  = x -> maℝ  .* x
-##     Prᴴ = x -> maℝ  .* x
-## 
-##     Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
-## end
-## ----- or use a smoother mask
-## Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs = @sblock let ma𝕊, Bs, s0, s0_clip
-## 
-## 	ma𝕊′ = (Bs^50 * Xmap(s0,   ma𝕊))[:]
-##     ma𝕊ᶜ = (Bs^50 * Xmap(s0, 1 .- ma𝕊′))[:]
-##     ma𝕊ᶜ[ma𝕊ᶜ .< 1e-5] .= 0
-##     
-## 	ma𝕊′[abs.(ma𝕊ᶜ) .> 0.0]  .= 0
-##     Ps  = DiagOp(Xmap(s0, ma𝕊′));
-##     Qs  = DiagOp(Xmap(s0, ma𝕊ᶜ))
-## 
-## 	maℝ′ = Ps[:][s0_clip,:]
-## 	maℝᶜ = Qs[:][s0_clip,:]
-##     Qr   = x -> maℝᶜ .* x
-##     Qrᴴ  = x -> maℝᶜ .* x
-##     Pr   = x -> maℝ′  .* x
-##     Prᴴ  = x -> maℝ′  .* x
-##     
-##     Pr, Prᴴ, Qr, Qrᴴ, Ps, Qs
-## end
 
 
 
@@ -643,26 +574,30 @@ CMBrings.check_factorization(BΣBᴴ_WNWᴴ_az)
 # ### Precon Conj Grad closure
 
 PCG = @sblock let   Ln, Lnᴴ=Ln', Naz, Σaz, BΣBᴴ_WNWᴴ_az, 
-                    Be, Beᴴ, Wt, Wtᴴ, Pr, Prᴴ, Qr, Qrᴴ, 
-                    σn² = abs2(μK′n*π/60/180)./Ωℝ
+                    Be, Beᴴ, Wt, Wtᴴ, Pr, Prᴴ, Qr, Qrᴴ
+                    
+
     
+    P = g -> BΣBᴴ_WNWᴴ_az \ g
+    B = P
+
     ## A_noL and A_wL are the operators we want to invert
     A_noL = function (g)
         tmp1  = Pr(BΣBᴴ_WNWᴴ_az * Prᴴ(g))
-        tmp2  = Qr(σn² .* Qrᴴ(g))    
+        tmp2  = Qr(B(Qrᴴ(g)))    
         return tmp1 .+ tmp2
     end 
 
     A_wL = function (g)
         tmp0  = Pr(Be(Ln * (Σaz * (Lnᴴ * Beᴴ(Prᴴ(g))))))
         tmp1  = Pr(Wt * (Naz * (Wtᴴ * Prᴴ(g))))
-        tmp2  = Qr(σn² .* Qrᴴ(g))    
+        tmp2  = Qr(B(Qrᴴ(g)))    
         return tmp0 .+ tmp1 .+ tmp2
     end 
 
     PCG = function (data; lense=true, nsteps, rel_tol=1e-12)
         gwf, hist = pcg(
-            g -> BΣBᴴ_WNWᴴ_az \ g, 
+            P, 
             lense ? A_wL : A_noL, 
             data, 
             nsteps=nsteps, rel_tol=rel_tol,
@@ -717,11 +652,13 @@ end
 # =======================================
 
 # WF (not accounting for the lensing in the data)
-@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=250, rel_tol = 0.1);
+@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=250, rel_tol = 2e-2);
+## @time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=250, rel_tol = 9e-2);
+## @time twf_2, hwf_2 = PCG(d_az, lense=false, nsteps=500, rel_tol = 1e-4);
 
 
 # WF (modeling the lensing)  
-@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=250, rel_tol = 0.1);
+@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=250, rel_tol = 2e-2);
 
 
 # Plot the wiener filters
@@ -772,16 +709,35 @@ end
 end
 
 
+# If noise is white ... i.e. snl .== 0 
+if all(snl .== 0)
+    ## σn² = abs2(μK′n*π/60/180)./Ωℝ # white noise level
+    pr   = Ps[:][s0_clip,:]
+    dfd  = sum(abs.(pr) .> 0)
+    Δdf1 = Wt \ (pinv.(pr) .* (d_az .- Pr(Be(twf_1))))
+    Δdf2 = Wt \ (pinv.(pr) .* (d_az .- Pr(Be(Ln*twf_2))))
+    nll1 = dot(Δdf1, Naz \ Δdf1)
+    nll2 = dot(Δdf2, Naz \ Δdf2)
+    fll1 = dot(twf_1, Σaz \ twf_1)
+    fll2 = dot(twf_2, Σaz \ twf_2)
+
+    zll_1 = (nll1 + fll1 - dfd) / sqrt(2*dfd) 
+    zll_2 = (nll2 + fll2 - dfd) / sqrt(2*dfd) 
+    @show zll_1
+    @show zll_2
+end
+
+
 
 # Run PCG for conditional simulation
 # =======================================
 
 ## Conditional simulation (not accounting for the lensing in the data)
-@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=250)
+@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=250, rel_tol = 2e-2);
 tsim_1 -= t_az′; 
 
 ## Conditional simulation  (modeling the lensing)  
-@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=250);
+@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=250, rel_tol = 2e-2);
 tsim_2 -= t_az′; 
 
 
@@ -904,17 +860,17 @@ t_s0′ = s0_sim(Σs)
 n_s0′ = s0_sim(Ns)
 d_s0′ = Ps * (Bs * t_s0′ + Ws * n_s0′)
 
-σn²   = abs2(μK′n*π/60/180) ./ Ω𝕊
-σn²Op = DiagOp(Xmap(s0, σn² .* ones(s0.nθ, s0.nφ)))
-DP₁ = Σs + Ns
-DP₂ = Bs * Σs * Bs' + Ns
+## σn²   = abs2(μK′n*π/60/180) ./ Ω𝕊
+## σn²Op = DiagOp(Xmap(s0, σn² .* ones(s0.nθ, s0.nφ)))
+DP = Bs * Σs * Bs' + Ns
+DB = DP
 MA₁ = Ps * Bs * Σs * Bs' * Ps'
 MA₂ = Ps * Ws * Ns * Ws' * Ps'
-MA₃ = Qs * σn²Op * Qs'
+MA₃ = Qs * DB * Qs'
 MG  = Σs * Bs' * Ps'
 
 @time g1s0, hist0s0 = pcg(
-        w -> DP₂ \ w, # w -> DP₁ \ w,
+        w -> DP \ w, 
         w -> MA₁ * w + MA₂ * w + MA₃ * w,
         d_s0,
         nsteps  = 100,
@@ -923,6 +879,7 @@ MG  = Σs * Bs' * Ps'
 t1_cs0sim = MG * g1s0
 
 t1_cs0sim[:] |> matshow
+t1_cs0sim[:] .- t_s0[:] |> matshow
 
 
 

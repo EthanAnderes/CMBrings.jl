@@ -15,6 +15,7 @@ using Distributed
 using JLD2
 using FFTW
 using ProgressMeter
+using PyPlot
 
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
@@ -22,6 +23,8 @@ const module_dir  = joinpath(@__DIR__, "..") |> normpath
 include("cov_sheets.jl")
 
 include("methods.jl")
+
+include("plot.jl")
 
 
 #include("fft_ring_transforms.jl")
