@@ -7,7 +7,7 @@ addprocs(2)
 @everywhere using FFTW
 @everywhere FFTW.set_num_threads(1)
 @everywhere using CMBrings
-using CMBrings: AzCov, kAzCov, az2op, az3op, az2az, kazmap
+using CMBrings: AzCov, az2op, az3op, az2az, kazmap
 using CMBrings: flatnoisemap, simfourier, pcg
 using Spectra
 using XFields
@@ -228,7 +228,7 @@ end
 
 # ### now compute the corresponding AzCov
 
-Σaz = AzCov(covt_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do Σ
+Σaz = AzCov(covt_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do k, Σ
     cholesky(Σ, Val(false), check=false)
 end; 
 ## Check that the cholesky's where successful
@@ -297,7 +297,7 @@ end
 
 # ### now compute the corresponding AzCov
 
-Naz = AzCov(covn_θ1θ2Δφℝ,  θℝ, φℝ, kidx_blk) do Σ
+Naz = AzCov(covn_θ1θ2Δφℝ,  θℝ, φℝ, kidx_blk) do k, Σ
     cholesky(Σ, Val(false), check=false)
 end 
 ## Check that the cholesky's where successful
@@ -401,7 +401,7 @@ end
 ##     Σ * Diagonal(Ωℝ)
 ## end 
 ## --- or make make some beam smoothing in azimuth 
-Baz  = kAzCov(covb_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do k, Σ
+Baz  = AzCov(covb_θ1θ2Δφℝ, θℝ, φℝ, kidx_blk) do k, Σ
     ## inv(1 + (k/50)^2) * Σ * Diagonal(Ωℝ)
     inv(1 + (k/75)^2) * Σ * Diagonal(Ωℝ)
 end; 
