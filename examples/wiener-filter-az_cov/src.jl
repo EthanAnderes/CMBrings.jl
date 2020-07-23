@@ -8,8 +8,8 @@ addprocs(2)
 @everywhere FFTW.set_num_threads(1)
 @everywhere using CMBrings
 using CMBrings: AzCov, az2op, az3op, az2az, kazmap
+using CMBrings: brickplot, pcg 
 using CMBrings: flatnoisemap, simfourier, pcg
-using CMBrings: brickplot
 
 using Spectra
 using XFields
@@ -579,7 +579,7 @@ PCG = @sblock let   Ln, Lnᴴ=Ln', Naz, Σaz, BΣBᴴ_WNWᴴ_az,
 
     
     P = g -> BΣBᴴ_WNWᴴ_az \ g
-    B = P
+    B = g -> BΣBᴴ_WNWᴴ_az * g
 
     ## A_noL and A_wL are the operators we want to invert
     A_noL = function (g)
