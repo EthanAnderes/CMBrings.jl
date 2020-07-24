@@ -3,6 +3,7 @@
 # ==============================
 using FFTW
 FFTW.set_num_threads(5)
+
 using CMBrings
 using CMBrings: pcg, brickplot
 using CMBrings: AzBlock, check_factorization, az_sim
@@ -11,7 +12,7 @@ using CMBrings.FieldLensing: ArrayLense
 using XFields
 using Spectra
 
-using FFTransforms: r𝕎, ⊗, ordinary_scale, fullfreq
+using FFTransforms: 𝕀, r𝕎, ⊗, unitary_scale, ordinary_scale, fullfreq
 import CMBsphere
 const ST = CMBsphere.SphereTransforms
 
@@ -21,10 +22,10 @@ using SparseArrays
 using Statistics
 using Dierckx: Spline1D
 using LBblocks: @sblock
-using PyCall
+## using PyCall
 using PyPlot
 using BenchmarkTools
-using JLD2
+
 
 hide_plots = false
 
@@ -49,7 +50,7 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
     Ωℝ = ST.Ωpix(s0)[s0_clip]
     θℝ, φℝ = ST.pix(s0) |> x->(x[1][s0_clip], x[2])
 
-    𝕨 = r𝕎(nθ𝕊, π) ⊗ 𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
+    𝕨 = r𝕎(nθ𝕊, π) ⊗ r𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
     beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
     beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
     σ²1 = beamfwhm1^2 / 8 / log(2)
@@ -76,7 +77,7 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
 
 
     Ps[:][s0_clip,:], Qs[:][s0_clip,:], Ωℝ, θℝ, φℝ, s0, s0_clip
-end  
+end;  
 
 
 
@@ -115,7 +116,7 @@ end
 μK′n      = 7.0 # 10.0
 ellknee   = 100   # 150
 alphaknee = 3
-beamfwhm  = 3.0 |> arcmin -> deg2rad(arcmin/60)
+beamfwhm  = 3.5 |> arcmin -> deg2rad(arcmin/60)
 
 #-
 
@@ -185,7 +186,7 @@ covn_θ1θ2Δφℝ = @sblock let μK′n, snl, Δθ = θℝ[2]-θℝ[1], Δφ = 
         rtn   = covsn(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))
         if θ1 == θ2
             cc = μK′n^2 * (π/60/180)^2
-            pa = sin(θ1) * Δθ * Δφ
+            pa = ST.Ωpix(θ1, Δθ, Δφ) # sin(θ1) * Δθ * Δφ
             rtn[Δφℝ .== 0] .+= cc / pa # <- since we are using ST grid
         end
         rtn
