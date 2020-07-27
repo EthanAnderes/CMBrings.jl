@@ -5,8 +5,8 @@
 function brickplot(imgs::Dict{Int,T};
             txt  = Dict{Int,String}(), # overlay text
             ctxt = Dict{Int,String}(), # color of text
-            fφ = 1/2, # fraction of azimuth 
-            sz = 2,   # Overall size scale
+            fφ = 1/2,     # fraction of azimuth 
+            sz = 2,       # Overall size scale
             hmlt = 0.875, # Hight adjust
         ) where T
 
@@ -30,9 +30,59 @@ function brickplot(imgs::Dict{Int,T};
             nc*0.98, nr*0.95, s, 
             color=i ∈ keys(ctxt) ? ctxt[i] : "k",
             horizontalalignment = "right",
+            fontsize=14,
         )
     end
     fig.subplots_adjust(hspace=0.01, bottom = 0.1, top = 0.98, left = 0.05, right=0.98)
+    
+    fig, ax
+end
+
+
+
+function diskplot(imgs::Dict{Int,T}, φ, θ;
+            txt  = Dict{Int,String}(), # overlay text
+            nrows = 1, 
+            sz    = 1,   
+            fontsize=14, 
+        ) where T
+
+    nimg  = maximum(keys(imgs))
+    # how many columnes do we need to fit 
+    ncols = ceil(Int, nimg/nrows)
+
+    fig, ax = subplots(
+        nrows, ncols, 
+        figsize=(sz*(4.5*ncols), sz*(5*nrows)),
+        subplot_kw=Dict(:projection=>"polar")
+    )
+
+    ax = nimg==1 ? [ax] : ax
+
+    for (i,f) ∈ imgs
+        img = ax[i].pcolormesh(φ, θ, f)
+        fig.colorbar(
+            img, ax=ax[i], 
+            shrink=0.6, extend="both", pad=0.015,
+            orientation="horizontal"
+        )
+    end
+    
+    for i=1:(nrows*ncols)
+        ax[i].set_xticklabels([])
+        ax[i].set_yticklabels([])
+        if i>nimg 
+            ax[i].grid(false)
+            ax[i].axis(false)
+        end
+    end
+
+    for (i,s) ∈ txt
+        ax[i].set_title(s, fontsize=fontsize, loc="left")
+    end
+    # fig.subplots_adjust(top=0.95)
+    fig.tight_layout()
+    # fig.subplots_adjust(hspace=0.02, wspace=0.02)
     
     fig, ax
 end

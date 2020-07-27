@@ -2,10 +2,10 @@
 # Modules
 # ==============================
 using FFTW
-FFTW.set_num_threads(5)
+FFTW.set_num_threads(4)
 
 using CMBrings
-using CMBrings: pcg, brickplot
+using CMBrings: pcg, brickplot, diskplot
 using CMBrings: AzBlock, check_factorization, az_sim
 using CMBrings: Nabla!
 using CMBrings.FieldLensing: ArrayLense
@@ -22,7 +22,6 @@ using SparseArrays
 using Statistics
 using Dierckx: Spline1D
 using LBblocks: @sblock
-## using PyCall
 using PyPlot
 using BenchmarkTools
 
@@ -38,21 +37,35 @@ QP_boundry_clearance = 1e-5
 
 ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
 
-    ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.txt", ',', Bool)
-    nθ𝕊, nφ𝕊 = size(ma𝕊)
-
-    ## s0_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
-    ## s0_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
+    ## ------------------
+    ## ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.txt", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip = (77*nθ𝕊÷100):(87*nθ𝕊÷100) # default
     ## s0_clip = (75*nθ𝕊÷100):(85*nθ𝕊÷100)
-    s0_clip = (77*nθ𝕊÷100):(87*nθ𝕊÷100)
+    ## s0_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
+    ## s0_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
+    ## ------------------
+    ##  ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ4095.txt", ',', Bool)
+    ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ3071.txt", ',', Bool)
+    nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip  = (82*nθ𝕊÷100):(97*nθ𝕊÷100)
+    ## s0_clip  = (87*nθ𝕊÷100):(985*nθ𝕊÷1000)
+    s0_clip  = (84*nθ𝕊÷100):(98*nθ𝕊÷100)
+    ## s0_clip  = (82*nθ𝕊÷100):(99*nθ𝕊÷100)
+    ## ------------------
+    ## ma𝕊      = readdlm("FastTransform_mask_nearpole_nθ3072_nφ3071.txt", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip  = (84*nθ𝕊÷100):(97*nθ𝕊÷100)
 
     s0 = ST.𝕊(Float64, nθ𝕊, nφ𝕊, 0)
     Ωℝ = ST.Ωpix(s0)[s0_clip]
     θℝ, φℝ = ST.pix(s0) |> x->(x[1][s0_clip], x[2])
 
     𝕨 = r𝕎(nθ𝕊, π) ⊗ r𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
+    ## beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
+    ## beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
     beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
-    beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
+    beamfwhm2 = (arcmin=400.0; deg2rad(arcmin/60))
     σ²1 = beamfwhm1^2 / 8 / log(2)
     σ²2 = beamfwhm2^2 / 8 / log(2)
     k   = fullfreq(𝕨)
@@ -80,12 +93,15 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
 end;  
 
 
+# Azimuthal ring mask
 
-# Azimuthal rings, with mask
-
-@sblock let ma, hide_plots
+@sblock let ma, φℝ, θℝ, hide_plots
     hide_plots && return
-    matshow(ma)
+    imgs = Dict(1=>ma)
+    txt  = Dict(1=>"Mask")
+    ctxt = Dict(1=>"w")
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=1, fontsize=14)
 end
 
 # Plot √Ωpix over ring θℝ's 
@@ -113,14 +129,14 @@ end
 # Spectra noise, signal, beam 
 # ================================
 
-μK′n      = 7.0 # 10.0
-ellknee   = 100   # 150
+μK′n      = 10.0 # 10.0
+ellknee   = 150   # 150
 alphaknee = 3
 beamfwhm  = 3.5 |> arcmin -> deg2rad(arcmin/60)
 
 #-
 
-ttl, ϕϕl = @sblock let lmax = 8000
+ttl, ϕϕl = @sblock let lmax = 9500
     l = 0:lmax
     cld = Spectra.camb_cls(lmax=lmax)
     ctlvec = cld[:unlen_scalar] |> x->(x[:Ctt] ./ x[:factor_on_cl_cmb])
@@ -132,7 +148,7 @@ end;
 
 #-
 
-nnl, snl = @sblock let μK′n, ellknee, alphaknee, lmax = 8000
+nnl, snl = @sblock let μK′n, ellknee, alphaknee, lmax = 9500
     l = 0:lmax
     whitenoisel    = fill(μK′n^2 * (π/60/180)^2, size(l))
     smoothnoisel   = @. μK′n^2 * (π/60/180)^2 * Spectra.knee(l; ell=ellknee, alpha=alphaknee) 
@@ -144,7 +160,7 @@ end;
 
 #-
 
-bl = @sblock let beamfwhm, lmax = 8000
+bl = @sblock let beamfwhm, lmax = 9500
     l = 0:lmax
     σ² = beamfwhm^2 / 8 / log(2)
     bl = @. exp( - σ²*l*(l+1) / 2)
@@ -155,8 +171,10 @@ end;
 # TT covariance, NN covariance and beam kernel
 # ================================
 
-covt_θ1θ2Δφℝ = @sblock let ttl
-	θgrid = range(0, π^(1/2), length=100_000).^2
+covt_θ1θ2Δφℝ = @sblock let ttl, θℝ, φℝ
+	##θgrid = range(0, π^(1/2), length=100_000).^2
+    dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+    θgrid = range(0, dmax^(1/2), length=100_000).^2
     covt  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(ttl, θgrid), 
@@ -165,8 +183,10 @@ covt_θ1θ2Δφℝ = @sblock let ttl
     return (θ1,θ2,Δφℝ) -> covt(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
 end;
 
-covb_θ1θ2Δφℝ = @sblock let bl 
-    θgrid = range(0, π^(1/2), length=100_000).^2
+covb_θ1θ2Δφℝ = @sblock let bl, θℝ, φℝ
+    ##θgrid = range(0, π^(1/2), length=100_000).^2
+    dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+    θgrid = range(0, dmax^(1/2), length=100_000).^2
     covb  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(bl, θgrid), 
@@ -175,8 +195,10 @@ covb_θ1θ2Δφℝ = @sblock let bl
     return (θ1,θ2,Δφℝ) -> covb(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
 end;
 
-covn_θ1θ2Δφℝ = @sblock let μK′n, snl, Δθ = θℝ[2]-θℝ[1], Δφ = φℝ[2]-φℝ[1]
-    θgrid = range(0, π^(1/2), length=100_000).^2
+covn_θ1θ2Δφℝ = @sblock let μK′n, snl, θℝ, φℝ, Δθ = θℝ[2]-θℝ[1], Δφ = φℝ[2]-φℝ[1]
+    ##θgrid = range(0, π^(1/2), length=100_000).^2
+    dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+    θgrid = range(0, dmax^(1/2), length=100_000).^2
     covsn  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(snl, θgrid), 
@@ -197,14 +219,17 @@ end;
 # AzBlocks and Ops
 # ================================
 
-azmuth_transfer_k = k -> inv(1 + (k/75)^2)
+## azmuth_transfer_k = k -> 1
+azmuth_transfer_k = k -> inv(1 + (k/175)^2)
+## azmuth_transfer_k = k -> inv(1 + (k/75)^2)
 
 #-
 
 @time Σaz = AzBlock(covt_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
     ## A = Symmetric(real.(Σ),:L)
     ## cholesky(A, Val(false), check=false)
-    real.(Σ)
+    ## real.(Σ) 
+    real.(Σ) + 1e-8*I(length(θℝ)) # !!!!!! 
 end; 
 ## Note: if Σaz.Σ is set to symmetric then it takes a hit on mult
 
@@ -228,13 +253,18 @@ f = Xmap(tmU, randn(eltype_in(tmU), size_in(tmU)))
 #-
 @benchmark $Baz * $f
 #-
-@benchmark $(AzBlock(map(cholesky,Σaz))) \ $f
+@benchmark $(AzBlock(map(x->cholesky(Symmetric(x,:L)),Σaz))) \ $f
+
+# tmp = map(x->issuccess(cholesky(Symmetric(x,:L), Val(false), check=false)) , Σaz)
+# tmp = map(x -> eigmin(Symmetric(x,:L)) , Σaz)
 
 
 # Noise weight and mask/projection
 # ==============================
 
-weight_θ = θ -> 1 + 0.5 * sin(300 * θ)
+## weight_θ = θ -> 1
+weight_θ = θ -> 2 + 0.75 * sin(300 * θ)
+## weight_θ = θ -> 1 + 0.5 * sin(300 * θ)
 
 #-
 
@@ -286,7 +316,7 @@ end;
 
 # Now construct the lense (attinuate the lense near the upper and lower boundaries)
 
-Ln, ϕ_az = @sblock let nsteps=14, tmU, s0, s0_clip, ϕϕl, θℝ, φℝ, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
+Ln, ϕ_az = @sblock let nsteps=20, tmU, s0, s0_clip, ϕϕl, θℝ, φℝ, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
     
     ls0, ms0 = ST.lm(s0)
     Cϕ       = DiagOp(Xfourier(s0, ϕϕl[ls0 .+ 1])) 
@@ -301,9 +331,10 @@ Ln, ϕ_az = @sblock let nsteps=14, tmU, s0, s0_clip, ϕϕl, θℝ, φℝ, ∂θa
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
     rightlink = n::Int -> (cos.(range(0,π,length=n)) .+ 1)./2
     maθ = ones(size(θℝ))
-    n = 10  #<--- edge buffer which attinuates lensing
-    maθ[1:n]      =  leftlink(n)
-    maθ[end-n+1:end] =  rightlink(n)
+    nup = 10  #<--- edge buffer which attinuates lensing
+    nlw = 25  #<--- edge buffer which attinuates lensing
+    maθ[1:nup]         =  leftlink(nup)
+    maθ[end-nlw+1:end] =  rightlink(nlw)
     vθ .*= maθ
     vφ .*= maθ
 
@@ -313,10 +344,9 @@ Ln, ϕ_az = @sblock let nsteps=14, tmU, s0, s0_clip, ϕϕl, θℝ, φℝ, ∂θa
     L, Xmap(tmU, ϕaz)
 end;
 
-
 # Show lensing (zoomed into 1/2 of azimuth band).
 
-@sblock let Ln, ϕ_az, Σaz, hide_plots
+@sblock let Ln, ϕ_az, Σaz, φℝ, θℝ, fφ=1, hide_plots
     hide_plots && return
 
     t_az   = Xmap(az_sim(fieldtransform(ϕ_az), Σaz))
@@ -339,8 +369,9 @@ end;
     ctxt = Dict(
         4 => "w"
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1/2)
-end
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+end;
 
 
 
@@ -410,7 +441,7 @@ d_az′  = Pr * (Baz*(Ln*t_az′) + Wt*n_az′);
 
 #  Plot the data, the signal and noise (full azimuthal band)
 
-@sblock let t_az, d_az, n_az, Pr, Wt, hide_plots
+@sblock let t_az, d_az, n_az, Pr, Wt, θℝ, φℝ, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => d_az[:],
@@ -426,6 +457,7 @@ d_az′  = Pr * (Baz*(Ln*t_az′) + Wt*n_az′);
         3 => "w"
     )
     brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
 end;
 
 
@@ -434,49 +466,56 @@ end;
 
 # WF (not accounting for the lensing in the data)
 
-@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=150, rel_tol = 1e-4);
+@time twf_1, hwf_1 = PCG(d_az, lense=false, nsteps=100, rel_tol = 1e-4);
 
 # WF (modeling the lensing)  
 
-@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=150, rel_tol = 1e-4);
+@time twf_2, hwf_2 = PCG(d_az, lense=true, nsteps=100, rel_tol = 1e-4);
 
 # Plot the wiener filters
 
-@sblock let twf_1, twf_2, t_az, hide_plots
+@sblock let twf_1, twf_2, t_az, d_az, φℝ, θℝ, fφ=1, hide_plots
     hide_plots && return
     imgs = Dict(
-        1 => t_az[:],
-        2 => twf_1[:],
-        3 => twf_2[:],
+        1 => d_az[:],
+        2 => t_az[:],
+        3 => twf_1[:],
+        4 => twf_2[:],
     )
     txt =  Dict(
-        1 => "CMB simulation truth",
-        2 => "wiener filter (not modeling lensing)",
-        3 => "wiener filter (modeling lensing)",
+        1 => "data",
+        2 => "CMB simulation truth",
+        3 => "wiener filter (not modeling lensing)",
+        4 => "wiener filter (modeling lensing)",
     )
     ctxt = Dict(
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1/2)
-end
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+end;
+
 
 # Plot the errors
 
-@sblock let twf_1, twf_2, t_az, Pr, hide_plots
+@sblock let twf_1, twf_2, t_az, d_az, Pr, φℝ, θℝ, fφ=1, hide_plots
     hide_plots && return
     imgs = Dict(
-        1 => t_az[:],
-        2 => twf_1[:] .- Pr[:] .* t_az[:],
-        3 => twf_2[:] .- Pr[:] .* t_az[:],
+        1 => d_az[:],
+        2 => t_az[:],
+        3 => twf_1[:] .- Pr[:] .* t_az[:],
+        4 => twf_2[:] .- Pr[:] .* t_az[:],
     )
     txt =  Dict(
-        1 => "CMB simulation truth",
-        2 => "wiener filter error (not modeling lensing)",
-        3 => "wiener filter error (modeling lensing)",
+        1 => "data",
+        2 => "CMB simulation truth",
+        3 => "wiener filter error (not modeling lensing)",
+        4 => "wiener filter error (modeling lensing)",
     )
     ctxt = Dict(
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1/2)
-end
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+end;
 
 # Here are the residuals from PCG
 
@@ -486,7 +525,7 @@ end
     ax.semilogy(hwf_1, label="PCG residuals (lensing=false)")
     ax.semilogy(hwf_2, label="PCG residuals (lensing=true)")
     ax.legend()
-end
+end;
 
 
 # Run PCG for conditional simulation
@@ -494,36 +533,39 @@ end
 
 # Conditional simulation (not accounting for the lensing in the data)
 
-@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=150, rel_tol = 1e-4);
+@time tsim_1, hsim_1 = PCG(d_az + d_az′, lense=false, nsteps=100, rel_tol = 1e-4);
 tsim_1 -= t_az′; 
 
 # Conditional simulation  (modeling the lensing)  
 
-@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=150, rel_tol = 1e-4);
+@time tsim_2, hsim_2 = PCG(d_az + d_az′, lense=true, nsteps=100, rel_tol = 1e-4);
 tsim_2 -= t_az′; 
 
 # Plot the conditional simulations from PCG
 
-@sblock let tsim_1, tsim_2, t_az, hide_plots
+@sblock let tsim_1, tsim_2, t_az, d_az, φℝ, θℝ, fφ=1/2, hide_plots
     hide_plots && return
     imgs = Dict(
-        1 => t_az[:],
-        2 => tsim_1[:],
-        3 => tsim_2[:],
+        1 => d_az[:],
+        2 => t_az[:],
+        3 => tsim_1[:],
+        4 => tsim_2[:],
     )
     txt =  Dict(
-        1 => "CMB simulation truth",
-        2 => "conditional sim (not modeling lensing)",
-        3 => "conditional sim (modeling lensing)",
+        1 => "data",
+        2 => "CMB simulation truth",
+        3 => "conditional sim (not modeling lensing)",
+        4 => "conditional sim (modeling lensing)",
     )
     ctxt = Dict(
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1/2)
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
 end
 
 # Plot the errors 
 
-@sblock let tsim_1, tsim_2, t_az, Pr, hide_plots
+@sblock let tsim_1, tsim_2, t_az, Pr, φℝ, θℝ, fφ=1/2, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => t_az[:],
@@ -539,8 +581,11 @@ end
     )
     ctxt = Dict(
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1/2)
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
 end
+
+
 
 
 # Here are the residuals from PCG
@@ -577,3 +622,112 @@ zll_tsim_2 = (dot(tsim_2[:], (Σaz \ tsim_2)[:]) - ln_az) / sqrt(2*ln_az) # PCG 
 ##     zll  = (nll + fll - dfd) / sqrt(2*dfd)
 ##     @show zll
 ## end
+
+
+@sblock let d_az, n_az, twf_2, tsim_2, t_az, Pr, Wt, φℝ, θℝ, fφ=1, hide_plots
+    hide_plots && return
+    imgs = Dict(
+        1 => d_az[:],
+        2 => abs.((Wt * n_az)[:]),
+        3 => twf_2[:],
+        4 => tsim_2[:],
+        5 => (twf_2[:]  .-  Pr[:] .* t_az[:]),
+        6 => (tsim_2[:] .-  Pr[:] .* t_az[:]),
+    )
+    txt =  Dict(
+        1 => "Data",
+        2 => "|noise|",
+        3 => "Wiener filter",
+        4 => "Conditional sim", 
+        5 => "Wiener filter - masked true CMB", 
+        6 => "Conditional sim - masked true CMB", 
+    )
+    ctxt = Dict(
+    )
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
+end
+
+
+# Noise filled PCG for comparison (no-lensing)
+# =======================================
+
+# inv(Bmᴴ * Prᴴ * Wt⁻ᴴ * N⁻¹ * Wt⁻¹ * Pr * Bm + Σ⁻¹) * Wt⁻ᴴ * N⁻¹ * Wt⁻¹ * Pr * Bm * d
+
+PCG_noise_fill = @sblock let Pr, Qr, Wt, Ln, Σaz, Naz, Baz
+                    
+    Baz′ = Baz'
+    cholΣaz = AzBlock(map(x->cholesky(Symmetric(x)),Σaz))
+    cholNaz = AzBlock(map(x->cholesky(Symmetric(x)),Naz))
+
+    cholP = map(Naz, Baz, cholΣaz) do N, B, Σ 
+        WD = Diagonal(Wt[:][:,1])
+        X = B' * (Symmetric(WD * N * WD') \ B) + Matrix(inv(Σ))
+        cholesky(Symmetric(X,:L), Val(false)) # , check=false) 
+    end |> AzBlock;
+
+    A_noL = function (g)
+        tmp1  = Baz′ * (Pr' * (Wt' \ (cholNaz \ (Wt \ (Pr * (Baz * g))))))
+        tmp2  = cholΣaz \ g
+        return tmp1 + tmp2
+    end 
+
+    PCG = function (data; lense=true, nsteps, rel_tol=1e-12)
+        gwf, hist = pcg(
+            g -> cholP \ g, 
+            A_noL, 
+            Pr' * (Baz′ * (Wt' \ (cholNaz \ (Wt \  data)))), 
+            nsteps=nsteps, rel_tol=rel_tol,
+        )
+        return gwf, hist
+    end
+
+    return PCG
+
+end; 
+
+
+
+# Noise filled data 
+d_az  = Pr*(Baz*t_az) + Wt*n_az;
+
+# WF (not accounting for the lensing in the data)
+
+@time twf_1, hwf_1 = PCG_noise_fill(d_az, lense=false, nsteps=150, rel_tol = 1e-4);
+
+# WF (modeling the lensing)  
+
+@time twf_2, hwf_2 = PCG_noise_fill(d_az, lense=false, nsteps=200, rel_tol = 1e-4);
+
+# Plot the wiener filters
+
+@sblock let twf_1, twf_2, t_az, d_az,  φℝ, θℝ, fφ=1, hide_plots
+    hide_plots && return
+    imgs = Dict(
+        1 => d_az[:],
+        2 => t_az[:],
+        3 => twf_1[:],
+        4 => twf_2[:],
+    )
+    txt =  Dict(
+        1 => "data",
+        2 => "CMB simulation truth",
+        3 => "wiener filter (not modeling lensing)",
+        4 => "wiener filter (modeling lensing)",
+    )
+    ctxt = Dict(
+    )
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+end;
+
+
+# Here are the residuals from PCG
+
+@sblock let hwf_1, hwf_2, hide_plots
+    hide_plots && return
+    fig,ax = subplots(1)
+    ax.semilogy(hwf_1, label="PCG residuals (noise fill)")
+    ax.semilogy(hwf_2, label="PCG residuals (noise fill)")
+    ax.legend()
+end
