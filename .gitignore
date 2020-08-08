@@ -12,5 +12,6 @@
 *.jld2
 *.log
 *.synctex.gz
+*.csv
 local
 Manifest.toml

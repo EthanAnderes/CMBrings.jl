@@ -2,7 +2,7 @@
 # Modules
 # ==============================
 using FFTW
-FFTW.set_num_threads(4)
+FFTW.set_num_threads(6)
 
 using CMBrings
 using CMBrings: pcg, brickplot, diskplot
@@ -26,7 +26,7 @@ using PyPlot
 using BenchmarkTools
 
 
-hide_plots = false
+hide_plots = true
 
 # Mask and CMBring observation region
 # ==============================
@@ -38,34 +38,40 @@ QP_boundry_clearance = 1e-5
 ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
 
     ## ------------------
-    ## ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.txt", ',', Bool)
-    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
-    ## s0_clip = (77*nθ𝕊÷100):(87*nθ𝕊÷100) # default
-    ## s0_clip = (75*nθ𝕊÷100):(85*nθ𝕊÷100)
-    ## s0_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
-    ## s0_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
-    ## ------------------
-    ##  ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ4095.txt", ',', Bool)
-    ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ3071.txt", ',', Bool)
+    ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.csv", ',', Bool)
     nθ𝕊, nφ𝕊 = size(ma𝕊)
-    ## s0_clip  = (82*nθ𝕊÷100):(97*nθ𝕊÷100)
-    ## s0_clip  = (87*nθ𝕊÷100):(985*nθ𝕊÷1000)
-    s0_clip  = (84*nθ𝕊÷100):(98*nθ𝕊÷100)
-    ## s0_clip  = (82*nθ𝕊÷100):(99*nθ𝕊÷100)
+    s0_clip = (77*nθ𝕊÷100):(87*nθ𝕊÷100) # default
+    ## # s0_clip = (75*nθ𝕊÷100):(85*nθ𝕊÷100)
+    ## # s0_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
+    ## # s0_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
     ## ------------------
-    ## ma𝕊      = readdlm("FastTransform_mask_nearpole_nθ3072_nφ3071.txt", ',', Bool)
+    ## # ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ4095.csv", ',', Bool)
+    ## ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ3071.csv", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip  = (84*nθ𝕊÷100):(98*nθ𝕊÷100) # default
+    ## # s0_clip  = (82*nθ𝕊÷100):(97*nθ𝕊÷100)
+    ## # s0_clip  = (87*nθ𝕊÷100):(985*nθ𝕊÷1000)
+    ## # s0_clip  = (82*nθ𝕊÷100):(99*nθ𝕊÷100)
+    ## ------------------
+    ## ma𝕊      = readdlm("FastTransform_mask_nearpole_nθ3072_nφ3071.csv", ',', Bool)
     ## nθ𝕊, nφ𝕊 = size(ma𝕊)
     ## s0_clip  = (84*nθ𝕊÷100):(97*nθ𝕊÷100)
+    ## ---------------------
+    ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ3071.csv", ',', Bool)
+    ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ4095.csv", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip  = (79*nθ𝕊÷100):(96*nθ𝕊÷100)
+
 
     s0 = ST.𝕊(Float64, nθ𝕊, nφ𝕊, 0)
     Ωℝ = ST.Ωpix(s0)[s0_clip]
     θℝ, φℝ = ST.pix(s0) |> x->(x[1][s0_clip], x[2])
 
     𝕨 = r𝕎(nθ𝕊, π) ⊗ r𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
+    beamfwhm1 = (arcmin=100.0; deg2rad(arcmin/60))
+    beamfwhm2 = (arcmin=200.0; deg2rad(arcmin/60))
     ## beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
-    ## beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
-    beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
-    beamfwhm2 = (arcmin=400.0; deg2rad(arcmin/60))
+    ## beamfwhm2 = (arcmin=400.0; deg2rad(arcmin/60))
     σ²1 = beamfwhm1^2 / 8 / log(2)
     σ²2 = beamfwhm2^2 / 8 / log(2)
     k   = fullfreq(𝕨)
@@ -132,7 +138,7 @@ end
 μK′n      = 10.0 # 10.0
 ellknee   = 150   # 150
 alphaknee = 3
-beamfwhm  = 3.5 |> arcmin -> deg2rad(arcmin/60)
+beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
 
 #-
 
@@ -228,8 +234,7 @@ azmuth_transfer_k = k -> inv(1 + (k/175)^2)
 @time Σaz = AzBlock(covt_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
     ## A = Symmetric(real.(Σ),:L)
     ## cholesky(A, Val(false), check=false)
-    ## real.(Σ) 
-    real.(Σ) + 1e-8*I(length(θℝ)) # !!!!!! 
+    real.(Σ)  + 1e-8*I(length(θℝ)) # !!!!!! 
 end; 
 ## Note: if Σaz.Σ is set to symmetric then it takes a hit on mult
 
@@ -256,15 +261,16 @@ f = Xmap(tmU, randn(eltype_in(tmU), size_in(tmU)))
 @benchmark $(AzBlock(map(x->cholesky(Symmetric(x,:L)),Σaz))) \ $f
 
 # tmp = map(x->issuccess(cholesky(Symmetric(x,:L), Val(false), check=false)) , Σaz)
-# tmp = map(x -> eigmin(Symmetric(x,:L)) , Σaz)
+# tmp = map(x -> eigmin(Symmetric(x)) , Σaz)
 
 
 # Noise weight and mask/projection
 # ==============================
 
 ## weight_θ = θ -> 1
-weight_θ = θ -> 2 + 0.75 * sin(300 * θ)
+weight_θ = θ -> 2 + 1.25 * sin(300 * θ)
 ## weight_θ = θ -> 1 + 0.5 * sin(300 * θ)
+
 
 #-
 
@@ -543,7 +549,7 @@ tsim_2 -= t_az′;
 
 # Plot the conditional simulations from PCG
 
-@sblock let tsim_1, tsim_2, t_az, d_az, φℝ, θℝ, fφ=1/2, hide_plots
+@sblock let tsim_1, tsim_2, t_az, d_az, φℝ, θℝ, fφ=1, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => d_az[:],
@@ -565,7 +571,7 @@ end
 
 # Plot the errors 
 
-@sblock let tsim_1, tsim_2, t_az, Pr, φℝ, θℝ, fφ=1/2, hide_plots
+@sblock let tsim_1, tsim_2, t_az, Pr, φℝ, θℝ, fφ=1, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => t_az[:],
