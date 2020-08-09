@@ -14,6 +14,7 @@ using JLD2
 using FFTW
 using ProgressMeter
 using PyPlot
+using PyCall
 using NLopt
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath

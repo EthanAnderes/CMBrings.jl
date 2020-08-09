@@ -44,8 +44,12 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
             txt  = Dict{Int,String}(), # overlay text
             nrows = 1, 
             sz    = 1,   
-            fontsize=14, 
+            fontsize=14,
+            vcenter=nothing,
+            vmin_quantile=1e-5, # when this is zero extends to max
         ) where T
+
+    clrs = pyimport("matplotlib.colors")
 
     nimg  = maximum(keys(imgs))
     # how many columnes do we need to fit 
@@ -60,7 +64,22 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
     ax = nimg==1 ? [ax] : ax
 
     for (i,f) ∈ imgs
-        img = ax[i].pcolormesh(φ, θ, f)
+        if isnothing(vcenter)
+            amin,amax = quantile(f[:],vmin_quantile), quantile(f[:],1-vmin_quantile)
+            divnorm = clrs.TwoSlopeNorm(
+                vmin=amin,
+                vcenter=(amin + amax)/2,
+                vmax=amax,
+            )
+        else
+            maxdist = quantile((abs.(f .- vcenter))[:], 1-vmin_quantile)
+            divnorm = clrs.TwoSlopeNorm(
+                vmin=vcenter - maxdist,
+                vcenter=vcenter,
+                vmax=vcenter + maxdist,
+            )
+        end
+        img = ax[i].pcolormesh(φ, θ, f, norm=divnorm)
         fig.colorbar(
             img, ax=ax[i], 
             shrink=0.6, extend="both", pad=0.015,

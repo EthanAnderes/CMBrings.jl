@@ -32,7 +32,7 @@ hide_plots = true
 # Mask and CMBring observation region
 # ==============================
 
-QP_boundry_clearance = 1e-4 
+QP_boundry_clearance = 1e-5 
 
 #-
 
@@ -69,10 +69,10 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
     θℝ, φℝ = ST.pix(s0) |> x->(x[1][s0_clip], x[2])
 
     𝕨 = r𝕎(nθ𝕊, π) ⊗ r𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
-    beamfwhm1 = (arcmin=100.0; deg2rad(arcmin/60))
-    beamfwhm2 = (arcmin=200.0; deg2rad(arcmin/60))
-    ## beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
-    ## beamfwhm2 = (arcmin=400.0; deg2rad(arcmin/60))
+    ## beamfwhm1 = (arcmin=100.0; deg2rad(arcmin/60))
+    ## beamfwhm2 = (arcmin=200.0; deg2rad(arcmin/60))
+    beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
+    beamfwhm2 = (arcmin=300.0; deg2rad(arcmin/60))
     σ²1 = beamfwhm1^2 / 8 / log(2)
     σ²2 = beamfwhm2^2 / 8 / log(2)
     k   = fullfreq(𝕨)
@@ -207,9 +207,9 @@ end;
 # Beam/Transfer function
 # ================================
 
-beamfwhm    = 3.0 |> arcmin -> deg2rad(arcmin/60)
-## azmuth_transfer_k = k -> 1
-azmuth_transfer_k = k -> inv(1 + (k/200)^2)
+beamfwhm    = 2.5 |> arcmin -> deg2rad(arcmin/60)
+azmuth_transfer_k = k -> 1
+## azmuth_transfer_k = k -> inv(1 + (k/200)^2)
 ## azmuth_transfer_k = k -> inv(1 + (k/75)^2)
 
 #-
@@ -251,10 +251,10 @@ end;
 # Noise with weights weight and mask/projection
 # ==============================
 
-μK′n      = 5.0 # 10.0
+μK′n      = 3.0 # 10.0
 ellknee   = 0   # 150
 alphaknee = 3
-weight_θ  = θ -> 2 + 0.5 * sin(300 * θ) # θ -> 1
+weight_θ  = θ -> 1 + 0.5 * sin(300 * θ) # θ -> 1
 ## weight_θ  = θ -> 1
 
 #-
@@ -304,7 +304,7 @@ end;
 # negative Hessian  for ϕ gradient -> newton update
 # ==============================
 
-nhϕl = @sblock let n2s_ratio = 0.5 , ϕϕl, lmax = 8000
+nhϕl = @sblock let n2s_ratio = 0.2 , ϕϕl, lmax = 8000
     l = 0:lmax
     nhl    = (n2s_ratio * maximum(l.^4 .* ϕϕl)) ./ (l.^4)
     nhϕl       = inv.(inv.(ϕϕl) .+ inv.(nhl))
@@ -463,12 +463,12 @@ t_az  = az_sim(tmU, Σaz)
 d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz));
 
 
-@sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, hide_plots
+@sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, Pr, hide_plots
     hide_plots && return
     imgs = Dict(
         1 => d_az[:],
         2 => t_az[:],
-        3 => abs.((d_az - Baz * (Ł(ϕ_az)*t_az))[:])
+        3 => abs.((d_az - Pr * (Baz * (Ł(ϕ_az)*t_az)))[:])
     )
     txt =  Dict(
         1 => "data",
@@ -514,7 +514,7 @@ lnt_cr = Xfourier(tmU)
 
 
 # iterate ...
-for itr = 1:50
+for itr = 1:15
     global ϕ_cr, lnt_cr, t_cr, hst 
     @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
     @time ϕ_cr              = CMBrings.update_ϕ(ϕ_cr, lnt_cr, d_az; ds...)
@@ -523,15 +523,19 @@ end
 
 #- 
 
-@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, M = Pr
-    fltr = CMBrings.fullfreq(tmU)[2]
-    #fltr = ones(eltype_out(tmU), size_out(tmU))
-    fltr[:,1:6] .= 0
+@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
+    M = Pr
+    # M = I
+    # fltr = CMBrings.fullfreq(tmU)[2]
+    fltr = ones(eltype_out(tmU), size_out(tmU))
+    fltr[:,1:4] .= 0
     𝔽 = Xfourier(tmU,fltr) |> DiagOp
     #𝔽 = I
     diskplot(
         Dict(1=> (M * (𝔽 * fest))[:], 2 =>(M * (𝔽 * ftru))[:]), 
-        φℝ', π.-θℝ; nrows=1, fontsize=14
+        φℝ', π.-θℝ; 
+        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
+        nrows=1, fontsize=12, vcenter=0, vmin_quantile=1e-5,
     )
 end
 
