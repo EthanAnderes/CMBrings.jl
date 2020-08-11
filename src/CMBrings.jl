@@ -104,7 +104,7 @@ function update_ϕ(ϕ, lnf, data; Pr, bHϕaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Ba
     opt.maxtime      = linesearch_time_max
     opt.upper_bounds = T[1.0]
     opt.lower_bounds = T[0]
-    ## opt.initial_step = T[0.00001]
+    opt.initial_step = T[0.00001]
     opt.max_objective = function (β, grad)
         ll(ϕ + β[1] * nH⁻¹∇ϕ, lnf, data; Ł, Σaz_fctr, Φaz_fctr)
     end

@@ -2,7 +2,12 @@
 # Modules
 # ==============================
 using FFTW
-FFTW.set_num_threads(8)
+#FFTW.set_num_threads(4)
+
+using LinearAlgebra
+#BLAS.set_num_threads(4)
+
+using SparseArrays
 
 using CMBrings
 using CMBrings: pcg, brickplot, diskplot
@@ -12,13 +17,11 @@ using CMBrings.FieldLensing: ArrayLense
 using XFields
 using Spectra
 
-using FFTransforms: 𝕀, r𝕎, ⊗, unitary_scale, ordinary_scale, fullfreq
+using FFTransforms: 𝕀, 𝕎, r𝕎, ⊗, unitary_scale, ordinary_scale, fullfreq
 import CMBsphere
 const ST = CMBsphere.SphereTransforms
 
 using DelimitedFiles
-using LinearAlgebra
-using SparseArrays
 using Statistics
 using Dierckx: Spline1D
 using LBblocks: @sblock
@@ -33,15 +36,16 @@ hide_plots = true
 # ==============================
 
 QP_boundry_clearance = 1e-5 
+Tp=Float32
 
 #-
 
-ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
+ma, maᶜ, Ωℝ64, θℝ64, φℝ64, s0, s0_clip = @sblock let QP_boundry_clearance, Tp
 
     ## ------------------
-    ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.csv", ',', Bool)
-    nθ𝕊, nφ𝕊 = size(ma𝕊)
-    s0_clip = (78*nθ𝕊÷100):(87*nθ𝕊÷100) # default
+    ## ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.csv", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## s0_clip = (78*nθ𝕊÷100):(87*nθ𝕊÷100) # default
     ## # s0_clip = (75*nθ𝕊÷100):(85*nθ𝕊÷100)
     ## # s0_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
     ## # s0_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
@@ -58,10 +62,11 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
     ## nθ𝕊, nφ𝕊 = size(ma𝕊)
     ## s0_clip  = (84*nθ𝕊÷100):(97*nθ𝕊÷100)
     ## ---------------------
-    ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ3071.csv", ',', Bool)
+    ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ3071.csv", ',', Bool)
     ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ4095.csv", ',', Bool)
-    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
-    ## s0_clip  = (79*nθ𝕊÷100):(96*nθ𝕊÷100)
+    nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ##s0_clip  = (79*nθ𝕊÷100):(96*nθ𝕊÷100)
+    s0_clip  = (81*nθ𝕊÷100):(92*nθ𝕊÷100)
 
 
     s0 = ST.𝕊(Float64, nθ𝕊, nφ𝕊, 0)
@@ -96,10 +101,10 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, s0, s0_clip = @sblock let QP_boundry_clearance
     Qs  = DiagOp(Xmap(s0, qs))
 
 
-    Ps[:][s0_clip,:], Qs[:][s0_clip,:], Ωℝ, θℝ, φℝ, s0, s0_clip
+    Tp.(Ps[:][s0_clip,:]), Tp.(Qs[:][s0_clip,:]), Ωℝ, θℝ, φℝ, s0, s0_clip
 end;  
 
-
+Ωℝ, θℝ, φℝ = Tp.(Ωℝ64), Tp.(θℝ64), Tp.(φℝ64)
 
 # Azimuthal ring mask
 
@@ -128,10 +133,11 @@ end;
 # Set ring transforms
 # ==============================
 
-tmU, tmW = let nθ=length(θℝ), nφ=length(φℝ)
-    tmW = 𝕀(nθ) ⊗ r𝕎(nφ, 2π)
-    tmU  = unitary_scale(tmW)*tmW
-    tmU, tmW
+tmU, tmW, Tp = let  nθ=length(θℝ), nφ=length(φℝ)
+    tmW32 = 𝕀(nθ) ⊗ 𝕎(Tp, nφ, 2π)
+    tmW64 = 𝕀(nθ) ⊗ 𝕎(Float64, nφ, 2π)
+    tmU  = unitary_scale(tmW32)*tmW32
+    tmU, tmW64, Tp
 end
 
 
@@ -153,61 +159,72 @@ ttl, ϕϕl = @sblock let lmax = 8000
     l = 0:lmax
     cld = Spectra.camb_cls(lmax=lmax)
     ctlvec = cld[:unlen_scalar] |> x->(x[:Ctt] ./ x[:factor_on_cl_cmb])
-    ctlvec[1:2] .= 0
+    ctlvec[2] = 1e-1 * ctlvec[3]
+    ctlvec[1] = 1e-2 * ctlvec[3]
     cϕlvec = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    cϕlvec[1:2] .= 0
+    ## cϕlvec = Spectra.cϕl_approx.(l)
+    cϕlvec[2] = 1e1 * cϕlvec[3]
+    cϕlvec[1] = 1e1 * cϕlvec[3]
     ctlvec, cϕlvec
 end;
 
-#-
 
-covϕ_θ1θ2Δφℝ = @sblock let ϕϕl, θℝ, φℝ
+
+#-
+# Note: to get this positive definite it appears we need 
+# twice precision for θℝ and φℝ
+
+Φaz = @sblock let Tp, tmW, ϕϕl, θℝ=θℝ64, φℝ=φℝ64
     ##θgrid = range(0, π^(1/2), length=100_000).^2
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=100_000).^2
-    covt  = Spline1D(
+    covf  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(ϕϕl, θgrid), 
         k=3
     )
-    return (θ1,θ2,Δφℝ) -> covt(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
+    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+
+    Φaz = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
+        ##real.(A) + 1e-8*I(length(θℝ))
+        A = Symmetric(real.(A),:L)
+        C = cholesky(A, Val(false)) #, check=false)
+        Cholesky(Tp.(C.factors), C.uplo, C.info)
+    end
+
+    Φaz
 end;
 
 #-
 
-covt_θ1θ2Δφℝ = @sblock let ttl, θℝ, φℝ
+Σaz = @sblock let Tp, tmW, ttl, θℝ=θℝ64, φℝ=φℝ64
 	##θgrid = range(0, π^(1/2), length=100_000).^2
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=100_000).^2
-    covt  = Spline1D(
+    covf  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(ttl, θgrid), 
         k=3
     )
-    return (θ1,θ2,Δφℝ) -> covt(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
+    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+
+    Σaz = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
+        ##real.(A) + 1e-8*I(length(θℝ))
+        A = Symmetric(real.(A),:L)
+        # A = Symmetric(real.(A) + 1e-8*I(length(θℝ)),:L)
+        C = cholesky(A, Val(false)) #, check=false)
+        Cholesky(Tp.(C.factors), C.uplo, C.info)
+    end 
+    
+    Σaz 
 end;
 
-#-
-
-Φaz = AzBlock(covϕ_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
-    ##real.(A) + 1e-8*I(length(θℝ))
-    A = Symmetric(real.(A),:L)
-    cholesky(A, Val(false)) #, check=false)
-end; 
-
-#-
-
-Σaz = AzBlock(covt_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
-    ##real.(A) + 1e-8*I(length(θℝ))
-    A = Symmetric(real.(A),:L)
-    cholesky(A, Val(false)) #, check=false)
-end; 
 
 
 # Beam/Transfer function
 # ================================
 
-beamfwhm    = 2.5 |> arcmin -> deg2rad(arcmin/60)
+beamfwhm    = 3.5 |> arcmin -> deg2rad(arcmin/60)
 azmuth_transfer_k = k -> 1
 ## azmuth_transfer_k = k -> inv(1 + (k/200)^2)
 ## azmuth_transfer_k = k -> inv(1 + (k/75)^2)
@@ -223,28 +240,26 @@ end;
 
 #-
 
-covb_θ1θ2Δφℝ = @sblock let bl, θℝ, φℝ
+Baz = @sblock let Tp, tmW, bl, θℝ=θℝ64, φℝ=φℝ64, Ωℝ=Ωℝ64, azmuth_transfer_k
     ##θgrid = range(0, π^(1/2), length=100_000).^2
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=100_000).^2
-    covb  = Spline1D(
+    
+    covf  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(bl, θgrid), 
         k=3
     )
-    return (θ1,θ2,Δφℝ) -> covb(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
+    
+    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+
+    Baz  = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
+        Tp.(azmuth_transfer_k(k) * real.(Σ) * Diagonal(Ωℝ))
+    end
+
+    Baz
 end;
 
-#-
-
-Baz  = AzBlock(covb_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
-    azmuth_transfer_k(k) * real.(Σ) * Diagonal(Ωℝ)
-end; 
-
-## This turns the beam off
-## Baz  = AzBlock(covb_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
-##     (0 .* real.(Σ)) + I
-## end; 
 
 
 
@@ -254,9 +269,9 @@ end;
 μK′n      = 3.0 # 10.0
 ellknee   = 0   # 150
 alphaknee = 3
-weight_θ  = θ -> 1 + 0.5 * sin(300 * θ) # θ -> 1
-## weight_θ  = θ -> 1
-
+## weight_θ  = θ -> 1 + 0.15 * sin(300 * θ) # θ -> 1
+weight_θ  = θ -> 1
+## weight_θ  = θ -> 1 + 1 ./ sin(θ).^2 # θ -> 1
 #-
 
 nnl, snl = @sblock let μK′n, ellknee, alphaknee, lmax = 8000
@@ -271,17 +286,18 @@ end;
 
 #-
 
-covn_θ1θ2Δφℝ = @sblock let μK′n, snl, θℝ, φℝ, Δθ = θℝ[2]-θℝ[1], Δφ = φℝ[2]-φℝ[1]
+Naz = @sblock let Tp, tmW, μK′n, snl, weight_θ, θℝ=θℝ64, φℝ=φℝ64, Δθ = θℝ64[2]-θℝ64[1], Δφ = φℝ64[2]-φℝ64[1]
     ## θgrid = range(0, π^(1/2), length=100_000).^2
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=100_000).^2
-    covsn  = Spline1D(
+    covf  = Spline1D(
         θgrid, 
         Spectra.spec2spherecov(snl, θgrid), 
         k=3
     )
-    return function (θ1, θ2, Δφℝ)
-        rtn   = covsn(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))
+    
+    covf_θ1θ2Δφℝ = function (θ1, θ2, Δφℝ)
+        rtn   = covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))
         if θ1 == θ2
             cc = μK′n^2 * (π/60/180)^2
             pa = ST.Ωpix(θ1, Δθ, Δφ) # sin(θ1) * Δθ * Δφ
@@ -289,53 +305,131 @@ covn_θ1θ2Δφℝ = @sblock let μK′n, snl, θℝ, φℝ, Δθ = θℝ[2]-θ�
         end
         rtn
     end
-end;
 
-#-
+    Naz = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do N, k
+        WD = Diagonal(weight_θ.(θℝ))
+        A = Symmetric(WD*(real.(N))*WD',:L)
+        C = cholesky(A, Val(false)) #, check=false)
+        Cholesky(Tp.(C.factors), C.uplo, C.info)
+    end
 
-# Note `Naz` includes the weight multiplier
-Naz = AzBlock(covn_θ1θ2Δφℝ, θℝ, φℝ, tmW) do N, k
-    WD = Diagonal(weight_θ.(θℝ))
-    A = Symmetric(WD*(real.(N))*WD',:L)
-    cholesky(A, Val(false)) #, check=false)
+    Naz
 end;
 
 
 # negative Hessian  for ϕ gradient -> newton update
 # ==============================
 
-nhϕl = @sblock let n2s_ratio = 0.2 , ϕϕl, lmax = 8000
-    l = 0:lmax
-    nhl    = (n2s_ratio * maximum(l.^4 .* ϕϕl)) ./ (l.^4)
-    nhϕl       = inv.(inv.(ϕϕl) .+ inv.(nhl))
-    nhϕl[1:2] .= 0
+## n2s_ratio = 0.4
+## 
+## ϕnnl, ϕsnl, μK′ϕn² = @sblock let ϕϕl, n2s_ratio, ellknee=700, alphaknee=4, lmax = 8000
+##     l    = 0:lmax
+##     μK′ϕn² = (n2s_ratio * maximum(l.^4 .* ϕϕl)) / (π/60/180)^2
+##     whitenoisel    = fill(μK′ϕn² * (π/60/180)^2, size(l))
+##     smoothnoisel   = @. μK′ϕn² * (π/60/180)^2 * Spectra.knee(l; ell=ellknee, alpha=alphaknee) 
+##     smoothnoisel .-= μK′ϕn² * (π/60/180)^2 
+##     smoothnoisel[smoothnoisel .< 0] .= 0    
+##     noisel = smoothnoisel .+ whitenoisel
+##     return noisel, smoothnoisel, μK′ϕn²
+## end;
+## 
+## #-
+## 
+## ΦNaz = @sblock let Tp, tmW, μK′ϕn², ϕsnl, θℝ=θℝ64, φℝ=φℝ64, Δθ = θℝ64[2]-θℝ64[1], Δφ = φℝ64[2]-φℝ64[1]
+##     ## θgrid = range(0, π^(1/2), length=100_000).^2
+##     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+##     θgrid = range(0, dmax^(1/2), length=100_000).^2
+##     covf  = Spline1D(
+##         θgrid, 
+##         Spectra.spec2spherecov(ϕsnl, θgrid), 
+##         k=3
+##     )
+##     
+##     covf_θ1θ2Δφℝ = function (θ1, θ2, Δφℝ)
+##         rtn   = covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))
+##         if θ1 == θ2
+##             cc = μK′ϕn² * (π/60/180)^2
+##             pa = ST.Ωpix(θ1, Δθ, Δφ) # sin(θ1) * Δθ * Δφ
+##             rtn[Δφℝ .== 0] .+= cc / pa # <- since we are using ST grid
+##         end
+##         rtn
+##     end
+## 
+##     ΦNaz = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do N, k
+##         A = Symmetric(real.(N),:L)
+##         C = cholesky(A, Val(false)) #, check=false)
+##         Cholesky(Tp.(C.factors), C.uplo, C.info)
+##     end
+## 
+##     ΦNaz
+## end;
+## 
+## 
+## bHϕaz  = map(Φaz, ΦNaz) do Σ, N
+##     A = Symmetric(inv(Σ) + inv(N),:L)
+##     if isposdef(A)
+##         return inv(A)
+##     else 
+##         return inv(A .+ 1.1*abs(eigmin(A))*I )
+##     end
+## end |> AzBlock;
 
-    return nhϕl
+## bHϕaz  = map(Φaz) do Σ
+##     A = Symmetric(Matrix(Σ))
+##     if isposdef(A) 
+##         return 0*A
+##     else
+##         return 0.1*A
+##     end 
+## end |> AzBlock;
+
+
+## map(isposdef, bHϕaz)
+## map(eigmin, bHϕaz)
+## map(eigmin, Φaz)
+
+
+
+
+## # nhϕl = @sblock let n2s_ratio = 0.2 , ϕϕl, lmax = 8000
+nϕl = @sblock let n2s_ratio = 0.2, ϕϕl, lmax = 8000
+    l    = 0:lmax
+    nϕl  = (n2s_ratio * maximum((1 .+ l .* (l .+ 1)).^2 .* ϕϕl)) ./ (1 .+ l .* (l .+ 1)).^2
+    return nϕl
 end;
 
 ## figure()
 ## (0:8000).^4 .* ϕϕl |> loglog
-## (0:8000).^4 .* nhϕl |> loglog
+## (0:8000).^4 .* nϕl |> loglog
 
 #-
 
-cov_nhϕ_θ1θ2Δφℝ = @sblock let nhϕl, θℝ, φℝ
+NΦaz = @sblock let Tp, tmW, nϕl, θℝ=θℝ64, φℝ=φℝ64, Φaz
     ##θgrid = range(0, π^(1/2), length=100_000).^2
+
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=100_000).^2
     covf  = Spline1D(
         θgrid, 
-        Spectra.spec2spherecov(nhϕl, θgrid), 
+        Spectra.spec2spherecov(nϕl, θgrid), 
         k=3
     )
-    return (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
+    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ))  
+
+    NΦaz  = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
+        A = Symmetric(real.(Σ),:L)
+        C = cholesky(A, Val(false)) #, check=false)
+        Cholesky(Tp.(C.factors), C.uplo, C.info)
+    end
+
+    NΦaz
 end;
 
-#-
+bHϕaz  = map(Φaz, NΦaz) do Σ, N
+    U, L = Σ.U, Σ.L
+    Symmetric(L / Symmetric(I + U*inv(N)*L) * U)
+end |> AzBlock;
 
-bHϕaz  = AzBlock(cov_nhϕ_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
-    real.(Σ)
-end; 
 
 
 # Preconditioner (via g -> Precon_fctr \ g)
@@ -343,7 +437,8 @@ end;
 
 Precon_fctr = map(Σaz, Naz, Baz) do Σ, N, B
     A = B*Matrix(Σ)*B' + Matrix(N)
-    cholesky(Symmetric(A,:L)) # , check=false)
+    C = cholesky(Symmetric(A,:L)) # , check=false)
+    Cholesky(Tp.(C.factors), C.uplo, C.info)
 end |> AzBlock;
 
 
@@ -354,7 +449,7 @@ end |> AzBlock;
 
 # Gradients with respect to polar: acts by left mult.
 
-∂θaz = @sblock let θℝ
+∂θaz = @sblock let Tp, θℝ=θℝ64
     Δθℝ = θℝ[2] - θℝ[1]
     onesnθm1 = fill(1,length(θℝ)-1)
     ∂θ′ = spdiagm(-1 => .-onesnθm1, 1 => onesnθm1)
@@ -362,12 +457,12 @@ end |> AzBlock;
     ∂θ′[end,1] =  1
     ∂θ = (1 / (2Δθℝ)) * ∂θ′
     ## return ∂θ
-    return (∂θ - ∂θ')/2 
+    return Tp.((∂θ - ∂θ')/2) 
 end
 
 # Gradients with respect to azimuth: acts by right mult.
 
-∂φᵀaz = @sblock let φℝ
+∂φᵀaz = @sblock let Tp, φℝ=φℝ64
     Δφℝ= φℝ[2] - φℝ[1]
     onesnφm1 = fill(1,length(φℝ)-1)
     ∂φ       = spdiagm(-1 => .-onesnφm1, 1 => onesnφm1)
@@ -378,25 +473,26 @@ end
     ## (∂φ * f')' == ∂/∂φ f == f * ∂φᵀ
     ∂φᵀ = transpose((1 / (2Δφℝ)) * ∂φ)
     ## return ∂φᵀ
-    return (∂φᵀ - ∂φᵀ')/2 
+    return Tp.((∂φᵀ - ∂φᵀ')/2) 
 end;
 
 
 
 # Now construct the lense (attinuate the lense near the upper and lower boundaries)
 
-Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let nsteps=14, tmU, θℝ, φℝ, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
+Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let Tp, nsteps=12, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
     
     ## smooth out the transition to the polar boundaries
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
     rightlink = n::Int -> (cos.(range(0,π,length=n)) .+ 1)./2
-    maθ = ones(size(θℝ))
+    maθ = ones(Tp,size(θℝ))
     nup = 5 # 10  #<--- edge buffer which attinuates lensing
     nlw = 5 # 25  #<--- edge buffer which attinuates lensing
     maθ[1:nup]         =  leftlink(nup)
     maθ[end-nlw+1:end] =  rightlink(nlw)
+    maθ = Tp.(maθ)
 
-    sin⁻²θℝ = @. 1 + cot(θℝ)^2 # = cscθ^2
+    sin⁻²θℝ = @. Tp(1 + cot(θℝ)^2) # = cscθ^2
 
     ϕ2v = function (ϕ_az::Xfield)
         ϕ  = ϕ_az[:]
@@ -424,7 +520,7 @@ end;
 
 # Show lensing (zoomed into 1/2 of azimuth band).
 
-@sblock let Ł, ϕ_az=az_sim(tmU, Φaz), Σaz, φℝ, θℝ, fφ=1, hide_plots
+@sblock let Ł, ϕ_az=az_sim(tmU, Φaz), Σaz, φℝ, θℝ, fφ=1/2, hide_plots
     hide_plots && return
 
     Ln = Ł(ϕ_az)
@@ -448,8 +544,8 @@ end;
     ctxt = Dict(
         4 => "w"
     )
-    ## brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
-    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    # diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
 end;
 
 
@@ -458,9 +554,9 @@ end;
 # ================================================
 
 
-ϕ_az  = az_sim(tmU, Φaz)
-t_az  = az_sim(tmU, Σaz)
-d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz));
+ϕ_az  = az_sim(tmU, Φaz) |> Xmap
+t_az  = az_sim(tmU, Σaz) |> Xmap
+d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz)) |> Xmap;
 
 
 @sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, Pr, hide_plots
@@ -491,66 +587,231 @@ end;
 ds = (;  
     tmU, Ł, ∇!, ϕ2v, ϕ2vᴴ, 
     Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Precon_fctr,
+    Φaz⁻¹_fctr = Φaz⁻¹, 
     Baz, bHϕaz, Pr, Qr, 
-    grad_nsteps = 14, pcg_nsteps=75, 
-    linesearch_time_max = 60*5,
+    grad_nsteps = 12, pcg_nsteps=125, 
+    linesearch_time_max = 60*4,
 )
+
+
+
+using NLopt
+
+
+
+function ll′lnf(ϕ, lnf; Ł, Σaz_fctr, ds...)
+    f  =  Ł(ϕ) \ lnf
+    wk = f[!]
+    for (Σ, wkc) ∈ zip(Σaz_fctr, eachcol(wk)) 
+        ldiv!(Σ.L, wkc)
+    end
+    wx = Xfourier(fieldtransform(f), wk)[:] 
+    rtn  = - dot(wx,wx) / 2 
+    rtn 
+end
+
+
+function ll′ϕfield(ϕ, data; Φaz_fctr, ds...)
+    wk = ϕ[!]
+    for (Σ, wkc) ∈ zip(Φaz_fctr, eachcol(wk)) 
+        ldiv!(Σ.L, wkc)
+    end
+    Xfourier(fieldtransform(ϕ), wk)
+end
+
+function ll′ϕ(ϕ, data; ds...)
+	w = ll′ϕfield(ϕ, data; ds...)
+    wx = w[:] 
+    - dot(wx,wx) / 2 
+end
+
+
+function ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, ds...)
+    
+    dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
+    v         = ϕ2v(ϕ)
+    f         = Ł(ϕ) \ lnf 
+    τŁ₀₁      = CMBrings.FieldLensing.τArrayLense(v, (f[:],), ∇!, 0, 1, grad_nsteps)
+    τŁ₁₀      = CMBrings.FieldLensing.τArrayLense(v, (lnf[:],), ∇!, 1, 0, grad_nsteps)        
+    τv₀, τf   = τŁ₁₀(map(zero,v),  (dΔlnf[:],))
+    ∇f        = Xmap(tmU, τf[1]) - Σaz_fctr \ f
+    τv₁, τlnf = τŁ₀₁(τv₀,  (∇f[:],))
+    ## return ϕ2vᴴ(τv₁) - Φaz⁻¹_fctr * ϕ
+    ## testing!!! 
+    return ϕ2vᴴ(τv₁) # - Φaz⁻¹_fctr * ϕ
+end
+
+function update_ϕ′(ϕ, lnf, data; Pr, bHϕaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Φaz⁻¹_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, linesearch_time_max,  ds...)
+
+    nH⁻¹∇ϕ = bHϕaz * ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Φaz⁻¹_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps)
+    ## nH⁻¹∇ϕ = 0.01 * (Φaz * ∇ϕ(ϕ, lnf, f, data))
+
+    ## solver = :LN_SBPLX 
+    solver = :LN_COBYLA
+    ## solver = :LN_NELDERMEAD
+    T   = eltype_in(tmU)
+    opt = NLopt.Opt(solver, 1)
+    opt.maxtime      = linesearch_time_max
+    opt.upper_bounds = T[1.0]
+    opt.lower_bounds = T[0]
+    opt.initial_step = T[0.00001]
+    opt.max_objective = function (β, grad)
+        ϕβ = ϕ + β[1] * nH⁻¹∇ϕ
+        ll′1(ϕβ, lnf, data; Ł, Σaz_fctr) + ll′2(ϕβ, lnf, data; Ł, Φaz_fctr)
+    end
+
+    ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
+    @show ll_opt, β_opt
+    
+    return ϕ + β_opt[1] * nH⁻¹∇ϕ
+end
+
+
 
 
 
 # newton/gibbs iterations
 # ================================================
 
-# initalize ϕ_cr, t_cr, lnt_cr
-ϕ_cr   = Xfourier(tmU)
-lnt_cr = Xfourier(tmU)
+## initalize ϕ_cr, t_cr, lnt_cr
+ϕ_cr   = Xmap(tmU)
+lnt_cr = Xmap(tmU)
 
-#=
-@time CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
-@time CMBrings.update_ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-@time CMBrings.ll(ϕ_cr, lnt_cr, d_az; ds...)
-@time CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-=#
+## @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
+## @time nablaϕ = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
+## @time CMBrings.update_ϕ(ϕ_cr, lnt_cr, d_az; ds...)
+## @time CMBrings.ll(ϕ_cr, lnt_cr, d_az; ds...)
+
+## testing !!!
+bHϕaz.Σ[1] *= 0
+bHϕaz.Σ[2] *= 0
+## bHϕaz.Σ[end] *= 0
+## bHϕaz.Σ[end-1] *= 0
+## bHϕaz.Σ[end-2] *= 0
+
 
 
 # iterate ...
-for itr = 1:15
+for itr = 1:1
     global ϕ_cr, lnt_cr, t_cr, hst 
     @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
-    @time ϕ_cr              = CMBrings.update_ϕ(ϕ_cr, lnt_cr, d_az; ds...)
+    @time ϕ_cr              = update_ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
 end
+
+gradϕ = ∇ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
+
+
+## nH⁻¹∇ϕ = Xfourier(tmU, (Φaz * gradϕ)[!] .* (fullfreq(tmU)[2] .< 200))
+## nH⁻¹∇ϕ = Φaz * gradϕ
+nH⁻¹∇ϕ = bHϕaz * gradϕ
+## bHϕaz.Σ[1] *= 0
+## bHϕaz.Σ[2] *= 0
+## bHϕaz.Σ[end] *= 0
+## bHϕaz.Σ[end-1] *= 0
+## bHϕaz.Σ[end-2] *= 0
+
+nH⁻¹∇ϕ[:] |> matshow
+
+
+# nH⁻¹∇ϕ = bHϕaz * gradϕ
+βs = vcat(0, rand(Tp, 19) ./ 100) |> sort
+lls1 = zeros(Tp, 20)
+lls2 = zeros(Tp, 20)
+for i=1:20
+	lls1[i] = ll′1(ϕ_cr + βs[i] * nH⁻¹∇ϕ, lnt_cr, d_az; ds...)
+	lls2[i] = ll′2(ϕ_cr + βs[i] * nH⁻¹∇ϕ, lnt_cr, d_az; ds...)
+end 
+plot(βs, lls1)
+#plot(lls2)
+plot(βs, lls1 .+ lls2)
+hcat(βs, lls1, lls2, lls1 .+ lls2)
+
+ll′ϕ(ϕ_cr + βs[8] * nH⁻¹∇ϕ, lnt_cr, d_az; ds...)[!] .|> abs .|> log |> matshow
+ll′ϕ(ϕ_cr, lnt_cr, d_az; ds...)[!] .|> abs .|> log |> matshow
+
+
+(ϕ_cr + βs[3] * nH⁻¹∇ϕ)[:] |> matshow
+(ds.Ł(ϕ_cr + βs[3] * nH⁻¹∇ϕ) \ lnt_cr)[:] |> matshow
+## nablaϕ[!] .|> abs |> matshow
+## (bHϕaz*nablaϕ)[:] |> matshow
+## ϕ_cr[:] |> matshow
+## ϕ_az[:] |> matshow
+
+
 
 
 #- 
 
+## @sblock let fest = nH⁻¹∇ϕ, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
 @sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
-    M = Pr
-    # M = I
-    # fltr = CMBrings.fullfreq(tmU)[2]
-    fltr = ones(eltype_out(tmU), size_out(tmU))
+    k   = CMBrings.fullfreq(tmU)
+
+    ## ----------------------
+    fltr = abs.(k[2])
+    ##fltr = ones(eltype_out(tmU), size_out(tmU))
     fltr[:,1:4] .= 0
+    ##---------------------
+    beamfwhm = (arcmin=30.0; deg2rad(arcmin/60))
+    σ² = beamfwhm^2 / 8 / log(2)
+    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
+    ##------------------------
+    𝔹 = I
+    ## 𝔹 = Xfourier(tmU,bmk) |> DiagOp
     𝔽 = Xfourier(tmU,fltr) |> DiagOp
-    #𝔽 = I
+    ##𝔽 = I
+    𝕄 = Pr
+    ## 𝕄 = I
+
+    sin²θℝ = @. sin(θℝ)^2
+
+
+    ## figure()
+    ## plot([√var(y) for y in eachrow((𝕄 * 𝔹 * 𝔽 * ftru)[:])])
+    ## plot([√var(y) for y in eachrow((𝕄 * 𝔽 * fest)[:])])
+
+    ## - (0.00025 - 0.0001) .* (1:length(θℝ)) + 0.00025
+
     diskplot(
-        Dict(1=> (M * (𝔽 * fest))[:], 2 =>(M * (𝔽 * ftru))[:]), 
+        ## Dict(1=> sin²θℝ .* (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
+        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
         φℝ', π.-θℝ; 
         txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
-        nrows=1, fontsize=12, vcenter=0, vmin_quantile=1e-5,
+        nrows=1, fontsize=12, vcenter=0, vmin_quantile=1e-4,
     )
+
+    brickplot(
+        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
+        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
+        fφ=1/2
+    )
+
 end
 
 
 #-
 
-@sblock let fest = ϕ2vᴴ(ϕ2v(ϕ_cr )), ftru = ϕ2vᴴ(ϕ2v(ϕ_az)), φℝ, θℝ, Pr
+@sblock let fest = ϕ2vᴴ(ϕ2v(ϕ_cr )), ftru = ϕ2vᴴ(ϕ2v(ϕ_az)), φℝ, θℝ, Pr, tmU
+
+    k   = CMBrings.fullfreq(tmU)
+
+    ##---------------------
+    beamfwhm = (arcmin=10.0; deg2rad(arcmin/60))
+    σ² = beamfwhm^2 / 8 / log(2)
+    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
+    ##------------------------
+    𝔹 = I
+    ##𝔹 = Xfourier(tmU,bmk) |> DiagOp
+    ##𝕄 = Pr
+    𝕄 = I
+
 
     diskplot(
-        Dict(1=>(Pr * fest)[:], 2=>(Pr * ftru)[:]),
-        φℝ', π.-θℝ; nrows=1, fontsize=14
+        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
+        φℝ', π.-θℝ; nrows=1, fontsize=14, vcenter=0, vmin_quantile=1e-4,
     )
 
     brickplot(
-        Dict(1=>(Pr * fest)[:], 2=>(Pr * ftru)[:]), 
+        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
         fφ=1/2
     )
 
@@ -562,9 +823,10 @@ end
 
 
 
-# newton updates within gibbs iterations
 
-
+ln_az    = length(d_az[:])
+zll_t_az = (dot(t_az[:], (Σaz \ t_az)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
+zll_t_cr = (dot(t_cr[:], (Σaz \ t_cr)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
 
 
 
