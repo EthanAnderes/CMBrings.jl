@@ -133,11 +133,12 @@ end;
 # Set ring transforms
 # ==============================
 
-tmU, tmW, Tp = let  nθ=length(θℝ), nφ=length(φℝ)
-    tmW32 = 𝕀(nθ) ⊗ 𝕎(Tp, nφ, 2π)
+tmU, tmW = @sblock let nθ=length(θℝ), nφ=length(φℝ)
+    tmW32 = 𝕀(nθ) ⊗ 𝕎(Float32, nφ, 2π)
     tmW64 = 𝕀(nθ) ⊗ 𝕎(Float64, nφ, 2π)
-    tmU  = unitary_scale(tmW32)*tmW32
-    tmU, tmW64, Tp
+    ## tmU  = unitary_scale(tmW32)*tmW32
+    tmU  = unitary_scale(tmW64)*tmW64
+    tmU, tmW64
 end
 
 
@@ -193,7 +194,8 @@ end;
         ##real.(A) + 1e-8*I(length(θℝ))
         A = Symmetric(real.(A),:L)
         C = cholesky(A, Val(false)) #, check=false)
-        Cholesky(Tp.(C.factors), C.uplo, C.info)
+        ## Cholesky(Tp.(C.factors), C.uplo, C.info)
+        C
     end
 
     Φaz
@@ -343,16 +345,11 @@ end;
 
 #-
 
-NΦNaz = @sblock let Tp, tmW, ϕϕl, ϕnnl, θℝ=θℝ64, φℝ=φℝ64 
+NΦNaz = @sblock let Tp, tmW, Φaz, ϕnnl, θℝ=θℝ64, φℝ=φℝ64 
 	
 	##θgrid = range(0, π^(1/2), length=50_000).^2
     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
     θgrid = range(0, dmax^(1/2), length=50_000).^2
-    covϕϕ  = Spline1D(
-        θgrid, 
-        Spectra.spec2spherecov(ϕϕl .+ ϕnnl, θgrid), 
-        k=3
-    )
 
     covϕnn  = Spline1D(
         θgrid, 
@@ -361,7 +358,6 @@ NΦNaz = @sblock let Tp, tmW, ϕϕl, ϕnnl, θℝ=θℝ64, φℝ=φℝ64
     )
 
 
-    covϕϕ_θ1θ2Δφℝ  = (θ1,θ2,Δφℝ) -> covϕϕ(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
     covϕnn_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covϕnn(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
 
     Naz = AzBlock(covϕnn_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
@@ -369,13 +365,8 @@ NΦNaz = @sblock let Tp, tmW, ϕϕl, ϕnnl, θℝ=θℝ64, φℝ=φℝ64
         A
     end 
 
-    Φaz = AzBlock(covϕϕ_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
-        A = Symmetric(real.(A),:L)
-        A
-    end 
-
 	NΦNaz  = map(Φaz, Naz) do Φ, N
-    	Tp.(N * inv(cholesky(Φ + N)))
+    	N * inv(cholesky(Symmetric(Matrix(Φ) + N)))
 	end |> AzBlock
 
 
@@ -432,7 +423,7 @@ end;
 
 # Now construct the lense (attinuate the lense near the upper and lower boundaries)
 
-Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let Tp, rcϕ = Tp(rcϕ), nsteps=14, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
+Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let Tp, rcϕ = rcϕ, nsteps=14, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
     
     ## smooth out the transition to the polar boundaries
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
@@ -612,7 +603,7 @@ function update_ϕ′(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr,
     ## opt.initial_step = T[0.00001]
     opt.max_objective = function (β, grad)
         ϕβ = ϕ + β[1] * inHgrad
-        ll′lnf(ϕβ, lnf, Ł, Σaz_fctr) + ll′ϕ(ϕβ, data, Φaz_fctr) / 500
+        ll′lnf(ϕβ, lnf, Ł, Σaz_fctr) + ll′ϕ(ϕβ, data, Φaz_fctr) 
     end
 
     ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
@@ -662,7 +653,7 @@ end
 ## 	lls2[i] = ll′ϕ(ϕβ, d_az, ds.Φaz_fctr)
 ## end 
 ## #plot(βs, lls1)
-## #plot(lls2)
+## #plot(βs, lls2)
 ## # plot(βs, lls1 .+ lls2)
 ## hcat(βs, lls1, lls2, lls1 .+ lls2 ./ 100)
 
