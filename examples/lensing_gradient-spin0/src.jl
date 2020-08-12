@@ -217,7 +217,7 @@ end;
     Σaz = AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
         ##real.(A) + 1e-8*I(length(θℝ))
         A = Symmetric(real.(A),:L)
-        # A = Symmetric(real.(A) + 1e-8*I(length(θℝ)),:L)
+        ## A = Symmetric(real.(A) + 1e-8*I(length(θℝ)),:L)
         C = cholesky(A, Val(false)) #, check=false)
         Cholesky(Tp.(C.factors), C.uplo, C.info)
     end 
@@ -488,8 +488,8 @@ end;
     ctxt = Dict(
         4 => "w"
     )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
-    # diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+    ## brickplot(imgs; txt=txt, ctxt=ctxt, fφ=fφ)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
 end;
 
 
@@ -519,7 +519,7 @@ d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz)) |> Xfourier;
         3 => "w"
     )
     ## brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
-    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=14)
+    diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
 end;
 
 
@@ -537,7 +537,7 @@ ds = (;
 )
 
 
-
+#-
 
 
 
@@ -554,7 +554,7 @@ end
 
 
 function ll′ϕfield(ϕ, data, Φaz_fctr)
-    wk = ϕ[!]
+    wk = deepcopy(ϕ[!])
     for (Σ, wkc) ∈ zip(Φaz_fctr, eachcol(wk)) 
         ldiv!(Σ.L, wkc)
     end
@@ -624,11 +624,15 @@ end
 lnt_cr = Xfourier(tmU)
 
 # iterate ...
-for itr = 1:4
+for itr = 1:10
     global ϕ_cr, lnt_cr, t_cr, hst 
     @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
     @time ϕ_cr              = update_ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
 end
+## ll′ϕfield(ϕ_cr, d_az, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
+## ll′ϕfield(ϕ_az, d_az, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
+
+
 
 ## gradϕ = ∇ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
 ## inHgrad = NΦNaz * (Φaz * gradϕ - ϕ_cr) 
@@ -668,8 +672,8 @@ end
 
     ## ----------------------
     fltr = abs.(k[2])
-    ##fltr = ones(eltype_out(tmU), size_out(tmU))
-    fltr[:,1:4] .= 0
+    ## fltr = ones(eltype_out(tmU), size_out(tmU))
+    fltr[:,1:10] .= 0
     ##---------------------
     beamfwhm = (arcmin=30.0; deg2rad(arcmin/60))
     σ² = beamfwhm^2 / 8 / log(2)
@@ -679,17 +683,8 @@ end
     ## 𝔹 = Xfourier(tmU,bmk) |> DiagOp
     𝔽 = Xfourier(tmU,fltr) |> DiagOp
     ##𝔽 = I
-    𝕄 = Pr
-    ## 𝕄 = I
-
-    sin²θℝ = @. sin(θℝ)^2
-
-
-    ## figure()
-    ## plot([√var(y) for y in eachrow((𝕄 * 𝔹 * 𝔽 * ftru)[:])])
-    ## plot([√var(y) for y in eachrow((𝕄 * 𝔽 * fest)[:])])
-
-    ## - (0.00025 - 0.0001) .* (1:length(θℝ)) + 0.00025
+    ## 𝕄 = Pr
+    𝕄 = I
 
     diskplot(
         ## Dict(1=> sin²θℝ .* (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
@@ -740,13 +735,14 @@ end
 
 
 
-
+#-
 
 
 
 ln_az    = length(d_az[:])
 zll_t_az = (dot(t_az[:], (Σaz \ t_az)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
 zll_t_cr = (dot(t_cr[:], (Σaz \ t_cr)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
+@show (zll_t_az, zll_t_cr)
 
 
 
@@ -754,7 +750,104 @@ zll_t_cr = (dot(t_cr[:], (Σaz \ t_cr)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
 
 
 
+# More newton/gibbs iterations
+# ================================================
 
+## initalize ϕ_cr, t_cr, lnt_cr
+ϕ_cr   = Xfourier(tmU)
+lnt_cr = Xfourier(tmU)
+
+# iterate ...
+for itr = 1:40
+    global ϕ_cr, lnt_cr, t_cr, hst 
+    @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
+    @time ϕ_cr              = update_ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
+end
+
+
+
+
+
+
+#- 
+
+## @sblock let fest = nH⁻¹∇ϕ, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
+@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
+    k   = CMBrings.fullfreq(tmU)
+
+    ## ----------------------
+    fltr = abs.(k[2])
+    ## fltr = ones(eltype_out(tmU), size_out(tmU))
+    fltr[:,1:10] .= 0
+    ##---------------------
+    beamfwhm = (arcmin=30.0; deg2rad(arcmin/60))
+    σ² = beamfwhm^2 / 8 / log(2)
+    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
+    ##------------------------
+    𝔹 = I
+    ## 𝔹 = Xfourier(tmU,bmk) |> DiagOp
+    𝔽 = Xfourier(tmU,fltr) |> DiagOp
+    ##𝔽 = I
+    ## 𝕄 = Pr
+    𝕄 = I
+
+    diskplot(
+        ## Dict(1=> sin²θℝ .* (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
+        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
+        φℝ', π.-θℝ; 
+        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
+        nrows=1, fontsize=12, vcenter=0, vmin_quantile=1e-4,
+    )
+
+    brickplot(
+        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
+        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
+        fφ=1/2
+    )
+
+end
+
+
+#-
+
+@sblock let fest = ϕ2vᴴ(ϕ2v(ϕ_cr )), ftru = ϕ2vᴴ(ϕ2v(ϕ_az)), φℝ, θℝ, Pr, tmU
+
+    k   = CMBrings.fullfreq(tmU)
+
+    ##---------------------
+    beamfwhm = (arcmin=10.0; deg2rad(arcmin/60))
+    σ² = beamfwhm^2 / 8 / log(2)
+    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
+    ##------------------------
+    𝔹 = I
+    ##𝔹 = Xfourier(tmU,bmk) |> DiagOp
+    ##𝕄 = Pr
+    𝕄 = I
+
+
+    diskplot(
+        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
+        φℝ', π.-θℝ; nrows=1, fontsize=14, vcenter=0, vmin_quantile=1e-4,
+    )
+
+    brickplot(
+        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
+        fφ=1/2
+    )
+
+end 
+
+
+
+
+#-
+
+
+
+ln_az    = length(d_az[:])
+zll_t_az = (dot(t_az[:], (Σaz \ t_az)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
+zll_t_cr = (dot(t_cr[:], (Σaz \ t_cr)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
+@show (zll_t_az, zll_t_cr)
 
 
 
