@@ -92,8 +92,10 @@ end
 function Base.:*(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
     v  = f[!]
     w  = similar(v)
-    for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-        mul!(wk, Σk, vk)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(vk)
+        mul!(wk[i], az[i], vk[i])
     end
     XF(Xfourier(fieldtransform(f),w))
 end
@@ -101,8 +103,10 @@ end
 function Base.:*(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
     v  = f[!]
     w  = similar(v)
-    for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-        mul!(wk, Matrix(Σk), vk)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(vk)
+        mul!(wk[i], Matrix(az[i]), vk[i])
     end
     XF(Xfourier(fieldtransform(f),w))
 end
@@ -111,8 +115,10 @@ end
 function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, XF<:Xfield}
     v  = f[!]
     w  = similar(v)
-    for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-        ldiv!(wk,factorize(Σk),vk)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(vk)
+        ldiv!(wk[i], factorize(az[i]), vk[i])
     end
     XF(Xfourier(fieldtransform(f),w))
 end
@@ -121,11 +127,55 @@ end
 function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
     v  = f[!]
     w  = similar(v)
-    for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-        ldiv!(wk,Σk,vk)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(vk)
+        ldiv!(wk[i], az[i], vk[i])
     end
     XF(Xfourier(fieldtransform(f),w))
 end
+
+
+
+# non threaded versions 
+
+# function Base.:*(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
+#     v  = f[!]
+#     w  = similar(v)
+#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
+#         mul!(wk, Σk, vk)
+#     end
+#     XF(Xfourier(fieldtransform(f),w))
+# end
+
+# function Base.:*(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
+#     v  = f[!]
+#     w  = similar(v)
+#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
+#         mul!(wk, Matrix(Σk), vk)
+#     end
+#     XF(Xfourier(fieldtransform(f),w))
+# end
+
+
+# function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, XF<:Xfield}
+#     v  = f[!]
+#     w  = similar(v)
+#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
+#         ldiv!(wk,factorize(Σk),vk)
+#     end
+#     XF(Xfourier(fieldtransform(f),w))
+# end
+
+
+# function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
+#     v  = f[!]
+#     w  = similar(v)
+#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
+#         ldiv!(wk,Σk,vk)
+#     end
+#     XF(Xfourier(fieldtransform(f),w))
+# end
 
 
 
@@ -134,22 +184,46 @@ end
 
 check_factorization(az::AzBlock) = all(map(issuccess, az))
 
+
 function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:Cholesky}
-    wx = randn(eltype_in(tmU), size_in(tmU))
-    wk = Xmap(tmU, wx)[!]
-    for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
-        lmul!(Σ.L, wkc)
+    wx  = randn(eltype_in(tmU), size_in(tmU))
+    wk  = Xmap(tmU, wx)[!]
+    wkc = collect(eachcol(wk))
+    Threads.@threads for i ∈ eachindex(wkc)
+        lmul!(az[i].L, wkc[i])
     end
     Xfourier(tmU, wk) 
 end
 
 
 function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:AbstractMatrix}
-    wx = randn(eltype_in(tmU), size_in(tmU))
-    wk = Xmap(tmU, wx)[!]
-    for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
-        lmul!(cholesky(Σ, Val(false)).L, wkc)
+    wx  = randn(eltype_in(tmU), size_in(tmU))
+    wk  = Xmap(tmU, wx)[!]
+    wkc = collect(eachcol(wk))
+    Threads.@threads for i ∈ eachindex(wkc)
+        lmul!(cholesky(az[i], Val(false)).L, wkc[i])
     end
     Xfourier(tmU, wk) 
 end
+
+
+
+# function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:Cholesky}
+#     wx = randn(eltype_in(tmU), size_in(tmU))
+#     wk = Xmap(tmU, wx)[!]
+#     for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
+#         lmul!(Σ.L, wkc)
+#     end
+#     Xfourier(tmU, wk) 
+# end
+
+
+# function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:AbstractMatrix}
+#     wx = randn(eltype_in(tmU), size_in(tmU))
+#     wk = Xmap(tmU, wx)[!]
+#     for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
+#         lmul!(cholesky(Σ, Val(false)).L, wkc)
+#     end
+#     Xfourier(tmU, wk) 
+# end
 

@@ -2,10 +2,10 @@
 # Modules
 # ==============================
 using FFTW
-#FFTW.set_num_threads(4)
+FFTW.set_num_threads(3)
 
 using LinearAlgebra
-#BLAS.set_num_threads(4)
+## BLAS.set_num_threads(8)
 
 using SparseArrays
 
@@ -137,7 +137,7 @@ tmU, tmW = @sblock let nθ=length(θℝ), nφ=length(φℝ)
     tmW32 = 𝕀(nθ) ⊗ 𝕎(Float32, nφ, 2π)
     tmW64 = 𝕀(nθ) ⊗ 𝕎(Float64, nφ, 2π)
     ## tmU  = unitary_scale(tmW32)*tmW32
-    tmU  = unitary_scale(tmW64)*tmW64
+    tmU  = unitary_scale(tmW64)*tmW64 ## !!! this instead of tmW32
     tmU, tmW64
 end
 
@@ -357,7 +357,6 @@ NΦNaz = @sblock let Tp, tmW, Φaz, ϕnnl, θℝ=θℝ64, φℝ=φℝ64
         k=3
     )
 
-
     covϕnn_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covϕnn(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
 
     Naz = AzBlock(covϕnn_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
@@ -427,7 +426,7 @@ end;
     
     ## smooth out the transition to the polar boundaries
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
-    rightlink = n::Int -> (cos.(range(0,π,length=n)) .+ 1)./2
+    rightlink = n::Int -> (cos.(range(0,π,length=n))  .+ 1)./2
     maθ = ones(Tp,size(θℝ))
     nup = 5 # 10  #<--- edge buffer which attinuates lensing
     nlw = 5 # 25  #<--- edge buffer which attinuates lensing
@@ -533,44 +532,61 @@ ds = (;
     Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
     Precon_fctr, NΦNaz, 
     grad_nsteps = 14, pcg_nsteps=125, 
-    linesearch_time_max = 60*3,
-)
+    linesearch_time_max = 60*4,
+);
 
 
 #-
 
 
-
-function ll′lnf(ϕ, lnf, Ł, Σaz_fctr)
-    f  =  Ł(ϕ) \ lnf
-    wk = f[!]
-    for (Σ, wkc) ∈ zip(Σaz_fctr, eachcol(wk)) 
-        ldiv!(Σ.L, wkc)
-    end
-    wx = Xfourier(fieldtransform(f), wk)[:] 
-    rtn  = - dot(wx,wx) / 2 
-    rtn 
-end
-
-
-function ll′ϕfield(ϕ, data, Φaz_fctr)
-    wk = deepcopy(ϕ[!])
-    for (Σ, wkc) ∈ zip(Φaz_fctr, eachcol(wk)) 
-        ldiv!(Σ.L, wkc)
-    end
-    Xfourier(fieldtransform(ϕ), wk)
-end
-
 function ll′ϕ(ϕ, data, Φaz_fctr)
-	w = ll′ϕfield(ϕ, data, Φaz_fctr)
+    w  = ll′ϕfield(ϕ, data, Φaz_fctr)
     wx = w[:] 
     - dot(wx,wx) / 2 
 end
 
+function ll′ϕfield(ϕ, data, Φaz_fctr)
+    wk      = deepcopy(ϕ[!])
+    ecol_wk = collect(eachcol(wk))
+    Threads.@threads for i ∈ eachindex(ecol_wk)
+        ldiv!(Φaz_fctr[i].L, ecol_wk[i])
+    end
+    Xfourier(fieldtransform(ϕ), wk)
+end
+## function ll′ϕfield(ϕ, data, Φaz_fctr)
+##     wk = deepcopy(ϕ[!])
+##     for (Σ, wkc) ∈ zip(Φaz_fctr, eachcol(wk)) 
+##         ldiv!(Σ.L, wkc)
+##     end
+##     Xfourier(fieldtransform(ϕ), wk)
+## end
+
+
+
+function ll′lnf(ϕ, lnf, Ł, Σaz_fctr)
+    f       =  Ł(ϕ) \ lnf
+    wk      = f[!]
+    ecol_wk = collect(eachcol(wk))
+    Threads.@threads for i ∈ eachindex(ecol_wk)
+        ldiv!(Σaz_fctr[i].L, ecol_wk[i])
+    end
+    wx  = Xfourier(fieldtransform(f), wk)[:] 
+    - dot(wx,wx) / 2 
+end
+## function ll′lnf(ϕ, lnf, Ł, Σaz_fctr)
+##     f  =  Ł(ϕ) \ lnf
+##     wk = f[!]
+##     for (Σ, wkc) ∈ zip(Σaz_fctr, eachcol(wk)) 
+##         ldiv!(Σ.L, wkc)
+##     end
+##     wx = Xfourier(fieldtransform(f), wk)[:] 
+##     rtn  = - dot(wx,wx) / 2 
+##     rtn 
+## end
+
 
 function ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, ds...)
-    
-    ## Remark: for this to be correct Naz_fctr must be diagonal in pixel space
+    ## Remark: for the next line to be correct Naz_fctr must be diagonal in pixel space
     dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
     v         = ϕ2v(ϕ)
     f         = Ł(ϕ) \ lnf 
@@ -579,28 +595,23 @@ function ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł
     τv₀, τf   = τŁ₁₀(map(zero,v),  (dΔlnf[:],))
     ∇f        = Xmap(tmU, τf[1]) - Σaz_fctr \ f
     τv₁, τlnf = τŁ₀₁(τv₀,  (∇f[:],))
-    ## return ϕ2vᴴ(τv₁) - Φaz⁻¹_fctr * ϕ
-    ## testing!!! 
-    return ϕ2vᴴ(τv₁)
+    return ϕ2vᴴ(τv₁) #  - Φaz_fctr \ ϕ # this last term is added later
 end
 
 function update_ϕ′(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, linesearch_time_max,  ds...)
 
-    gradϕ = ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps)
+    gradϕ   = ∇ϕ′(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps)
     inHgrad = NΦNaz * ((Φaz_fctr * gradϕ) - ϕ) 
     ## Note that ∇ϕ′ skips the Φ⁻¹⋅ϕ term ... so it is added to inHgrad. 
     ## With the approx inverse Hessian of the form (Φ⁻¹ + N⁻¹)⁻¹ = N(Φ + N)⁻¹Φ 
     ## we get to cancel it out so that (Φ⁻¹ + N⁻¹)⁻¹⋅Φ⁻¹⋅ϕ == N(Φ + N)⁻¹⋅ϕ
 
-    ## solver = :LN_SBPLX 
-    solver = :LN_COBYLA
-    ## solver = :LN_NELDERMEAD
+    solver = :LN_COBYLA # :LN_SBPLX :LN_NELDERMEAD
     T   = eltype_in(tmU)
     opt = NLopt.Opt(solver, 1)
     opt.maxtime      = linesearch_time_max
     opt.upper_bounds = T[1.0]
     opt.lower_bounds = T[0]
-    ## opt.initial_step = T[0.00001]
     opt.max_objective = function (β, grad)
         ϕβ = ϕ + β[1] * inHgrad
         ll′lnf(ϕβ, lnf, Ł, Σaz_fctr) + ll′ϕ(ϕβ, data, Φaz_fctr) 
@@ -622,17 +633,19 @@ end
 ## initalize ϕ_cr, t_cr, lnt_cr
 ϕ_cr   = Xfourier(tmU)
 lnt_cr = Xfourier(tmU)
+ϕ_cr_array = typeof(ϕ_cr)[]
 
 # iterate ...
-for itr = 1:10
-    global ϕ_cr, lnt_cr, t_cr, hst 
+for itr = 1:1
+    global ϕ_cr, lnt_cr, t_cr, hst, ϕ_cr_array 
     @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
     @time ϕ_cr              = update_ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
+    push!(ϕ_cr_array, deepcopy(ϕ_cr))
 end
 ## ll′ϕfield(ϕ_cr, d_az, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
 ## ll′ϕfield(ϕ_az, d_az, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
 
-
+ϕ_sumi = mean(ϕ_cr_array)
 
 ## gradϕ = ∇ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
 ## inHgrad = NΦNaz * (Φaz * gradϕ - ϕ_cr) 
@@ -667,7 +680,8 @@ end
 #- 
 
 ## @sblock let fest = nH⁻¹∇ϕ, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
-@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
+## @sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
+@sblock let fest = ϕ_sumi, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
     k   = CMBrings.fullfreq(tmU)
 
     ## ----------------------
@@ -683,7 +697,7 @@ end
     ## 𝔹 = Xfourier(tmU,bmk) |> DiagOp
     𝔽 = Xfourier(tmU,fltr) |> DiagOp
     ##𝔽 = I
-    ## 𝕄 = Pr
+    ##𝕄 = Pr
     𝕄 = I
 
     diskplot(
@@ -718,112 +732,6 @@ end
     ##𝔹 = Xfourier(tmU,bmk) |> DiagOp
     ##𝕄 = Pr
     𝕄 = I
-
-
-    diskplot(
-        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
-        φℝ', π.-θℝ; nrows=1, fontsize=14, vcenter=0, vmin_quantile=1e-4,
-    )
-
-    brickplot(
-        Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
-        fφ=1/2
-    )
-
-end 
-
-
-
-
-#-
-
-
-
-ln_az    = length(d_az[:])
-zll_t_az = (dot(t_az[:], (Σaz \ t_az)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
-zll_t_cr = (dot(t_cr[:], (Σaz \ t_cr)[:]) - ln_az) / sqrt(2*ln_az) # PCG sim
-@show (zll_t_az, zll_t_cr)
-
-
-
-
-
-
-
-# More newton/gibbs iterations
-# ================================================
-
-## initalize ϕ_cr, t_cr, lnt_cr
-ϕ_cr   = Xfourier(tmU)
-lnt_cr = Xfourier(tmU)
-
-# iterate ...
-for itr = 1:40
-    global ϕ_cr, lnt_cr, t_cr, hst 
-    @time lnt_cr, t_cr, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; ds...)
-    @time ϕ_cr              = update_ϕ′(ϕ_cr, lnt_cr, d_az; ds...)
-end
-
-
-
-
-
-
-#- 
-
-## @sblock let fest = nH⁻¹∇ϕ, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
-@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, Pr
-    k   = CMBrings.fullfreq(tmU)
-
-    ## ----------------------
-    fltr = abs.(k[2])
-    ## fltr = ones(eltype_out(tmU), size_out(tmU))
-    fltr[:,1:10] .= 0
-    ##---------------------
-    beamfwhm = (arcmin=30.0; deg2rad(arcmin/60))
-    σ² = beamfwhm^2 / 8 / log(2)
-    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
-    ##------------------------
-    𝔹 = I
-    ## 𝔹 = Xfourier(tmU,bmk) |> DiagOp
-    𝔽 = Xfourier(tmU,fltr) |> DiagOp
-    ##𝔽 = I
-    ## 𝕄 = Pr
-    𝕄 = I
-
-    diskplot(
-        ## Dict(1=> sin²θℝ .* (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
-        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
-        φℝ', π.-θℝ; 
-        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
-        nrows=1, fontsize=12, vcenter=0, vmin_quantile=1e-4,
-    )
-
-    brickplot(
-        Dict(1=> (𝕄 * 𝔽 * fest)[:], 2 =>(𝕄 * 𝔹 * 𝔽 * ftru)[:]), 
-        txt=Dict(1=>"High pass estimate", 2=>"high pass simulation truth"),
-        fφ=1/2
-    )
-
-end
-
-
-#-
-
-@sblock let fest = ϕ2vᴴ(ϕ2v(ϕ_cr )), ftru = ϕ2vᴴ(ϕ2v(ϕ_az)), φℝ, θℝ, Pr, tmU
-
-    k   = CMBrings.fullfreq(tmU)
-
-    ##---------------------
-    beamfwhm = (arcmin=10.0; deg2rad(arcmin/60))
-    σ² = beamfwhm^2 / 8 / log(2)
-    bmk = exp.( .- σ² .* k[2].^2 ./ 2)
-    ##------------------------
-    𝔹 = I
-    ##𝔹 = Xfourier(tmU,bmk) |> DiagOp
-    ##𝕄 = Pr
-    𝕄 = I
-
 
     diskplot(
         Dict(1=> (𝕄 * fest)[:], 2 =>(𝕄 * 𝔹 * ftru)[:]), 
