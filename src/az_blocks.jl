@@ -136,46 +136,19 @@ function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
 end
 
 
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Eigen, XF<:Xfield}
+    v  = deepcopy(f[!])
+    w  = deepcopy(v)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(vk)
+        mul!(vk[i], az[i].vectors', wk[i])
+        vk[i] .*= pinv.(az[i].values)
+        mul!(wk[i], az[i].vectors, vk[i])
+    end
+    XF(Xfourier(fieldtransform(f),w))
+end
 
-# non threaded versions 
-
-# function Base.:*(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
-#     v  = f[!]
-#     w  = similar(v)
-#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-#         mul!(wk, Σk, vk)
-#     end
-#     XF(Xfourier(fieldtransform(f),w))
-# end
-
-# function Base.:*(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
-#     v  = f[!]
-#     w  = similar(v)
-#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-#         mul!(wk, Matrix(Σk), vk)
-#     end
-#     XF(Xfourier(fieldtransform(f),w))
-# end
-
-
-# function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, XF<:Xfield}
-#     v  = f[!]
-#     w  = similar(v)
-#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-#         ldiv!(wk,factorize(Σk),vk)
-#     end
-#     XF(Xfourier(fieldtransform(f),w))
-# end
-
-
-# function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
-#     v  = f[!]
-#     w  = similar(v)
-#     for (wk, Σk, vk) in zip(eachcol(w), az, eachcol(v))
-#         ldiv!(wk,Σk,vk)
-#     end
-#     XF(Xfourier(fieldtransform(f),w))
-# end
 
 
 
@@ -183,6 +156,20 @@ end
 # =======================================
 
 check_factorization(az::AzBlock) = all(map(issuccess, az))
+
+
+function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:Eigen}
+    vx  = randn(eltype_in(tmU), size_in(tmU))
+    v   = Xmap(tmU, vx)[!]
+    w   = similar(v)
+    wk = collect(eachcol(w))
+    vk = collect(eachcol(v))
+    Threads.@threads for i ∈ eachindex(wk)
+        vk[i] .*= sqrt.(az[i].values)
+        mul!(wk[i], az[i].vectors, vk[i])
+    end
+    Xfourier(tmU, w) 
+end
 
 
 function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:Cholesky}
