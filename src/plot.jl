@@ -57,7 +57,7 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
 
     fig, ax = subplots(
         nrows, ncols, 
-        figsize=(sz*(4.5*ncols), sz*(5*nrows)),
+        figsize=(sz*(6.5*ncols), sz*(5*nrows)),
         subplot_kw=Dict(:projection=>"polar")
     )
 
