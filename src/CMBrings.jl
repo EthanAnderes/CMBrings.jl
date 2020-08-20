@@ -105,7 +105,8 @@ function update_lnf_f(ϕ, data; data′, f′, ginit, Pr, Qr, Ł, tmU, Σaz_fctr
 end
 
  
-function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, linesearch_time_max,  ds...)
+function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, linesearch_time_max, solver = :LN_COBYLA,  ds...)
+    # here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
 
     gradϕ   = CMBrings.∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps)
     # inHgrad = NΦNaz * ((Φaz_fctr * gradϕ) - ϕ) 
@@ -114,7 +115,6 @@ function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Ba
     ## With the approx inverse Hessian of the form (Φ⁻¹ + N⁻¹)⁻¹ = N(Φ + N)⁻¹Φ 
     ## we get to cancel it out so that (Φ⁻¹ + N⁻¹)⁻¹⋅Φ⁻¹⋅ϕ == N(Φ + N)⁻¹⋅ϕ
 
-    solver = :LN_COBYLA # :LN_SBPLX :LN_NELDERMEAD
     T   = eltype_in(tmU)
     opt = NLopt.Opt(solver, 1)
     opt.maxtime      = linesearch_time_max
@@ -128,7 +128,28 @@ function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Ba
     ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
     @show ll_opt, β_opt
     
-    return ϕ + β_opt[1] * inHgrad
+    return β_opt[1]*inHgrad
+end
+
+
+function update_ϕ(gradϕ, ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr,  Φaz_fctr, Ł, ∇!, tmU, linesearch_time_max, solver = :LN_COBYLA,  ds...)
+    # here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
+    inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz_fctr \ ϕ) 
+
+    T   = eltype_in(tmU)
+    opt = NLopt.Opt(solver, 1)
+    opt.maxtime      = linesearch_time_max
+    opt.upper_bounds = T[1.0]
+    opt.lower_bounds = T[0]
+    opt.max_objective = function (β, grad)
+        ϕβ = ϕ + β[1] * inHgrad
+        lllnf(ϕβ, lnf, Ł, Σaz_fctr) + llϕ(ϕβ, Φaz_fctr) 
+    end
+
+    ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
+    @show ll_opt, β_opt
+    
+    return inHgrad, β_opt[1]
 end
 
 
