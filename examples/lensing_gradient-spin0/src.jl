@@ -2,10 +2,13 @@
 # Modules
 # ==============================
 using FFTW
-FFTW.set_num_threads(3)
+## FFTW.set_num_threads(1)
 
 using LinearAlgebra
 ## BLAS.set_num_threads(1)
+## BLAS.vendor() 
+## perhaps try and use system blas?? 
+
 
 using SparseArrays
 
@@ -46,20 +49,20 @@ T_Naz    = Float32
 T_Baz    = Float32
 T_Precon = Float32
 
-QP_boundry_clearance = 1e-3 
+QP_boundry_clearance = 1e-5 
 
 #-
 
 ma, maᶜ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let QP_boundry_clearance, T_fld
 
     ## ------------------
-    ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.csv", ',', Bool)
-    nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## ma𝕊 = readdlm("FastTransform_mask_nθ3072_nφ4095.csv", ',', Bool)
+    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    ## sθ_clip = (78*nθ𝕊÷100):(87*nθ𝕊÷100)
     ## sθ_clip = (78*nθ𝕊÷100):(87*nθ𝕊÷100) # default
     ## # sθ_clip = (75*nθ𝕊÷100):(85*nθ𝕊÷100)
     ## # sθ_clip = (72*nθ𝕊÷100):(87*nθ𝕊÷100)
     ## # sθ_clip = (69*nθ𝕊÷100):(90*nθ𝕊÷100)
-    sθ_clip = (78*nθ𝕊÷100):(87*nθ𝕊÷100)
     ## ------------------
     ## # ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ4095.csv", ',', Bool)
     ## ma𝕊      = readdlm("FastTransform_mask_spole_nθ3072_nφ3071.csv", ',', Bool)
@@ -74,11 +77,12 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let QP_bound
     ## nθ𝕊, nφ𝕊 = size(ma𝕊)
     ## sθ_clip  = (82*nθ𝕊÷100):(98*nθ𝕊÷100)
     ## ---------------------
-    ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ3071.csv", ',', Bool)
+    ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ3071.csv", ',', Bool)
     ## ma𝕊  = readdlm("FastTransform_mask_mid2pole_nθ2560_nφ4095.csv", ',', Bool)
-    ## nθ𝕊, nφ𝕊 = size(ma𝕊)
+    nθ𝕊, nφ𝕊 = size(ma𝕊)
     ## sθ_clip  = (79*nθ𝕊÷100):(96*nθ𝕊÷100)
-    ## sθ_clip  = (81*nθ𝕊÷100):(92*nθ𝕊÷100)
+    sθ_clip  = (83*nθ𝕊÷100):(92*nθ𝕊÷100)
+    ## sθ_clip  = (84*nθ𝕊÷100):(95*nθ𝕊÷100)
 
 
     s0 = ST.𝕊(Float64, nθ𝕊, nφ𝕊, 0)
@@ -94,8 +98,8 @@ ma, maᶜ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let QP_bound
     𝕨 = r𝕎(nθ𝕊, π) ⊗ r𝕎(nφ𝕊, 2π) |> x-> ordinary_scale(x)*x
     ## beamfwhm1 = (arcmin=100.0; deg2rad(arcmin/60))
     ## beamfwhm2 = (arcmin=200.0; deg2rad(arcmin/60))
-    beamfwhm1 = (arcmin=200.0; deg2rad(arcmin/60))
-    beamfwhm2 = (arcmin=300.0; deg2rad(arcmin/60))
+    beamfwhm1 = (arcmin=500.0; deg2rad(arcmin/60))
+    beamfwhm2 = (arcmin=500.0; deg2rad(arcmin/60))
     σ²1 = beamfwhm1^2 / 8 / log(2)
     σ²2 = beamfwhm2^2 / 8 / log(2)
     k   = fullfreq(𝕨)
@@ -298,7 +302,7 @@ end;
 # Noise with weights weight and mask/projection
 # ==============================
 
-μK′n      = 2.0 # 10.0
+μK′n      = 3.0 # 10.0
 ellknee   = 0   # 150
 alphaknee = 3
 ## weight_θ  = θ -> 1 + 0.15 * sin(300 * θ) # θ -> 1
@@ -619,7 +623,7 @@ ds = (;
     tmU, Ł, ∇!, ϕ2v, ϕ2vᴴ, Pr, Qr, 
     Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
     Precon_fctr, NΦNaz, 
-    grad_nsteps = 12, pcg_nsteps=75, 
+    grad_nsteps = 12, pcg_nsteps=100, 
     linesearch_time_max = 60*3,
     solver = :LN_COBYLA, # :LN_SBPLX, ##  :LN_NELDERMEAD, 
 );
@@ -635,7 +639,7 @@ function update_ϕ_maxlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr, 
     lnf        = lnf_array[imax]
     sc_lllnf   = vmax
 
-    # here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
+    ## here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
     inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz_fctr \ ϕ) 
 
     T   = eltype_in(tmU)
@@ -657,7 +661,7 @@ end
 
 function update_ϕ_meanlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr,  Φaz_fctr, Ł, ∇!, tmU, linesearch_time_max, solver = :LN_COBYLA,  ds...)
     
-    # here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
+    ## here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
     inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz_fctr \ ϕ) 
 
     T   = eltype_in(tmU)
@@ -667,7 +671,7 @@ function update_ϕ_meanlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr,
     opt.lower_bounds = T[0]
     opt.max_objective = function (β, grad)
         ϕβ = ϕ + β[1] * inHgrad
-        rtn  = mean(map(lnf -> CMBrings.lllnf(ϕ, lnf, Ł, Σaz_fctr), lnf_array))
+        rtn  = mean(map(lnf -> CMBrings.lllnf(ϕβ, lnf, Ł, Σaz_fctr), lnf_array))
         rtn += CMBrings.llϕ(ϕβ, Φaz_fctr)
         rtn 
     end
@@ -684,41 +688,45 @@ end
 # newton/gibbs iterations
 # ================================================
 
-ϕ_cr  = Xfourier(tmU)
-ginit = Xfourier(tmU)
-∇ϕ_cr = Xfourier(tmU)
-∇ϕ_cr_array   = typeof(ϕ_cr)[]
-lnt_cr_array  = typeof(ϕ_cr)[]
-ϕ_cr_array    = typeof(ϕ_cr)[]
-ginit_array   = typeof(ginit)[]
+ϕ_cr     = Xfourier(tmU)
+ginit_cr = Xfourier(tmU)
+∇ϕ_cr    = Xfourier(tmU)
 
 
 # iterate ...
-for otr = 1:5
+for otr = 1:2
     global lnt_cr, t_cr, inHgrad 
-    
-    for itr = 1:10
-        n′  = az_sim(tmU, Naz) |> Xfourier
+    global ∇ϕ_cr_array, lnt_cr_array, ginit_array
+
+	∇ϕ_cr_array   = typeof(∇ϕ_cr)[]
+	lnt_cr_array  = typeof(ϕ_cr)[]
+	ginit_array   = typeof(ginit_cr)[]
+
+    for itr = 1:4
+	    n′  = az_sim(tmU, Naz) |> Xfourier
         f′  = az_sim(tmU, Σaz) |> Xfourier
         data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier;
-        @time lnt_cr, t_cr, ginit_out, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit, ds...)
+        @time lnt_cr, t_cr, ginit_wf, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit=ginit_cr, ds...)
         @show hst[end]
         ∇ϕ_cr = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
         push!(∇ϕ_cr_array,  ∇ϕ_cr)
         push!(lnt_cr_array, lnt_cr)
-        push!(ginit_array, ginit_out)
+        push!(ginit_array,  ginit_wf)
     end
 
-    ## @time inHgrad, β = update_ϕ_maxlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
-    @time inHgrad, β = update_ϕ_meanlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
+    @time inHgrad, β = update_ϕ_maxlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
     ## @time inHgrad, β = update_ϕ_meanlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
     ϕ_cr += β * inHgrad
-    ginit = mean(ginit_array)
+    ginit_cr = mean(ginit_array)
+
 
 end
 
+
+
 # TODO: see if you can adjust the hessian with these samples 
 # Wouldn't a wishart type draw work? 
+
 
 
 ## # iterate ...
@@ -748,11 +756,9 @@ end
 ## end
 ## 
 
-
-
 ## gradϕ   = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
 ## inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz \ ϕ_cr) 
-## ϕβ = ϕ_cr + 0.01 * inHgrad
+## ϕβ = ϕ_cr + 0.05 * inHgrad;
 ## CMBrings.llfield(ϕβ, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
 ## CMBrings.lllnf(ϕβ, lnt_cr,  ds.Ł, ds.Σaz_fctr) 
 ## CMBrings.llϕ(ϕβ, ds.Φaz_fctr)
@@ -807,24 +813,23 @@ end
 
 
 #- 
-
-## @sblock let fest = mean(ϕ_cr_array), ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
 @sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
+## @sblock let fest = mean(∇ϕ_cr_array), ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
 ## @sblock let fest = ∇ϕ_cr_array[2] - ∇ϕ_cr_array[4], ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
 ## @sblock let fest = ∇ϕ_cr_array[3], ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
     hide_plots && return
 
 
     ## set mask
-    𝕄 = Pr
-    ## 𝕄 = I
+    ## 𝕄 = Pr
+    𝕄 = I
 
     ##------- raw potential
     fest_raw = fest  |> 
-                    x -> x - mean(x[:][Pr[:] .> 0.5]) |> 
+                    ## x -> x - mean(x[:][Pr[:] .> 0.9]) |> 
                     x->𝕄*x
     ftru_raw = ftru  |> 
-                    x -> x - mean(x[:][Pr[:] .> 0.5]) |> 
+                    ## x -> x - mean(x[:][Pr[:] .> 0.9]) |> 
                     x->𝕄*x
     ##------- smoothed laplace 
     fest_sΔ = fest  |>  x->CMBrings.laplace(x, θℝ, ∇!; padpix=5) |> 
@@ -866,11 +871,11 @@ end
         nrows=2, fontsize=12 , vcenter=0, vmin_quantile=1e-6,
     )
 
-    ## brickplot(
-    ##     imgs, 
-    ##     txt=txt,
-    ##     fφ=1/2
-    ## )
+    brickplot(
+        imgs, 
+        txt=txt,
+        fφ=1/2
+    )
 
 end
 
