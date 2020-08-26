@@ -34,6 +34,10 @@ using NLopt
 using BenchmarkTools
 using ProgressMeter
 
+## These are for the definition of τpotential 
+using LoopVectorization
+using FieldLensing 
+
 hide_plots = true
 
 # Mask and CMBring observation region
@@ -50,7 +54,7 @@ T_Naz    = Float64
 T_Baz    = Float64
 T_Precon = Float64
 
-QP_boundry_clearance = 1e-4 
+QP_boundry_clearance = 1e-5 
 
 #-
 
@@ -254,7 +258,6 @@ end;
         ## return Cholesky(T_cov.(C.factors), C.uplo, C.info)
         ## -------------
         B = eigen(Symmetric(T_cov.(real.(A)),:L))
-        ## B = eigen(Symmetric(T_cov.(real.(A)),:L))
         B.values[B.values .<= 0] .= 0
         return B 
     end 
@@ -378,7 +381,7 @@ n2s_ratio = 0.2
     lpeak    = 40
     ϕnnl     = @. n2s_ratio * lpeak^4 * ϕϕl[lpeak+1] / l^4
     ϕnnl[1] *= 1e5
-    ϕnnl[2] *= 1e4
+    ϕnnl[2] *= 1e5
     ## ϕnnl   = @. 1 / (1 / nnl + 1 / ϕϕl)
     ϕnnl
 end;
@@ -422,7 +425,8 @@ NΦNaz = @sblock let T_cov=T_NΦNaz, tmW, Φaz, ϕnnl, θℝ=θℝ64, φℝ=φ�
         ## pinv(pinv(Matrix(Φ)) + pinv(Matrix(N))) ## try this too
 	    A = pinv(eigen(Symmetric(Matrix(pinv(Φ)) + Matrix(pinv(N)))))
         A.values[A.values .<= 0] .= 0
-        return A 
+        ## return A 
+        return Matrix(A) 
     end |> AzBlock
 
 
@@ -438,12 +442,12 @@ end;
 Precon_fctr = map(Σaz, Naz, Baz) do Σ, N, B
     A = B*Matrix(Σ)*B' + Matrix(N)
     ## --------------------
-    ## C = cholesky(Symmetric(A,:L)) # , check=false)
-    ## Cholesky(T_Precon.(C.factors), C.uplo, C.info)
+    C = cholesky(Symmetric(A,:L)) # , check=false)
+    return Cholesky(T_Precon.(C.factors), C.uplo, C.info)
     ## ---------------------
-    B = eigen(Symmetric(A,:L))
-    B.values[B.values .<= 0] .= 0
-    return B 
+    ## B = eigen(Symmetric(A,:L))
+    ## B.values[B.values .<= 0] .= 0
+    ## return B 
 end |> AzBlock;
 
 
@@ -496,104 +500,130 @@ end;
 
 
 # Now construct the lense (attinuate the lense near the upper and lower boundaries)
-
 # with increments for φ
 
-## Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let T_fld, rcϕ = rcϕ, nsteps=14, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
-##     
-##     ## smooth out the transition to the polar boundaries
-##     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
-##     rightlink = n::Int -> (cos.(range(0,π,length=n))  .+ 1)./2
-##     maθ = ones(T_fld,size(θℝ))
-##     nup = 10  #<--- edge buffer which attinuates lensing
-##     nlw = 25  #<--- edge buffer which attinuates lensing
-##     maθ[1:nup]         =  leftlink(nup)
-##     maθ[end-nlw+1:end] =  rightlink(nlw)
-##     maθ = T_fld.(maθ)
-## 
-##     sin⁻²θℝ = @. T_fld(1 + cot(θℝ)^2) # = cscθ^2
-## 
-##     ϕ2v = function (ϕ_az::Xfield)
-##         ϕ  = ϕ_az[:] 
-##         vθ = (maθ ./ rcϕ) .* (∂θaz * ϕ)  # return to original scale !!!!
-##         vφ = (maθ .* sin⁻²θℝ ./ rcϕ) .* (ϕ * ∂φᵀaz)  # return to original scale !!!!
-##         vθ, vφ
-##     end 
-## 
-##     ϕ2vᴴ = function (v)
-##         vθ, vφ = v
-##         mvθ = transpose(∂θaz) * (maθ .* vθ ./ rcϕ) 
-##         mvφ = (maθ .* sin⁻²θℝ .* vφ ./ rcϕ) * transpose(∂φᵀaz)  
-##         Xmap(tmU, mvθ + mvφ) 
-##     end 
-## 
-##     Ł = function (ϕ_az::Xfield)
-##         v = ϕ2v(ϕ_az)
-##         ArrayLense(v, ∇!, 0, 1, nsteps)
-##     end
-## 
-##     Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ
-## end;
-
-
-
-Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let tmW, tmU, T_fld, rcϕ = rcϕ, nsteps=14,  θℝ=θℝ64, φℝ=φℝ64, ∂θaz
-
-    ∇! = im .* fullfreq(tmW)[2] |> x -> FFTNabla!(∂θaz, plan(tmW), x, similar(x)) 
+Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let T_fld, rcϕ = rcϕ, nsteps=14, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
     
     ## smooth out the transition to the polar boundaries
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
     rightlink = n::Int -> (cos.(range(0,π,length=n))  .+ 1)./2
     maθ = ones(T_fld,size(θℝ))
-    nup = 20  #<--- edge buffer which attinuates lensing
-    nlw = 20  #<--- edge buffer which attinuates lensing
+    nup = 10  #<--- edge buffer which attinuates lensing
+    nlw = 25  #<--- edge buffer which attinuates lensing
     maθ[1:nup]         =  leftlink(nup)
     maθ[end-nlw+1:end] =  rightlink(nlw)
     maθ = T_fld.(maθ)
 
-    ## sin⁻²θℝ = @. T_fld(1 + cot(θℝ)^2) # = cscθ^2
-    ## sin⁻²θℝ = @. T_fld(csc(θℝ)^2) # test against this ...
-    sin⁻²θℝ = @. T_fld(1 / sin(θℝ)^2) # test against this ...
+    sin⁻²θℝ = @. T_fld(1 + cot(θℝ)^2) # = cscθ^2
 
+    ϕ2v! = function (v::NTuple{2,Array}, ϕ::Array)
+        ∇!(v, ϕ)
+        v[1] .*= maθ ./ rcϕ
+        v[2] .*= maθ .* sin⁻²θℝ ./ rcϕ
+        v
+    end 
+
+    # ϕ2vᴴ = function (v)
+    #     vθ, vφ = v
+    #     mvθ = transpose(∂θaz) * (maθ .* vθ ./ rcϕ) 
+    #     mvφ = (maθ .* sin⁻²θℝ .* vφ ./ rcϕ) * transpose(∂φᵀaz)  
+    #     Xmap(tmU, mvθ + mvφ) 
+    # end 
+    ## TODO: you should probably automate ∇!ᵀ ...
+    ϕ2vᴴ! = function (ϕ::Array, v::NTuple{2,Array})
+        mv = (similar(v[1]), similar(v[2]))
+        ∇!(mv, (maθ.*v[1]./rcϕ, maθ.*sin⁻²θℝ.*v[2]./rcϕ) )
+        mv[1] .*= -1 # for the transpose
+        mv[2] .*= -1 # for the transpose
+        ϕ .= mv[1] + mv[2]
+        ϕ 
+    end 
+
+    # perhaps not needed
     ϕ2v = function (ϕ_az::Xfield)
-        ∇ϕ = ∇!(ϕ_az[:])
-        vθ = (maθ ./ rcϕ) .* ∇ϕ[1]
-        vφ = (maθ .* sin⁻²θℝ ./ rcϕ) .* ∇ϕ[2]
-        vθ, vφ
+        ϕ = ϕ_az[:]
+        v = (similar(ϕ), similar(ϕ))
+        ϕ2v!(v,ϕ)
     end 
 
+    # perhaps not needed 
     ϕ2vᴴ = function (v)
-        vθ, vφ = v
-        mvθ, mvφ =  ∇!( (maθ.*vθ./rcϕ, maθ.*sin⁻²θℝ.*vφ./rcϕ) )
-        mvθ .*= -1 # for the transpose
-        mvφ .*= -1 # for the transpose
-        Xmap(tmU, mvθ + mvφ) 
+        ϕ = similar(v[1])
+        ϕ2vᴴ!(ϕ, v)
+        Xmap(tmU, ϕ) 
     end 
+
 
     Ł = function (ϕ_az::Xfield)
         v = ϕ2v(ϕ_az)
         ArrayLense(v, ∇!, 0, 1, nsteps)
     end
 
-    Ł, ϕ2v, ϕ2vᴴ, ∇!, maθ
+    Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ
 end;
 
+# FFT based grradients
 
-## sin⁻²θℝ = @. T_fld(1 / sin(θℝ64)^2) # = cscθ^2
+## Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let tmW, tmU, T_fld, rcϕ = rcϕ, nsteps=14,  θℝ=θℝ64, φℝ=φℝ64, ∂θaz
 ## 
-##   ϕ2v_test = function (ϕ_az::Xfield)
-##       ϕ  = ϕ_az[:] 
-##       vθ = (maθ ./ rcϕ) .* (∂θaz * ϕ)  # return to original scale !!!!
-##       vφ = (maθ .* sin⁻²θℝ ./ rcϕ) .* (ϕ * ∂φᵀaz)  # return to original scale !!!!
-##       vθ, vφ
-##   end 
+##     ∇! = im .* fullfreq(tmW)[2] |> x -> FFTNabla!(∂θaz, plan(tmW), x, similar(x)) 
+##     
+##     ## smooth out the transition to the polar boundaries
+##     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
+##     rightlink = n::Int -> (cos.(range(0,π,length=n))  .+ 1)./2
+##     maθ = ones(T_fld,size(θℝ))
+##     nup = 10  #<--- edge buffer which attinuates lensing
+##     nlw = 10  #<--- edge buffer which attinuates lensing
+##     maθ[1:nup]         =  leftlink(nup)
+##     maθ[end-nlw+1:end] =  rightlink(nlw)
+##     maθ = T_fld.(maθ)
+## 
+##     ## sin⁻²θℝ = @. T_fld(1 + cot(θℝ)^2) # = cscθ^2
+##     ## sin⁻²θℝ = @. T_fld(csc(θℝ)^2) # test against this ...
+##     sin⁻²θℝ = @. T_fld(1 / sin(θℝ)^2) # test against this ...
+## 
+##     ϕ2v! = function (v::NTuple{2,Array}, ϕ::Array)
+##         ∇!(v, ϕ)
+##         v[1] .*= maθ ./ rcϕ
+##         v[2] .*= maθ .* sin⁻²θℝ ./ rcϕ
+##         v
+##     end 
+## 
+##     # perhaps not needed
+##     ϕ2v = function (ϕ_az::Xfield)
+##         ϕ = ϕ_az[:]
+##         v = (similar(ϕ), similar(ϕ))
+##         ϕ2v!(v,ϕ)
+##     end 
 ## 
 ## 
-## ϕ2v_test(ϕ_az)[2] |> matshow; colorbar()
-## ϕ2v(ϕ_az)[2] |> matshow; colorbar()
+##     ϕ2vᴴ! = function (ϕ::Array, v::NTuple{2,Array})
+##         mv = (similar(v[1]), similar(v[2]))
+##         ∇!(mv, (maθ.*v[1]./rcϕ, maθ.*sin⁻²θℝ.*v[2]./rcϕ) )
+##         mv[1] .*= -1 # for the transpose
+##         mv[2] .*= -1 # for the transpose
+##         ϕ .= mv[1] + mv[2]
+##         ϕ 
+##     end 
+## 
+##     # perhaps not needed 
+##     ϕ2vᴴ = function (v)
+##         ϕ = similar(v[1])
+##         ϕ2vᴴ!(ϕ, v)
+##         Xmap(tmU, ϕ) 
+##     end 
+## 
+## 
+##     Ł = function (ϕ_az::Xfield)
+##         v = ϕ2v(ϕ_az)
+##         ArrayLense(v, ∇!, 0, 1, nsteps)
+##     end
+## 
+##     Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ
+## end;
+
 
 #- 
-
 
 
 
@@ -634,84 +664,6 @@ end;
 # Other Methods 
 # ==============================================
 
-
-
-# Benchmarks 
-# ==============================
-
-## ## f = Xmap(tmU, randn(eltype_in(tmU), size_in(tmU)))
-## f = Xfourier(tmU, randn(eltype_out(tmU), size_out(tmU)))
-## ## f = Xmap(tmU32, randn(eltype_in(tmU32), size_in(tmU32)))
-## ## f = Xfourier(tmU32, randn(eltype_out(tmU32), size_out(tmU32)))
-## 
-## 
-## @benchmark $Σaz * $f # 430 ms
-## #-
-## @benchmark $Σaz \ $f # 50 ms
-## #- 
-## @benchmark map(Matrix, $Σaz) # 2 s
-## #-
-## @benchmark $Baz * $f # 54.728 ms
-## #-
-## @benchmark $(Baz') * $f # 
-## #- 
-## 
-## @benchmark $(Ł(az_sim(tmU, Φaz))) * $f # 1s
-## @benchmark $∂θaz * $(f[:])    # 4ms
-## @benchmark $(f[:]) * $(∂φᵀaz) # 5ms
-
-
-
-# Simulate data 
-# ================================================
-
-
-ϕ_az  = az_sim(tmU, Φaz) |> Xfourier
-t_az  = az_sim(tmU, Σaz) |> Xfourier
-d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz)) |> Xfourier;
-
-
-@sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, Pr, hide_plots
-    hide_plots && return
-    imgs = Dict(
-        1 => d_az[:],
-        2 => t_az[:],
-        3 => abs.((d_az - Pr * (Baz * (Ł(ϕ_az)*t_az)))[:])
-    )
-    txt =  Dict(
-        1 => "data",
-        2 => "signal",
-        3 => "abs(noise)"
-    )
-    ctxt = Dict(
-        3 => "w"
-    )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
-    ## diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
-end;
-
-
-
-
-# Put settings and needed parameters in ds ...
-# ===========================================
-
-
-
-
-ds = (;  
-    tmU, Ł, ∇!, ϕ2v, ϕ2vᴴ, Pr, Qr, 
-    Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
-    Precon_fctr, NΦNaz, 
-    grad_nsteps = 14, pcg_nsteps=125, 
-    linesearch_time_max = 60*3,
-    solver = :LN_COBYLA, # :LN_SBPLX, ##  :LN_NELDERMEAD, 
-);
-
-
-
-# Testing out this method ...
-# ====================================
 
 function update_ϕ_maxlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr,  Φaz_fctr, Ł, ∇!, tmU, linesearch_time_max, solver = :LN_COBYLA,  ds...)
     
@@ -781,6 +733,154 @@ end
 
 
 
+function ∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2v!, ϕ2vᴴ!, Ł, ∇!, tmU, grad_nsteps, ds...)
+    ## Remark: for the next line to be correct Naz_fctr must be diagonal in pixel space
+    ##dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
+    Ma        = DiagOp(Xmap(tmU, abs.(Pr[:]).>0))
+    dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * lnf)))))
+    v         = ϕ2v(ϕ)
+    f         = Ł(ϕ) \ lnf 
+    τŁ₀₁      = CMBrings.FieldLensing.τArrayLense(v, (f[:],), ∇!, 0, 1, grad_nsteps)
+    τŁ₁₀      = CMBrings.FieldLensing.τArrayLense(v, (lnf[:],), ∇!, 1, 0, grad_nsteps)        
+    ## τv₀, τf   = τŁ₁₀(map(zero,v),  (dΔlnf[:],))
+    τϕ₀, τf   = τpotential(τŁ₁₀, zero(ϕ[:]), (dΔlnf[:],), ϕ2v!, ϕ2vᴴ!)
+    ∇f        = Xmap(tmU, τf[1]) - Σaz_fctr \ f
+    ## τv₁, τlnf = τŁ₀₁(τv₀,  (∇f[:],))
+    τϕ₁, τlnf = τpotential(τŁ₀₁, τϕ₀,  (∇f[:],), ϕ2v!, ϕ2vᴴ!)
+    ## return ϕ2vᴴ(τv₁) #  - Φaz_fctr \ ϕ # this last term is added later
+    return Xmap(tmU, τϕ₁)
+end
+
+
+
+function τpotential(
+        τL::FieldLensing.τArrayLense{m,n,Tf,d,Tg,Tt},
+        τϕ::A, 
+        τf::NTuple{n,A}, 
+        ϕ2v!, ϕ2vᴴ!, 
+    )::Tuple{A, NTuple{n,A}} where {m,n,Tf,d,Tg,Tt<:Real,A<:Array{Tf,d}}
+
+    pτL!  = FieldLensing.plan(τL) 
+
+    # these are just storage containers
+    y′ = deepcopy(tuple(τL.v..., τf..., τL.f...))
+    ẏ′ = deepcopy(tuple(τL.v..., τf..., τL.f...))
+
+    f! = function (ẏ,t,y)
+
+        # fill y′ ≡ (τv,τf,f) from  y ≡ (τϕ,τf,f) 
+        # ------------------
+        # first y′[1:m] = ϕ2v(y[1])
+        τvₜ = tuple(y′[Base.OneTo(m)]...)
+        ϕ2v!(τvₜ, first(y)) 
+
+        # now y′[(m+1):(m+2n)] directly from tail of y
+        ytail  = Base.tail(y)
+        y′tail = y′[(m+1):end]
+        for i = 1:2n
+            @avx @. y′tail[i] = ytail[i]
+        end
+
+        # now compute ẏ′ from y′
+        # ------------------
+        pτL!(ẏ′, t, y′)
+
+        # finally compute ẏ via compression of ẏ′
+        # -----------------------
+        # compute τ̇vₜ (alisased to ẏ′[1:m])
+        τ̇vₜ = tuple(ẏ′[Base.OneTo(m)]...)
+        ϕ2vᴴ!(first(ẏ), τ̇vₜ)
+
+        # compute (τ̇fₜ, ḟₜ) (alisased to ẏ′[m+1:end])
+        ẏtail  = Base.tail(ẏ)
+        ẏ′tail = ẏ′[(m+1):end]
+        for i = 1:2n
+            @avx @. ẏtail[i] = ẏ′tail[i]
+        end
+    end
+
+    rtn   = FieldLensing.odesolve_RK4(f!, tuple(τϕ, τf..., τL.f...), τL.t₀, τL.t₁, τL.nsteps)
+    
+    return first(rtn), tuple(Base.tail(rtn)[Base.OneTo(n)]...)
+
+end
+
+
+
+
+
+# Benchmarks 
+# ==============================
+
+## ## f = Xmap(tmU, randn(eltype_in(tmU), size_in(tmU)))
+## f = Xfourier(tmU, randn(eltype_out(tmU), size_out(tmU)))
+## ## f = Xmap(tmU32, randn(eltype_in(tmU32), size_in(tmU32)))
+## ## f = Xfourier(tmU32, randn(eltype_out(tmU32), size_out(tmU32)))
+## 
+## 
+## @benchmark $Σaz * $f # 430 ms
+## #-
+## @benchmark $Σaz \ $f # 50 ms
+## #- 
+## @benchmark map(Matrix, $Σaz) # 2 s
+## #-
+## @benchmark $Baz * $f # 54.728 ms
+## #-
+## @benchmark $(Baz') * $f # 
+## #- 
+## 
+## @benchmark $(Ł(az_sim(tmU, Φaz))) * $f # 1s
+## @benchmark $∂θaz * $(f[:])    # 4ms
+## @benchmark $(f[:]) * $(∂φᵀaz) # 5ms
+
+
+
+# Simulate data 
+# ================================================
+
+
+ϕ_az  = az_sim(tmU, Φaz) |> Xmap
+t_az  = az_sim(tmU, Σaz) |> Xfourier
+d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz)) |> Xfourier;
+
+
+@sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, Pr, hide_plots
+    hide_plots && return
+    imgs = Dict(
+        1 => d_az[:],
+        2 => t_az[:],
+        3 => abs.((d_az - Pr * (Baz * (Ł(ϕ_az)*t_az)))[:])
+    )
+    txt =  Dict(
+        1 => "data",
+        2 => "signal",
+        3 => "abs(noise)"
+    )
+    ctxt = Dict(
+        3 => "w"
+    )
+    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
+    ## diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
+end;
+
+
+
+
+# Put settings and needed parameters in ds ...
+# ===========================================
+
+
+ds = (;  
+    tmU, Ł, ∇!, Pr, Qr, 
+    Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
+    Precon_fctr, NΦNaz, 
+    ϕ2v!, ϕ2vᴴ!,  ϕ2v, ϕ2vᴴ, # not sure the last two are needed
+    grad_nsteps = 14, pcg_nsteps=125, 
+    linesearch_time_max = 60*3,
+    solver = :LN_COBYLA, # :LN_SBPLX, ##  :LN_NELDERMEAD, 
+);
+
+
 
 # newton/gibbs iterations
 # ================================================
@@ -789,13 +889,13 @@ end
 # TODO: see if you can adjust the hessian with these samples 
 # Wouldn't a wishart type draw work? 
 
-ϕ_cr  = Xfourier(tmU)
+ϕ_cr  = Xmap(tmU)
 ginit = Xfourier(tmU)
-∇ϕ_cr = Xfourier(tmU)
+∇ϕ_cr = Xmap(tmU)
 ∇ϕ_cr_array  = typeof(∇ϕ_cr)[]
 
 # iterate ...
-@showprogress for otr = 1:3
+@showprogress for otr = 1:5
     global lnt_cr, t_cr, hst
     global ∇ϕ_cr_array, gradϕ
     
@@ -806,11 +906,12 @@ ginit = Xfourier(tmU)
         @time lnt_cr, t_cr, ginit, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit, ds...)
         @show hst[end]
 
-        gradϕ   = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-        ∇ϕ_cr = NΦNaz * gradϕ - NΦNaz * (Φaz \ ϕ_cr)  |> Xfourier
+        ## gradϕ   = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
+        @time gradϕ = ∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
+        @time ∇ϕ_cr = NΦNaz * gradϕ - NΦNaz * (Φaz \ ϕ_cr)  |> Xmap
         ## ∇ϕ_cr = Φaz * gradϕ - ϕ_cr 
         ## ∇ϕ_cr.fd[:,1:10] .*= 1/6
-        β = linesearchϕ(∇ϕ_cr, ϕ_cr, lnt_cr, d_az; ds...)
+        @time β = linesearchϕ(∇ϕ_cr, ϕ_cr, lnt_cr, d_az; ds...)
 
         push!(∇ϕ_cr_array, β * ∇ϕ_cr)
     ## end
@@ -889,23 +990,6 @@ end
 ## end
 ## 
 
-
-## function ∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, ds...)
-##     ## Remark: for the next line to be correct Naz_fctr must be diagonal in pixel space
-##     ##dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
-##     Ma = DiagOp(Xmap(tmU, abs.(Pr[:]).>0))
-##     dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * lnf)))))
-##     v         = ϕ2v(ϕ)
-##     f         = Ł(ϕ) \ lnf 
-##     τŁ₀₁      = CMBrings.FieldLensing.τArrayLense(v, (f[:],), ∇!, 0, 1, grad_nsteps)
-##     τŁ₁₀      = CMBrings.FieldLensing.τArrayLense(v, (lnf[:],), ∇!, 1, 0, grad_nsteps)        
-##     τv₀, τf   = τŁ₁₀(map(zero,v),  (dΔlnf[:],))
-##     ∇f        = Xmap(tmU, τf[1]) - Σaz_fctr \ f
-##     τv₁, τlnf = τŁ₀₁(τv₀,  (∇f[:],))
-##     return ϕ2vᴴ(τv₁) #  - Φaz_fctr \ ϕ # this last term is added later
-## end
-## 
-## 
 ## dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * (Ł(ϕ_az)*t_az))))))
 ## 
 ## 
@@ -982,7 +1066,7 @@ end
     k   = CMBrings.fullfreq(tmU)
     fltr = abs.(k[2])
     ## fltr = ones(eltype_out(tmU), size_out(tmU))
-    ## fltr[:,1:10] .= 0    
+    fltr[:,1:10] .= 0    
     𝔽 = Xfourier(tmU,fltr) |> DiagOp
     fest_F = 𝕄 * 𝔽 * fest            
     ftru_F = 𝕄 * 𝔽 * ftru
