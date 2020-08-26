@@ -128,7 +128,7 @@ function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Ba
     ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
     @show ll_opt, β_opt
     
-    return β_opt[1]*inHgrad
+    return inHgrad, β_opt[1]
 end
 
 
@@ -155,7 +155,8 @@ end
 
 function ∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, ds...)
     ## Remark: for the next line to be correct Naz_fctr must be diagonal in pixel space
-    dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
+    Ma        = DiagOp(Xmap(tmU, abs.(Pr[:]).>0))
+    dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * lnf)))))
     v         = ϕ2v(ϕ)
     f         = Ł(ϕ) \ lnf 
     τŁ₀₁      = CMBrings.FieldLensing.τArrayLense(v, (f[:],), ∇!, 0, 1, grad_nsteps)
