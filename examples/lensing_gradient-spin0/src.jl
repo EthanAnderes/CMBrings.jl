@@ -134,8 +134,8 @@ end;
 
 # Turn off the mask 
 
-## ma  = ones(size(ma)) 
-## maᶜ = zeros(size(ma)) 
+ma  = ones(size(ma)) 
+maᶜ = zeros(size(ma)) 
 
 # Azimuthal ring mask
 
@@ -312,7 +312,7 @@ end;
 # Noise with weights weight and mask/projection
 # ==============================
 
-μK′n      = 3.5 # 10.0
+μK′n      = 1.5 # 10.0
 ellknee   = 0   # 150
 alphaknee = 3
 ## weight_θ  = θ -> 1 + 0.15 * sin(300 * θ) # θ -> 1
@@ -502,7 +502,7 @@ end;
 # Now construct the lense (attinuate the lense near the upper and lower boundaries)
 # with increments for φ
 
-Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let T_fld, rcϕ = rcϕ, nsteps=14, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
+Ł, ϕ2v!, ϕ2vᴴ!, ϕ2v, ϕ2vᴴ, ∇!, maθ = @sblock let T_fld, rcϕ = rcϕ, nsteps=16, tmU, θℝ=θℝ64, φℝ=φℝ64, ∂θaz, ∂φᵀaz, ∇! = Nabla!(∂θaz, ∂φᵀaz) 
     
     ## smooth out the transition to the polar boundaries
     leftlink =  n::Int -> (cos.(range(-π,0,length=n)) .+ 1)./2
@@ -519,7 +519,8 @@ end;
     ϕ2v! = function (v::NTuple{2,Array}, ϕ::Array)
         ∇!(v, ϕ)
         v[1] .*= maθ ./ rcϕ
-        v[2] .*= maθ .* sin⁻²θℝ ./ rcϕ
+        ## v[2] .*= maθ .* sin⁻²θℝ ./ rcϕ # !!!!!
+        v[2] .*= sin⁻²θℝ ./ rcϕ # dropping the attin in azimuth
         v
     end 
 
@@ -532,7 +533,8 @@ end;
     ## TODO: you should probably automate ∇!ᵀ ...
     ϕ2vᴴ! = function (ϕ::Array, v::NTuple{2,Array})
         mv = (similar(v[1]), similar(v[2]))
-        ∇!(mv, (maθ.*v[1]./rcϕ, maθ.*sin⁻²θℝ.*v[2]./rcϕ) )
+        ## ∇!(mv, (maθ.*v[1]./rcϕ, maθ.*sin⁻²θℝ.*v[2]./rcϕ) ) #!!!!!!
+        ∇!(mv, (maθ.*v[1]./rcϕ, sin⁻²θℝ.*v[2]./rcϕ) ) # dropping the attin in azi
         mv[1] .*= -1 # for the transpose
         mv[2] .*= -1 # for the transpose
         ϕ .= mv[1] + mv[2]
@@ -730,7 +732,7 @@ function linesearchϕ(inHgrad, ϕ, lnf, data; tmU, Σaz_fctr, Φaz_fctr, linesea
     @show ll_opt, β_opt
     return β_opt[1]
 end
-
+## TODO: on the return ll_opt, add the full log likelihood7
 
 
 function ∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2v!, ϕ2vᴴ!, Ł, ∇!, tmU, grad_nsteps, ds...)
@@ -875,7 +877,7 @@ ds = (;
     Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
     Precon_fctr, NΦNaz, 
     ϕ2v!, ϕ2vᴴ!,  ϕ2v, ϕ2vᴴ, # not sure the last two are needed
-    grad_nsteps = 14, pcg_nsteps=125, 
+    grad_nsteps = 16, pcg_nsteps=125, 
     linesearch_time_max = 60*3,
     solver = :LN_COBYLA, # :LN_SBPLX, ##  :LN_NELDERMEAD, 
 );
@@ -895,7 +897,7 @@ ginit = Xfourier(tmU)
 ∇ϕ_cr_array  = typeof(∇ϕ_cr)[]
 
 # iterate ...
-@showprogress for otr = 1:5
+@showprogress for otr = 1:145
     global lnt_cr, t_cr, hst
     global ∇ϕ_cr_array, gradϕ
     
@@ -904,7 +906,7 @@ ginit = Xfourier(tmU)
         f′  = az_sim(tmU, Σaz) |> Xfourier
         data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier
         @time lnt_cr, t_cr, ginit, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit, ds...)
-        @show hst[end]
+        # @show hst[end]
 
         ## gradϕ   = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
         @time gradϕ = ∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
@@ -921,7 +923,7 @@ ginit = Xfourier(tmU)
 end
 
 
-
+  
 ## βs = collect(range(0., .05, length = 25))
 ## lls1 = zeros(T_fld, length(βs))
 ## lls2 = zeros(T_fld, length(βs))
