@@ -94,7 +94,7 @@ function update_lnf_f(ϕ, data; data′, f′, ginit, Pr, Qr, Ł, tmU, Σaz_fctr
         A, 
         data + data′, 
         ginit,
-        nsteps=pcg_nsteps, rel_tol=1e-3,
+        nsteps=pcg_nsteps, rel_tol=1e-10,
     )
 
     fsim    = mΣaz * ( Lnᴴ * (Baz' * (Pr' * gwf)))

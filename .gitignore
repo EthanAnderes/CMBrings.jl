@@ -1,3 +1,8 @@
+.DS_Store
+/dev/
+/docs/build/
+/docs/site/
+
 *.DS_Store
 *.aux
 *.bbl
@@ -12,6 +17,8 @@
 *.jld2
 *.log
 *.synctex.gz
-*.csv
 local
+downloads
 Manifest.toml
+*.ipynb_checkpoints
+*.html

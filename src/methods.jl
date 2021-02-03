@@ -17,10 +17,10 @@ function pcg(Minv::Function, A::Function, b, x=0*b; nsteps::Int=75, rel_tol = 0)
         res′      = dot(r,z)
         p         = z + (res′ / res) * p
         rel_error = XFields.nan2zero(sqrt(dot(r,r)/dot(b,b)))
+        push!(reshist, rel_error)
         if rel_error < rel_tol
             return x, reshist
         end
-        push!(reshist, rel_error)
         res = res′
     end
     return x, reshist
