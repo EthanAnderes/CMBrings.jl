@@ -43,28 +43,7 @@ end
 
 
 function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎 
-    sum_kbn(f[:].*g[:])
-end
-
-# copied from https://github.com/JuliaMath/KahanSummation.jl
-function sum_kbn(A)
-    T = Base.@default_eltype(A)
-    c = Base.reduce_empty(+, T)
-    it = iterate(A)
-    it === nothing && return c
-    Ai, i = it
-    s = Ai - c
-    while (it = iterate(A, i)) !== nothing
-        Ai, i = it
-        t = s + Ai
-        if abs(s) >= abs(Ai)
-            c -= ((s-t) + Ai)
-        else
-            c -= ((Ai-t) + s)
-        end
-        s = t
-    end
-    s - c
+    FFTransforms.sum_kbn(f[:].*g[:])
 end
 
 

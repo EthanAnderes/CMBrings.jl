@@ -2,7 +2,10 @@
 
 # TODO:
 
-Convert note-05-10-2020 to use CMBrings as a basic operational prototype
+Try pre-laplace transform (+identity), or something else, to help with positive definiteness of az blocks
+
+Complex covariance functions with p = q + i*u.
+
 
 Also check these ...
 # Scratch/2020-05pre/note-04-08-2020.jl
