@@ -2,7 +2,7 @@
 
 const MatrixOrFactorization{T} = Union{Factorization{T}, AbstractMatrix{T}}
 
-struct AzBlock{M <: MatrixOrFactorization}
+struct AzBlock{M <: MatrixOrFactorization} <: XFields.AbstractLinearOp
     nblks::Int 
     Σ::Vector{M}
 end
@@ -71,6 +71,8 @@ Base.firstindex(az::AzBlock) = 1
 Base.lastindex(az::AzBlock)  = az.nblks
 
 
+
+# Interface methods for Abstract linear ops
 # Matrix operations which propigate to the blocks 
 # =======================================
 
@@ -83,14 +85,14 @@ for op ∈ (:adjoint, :transpose, :inv)
     end |> eval
 end
 
-
+# Interface methods for Abstract linear ops
 # Mult and div on the left of fields
 # =======================================
 
 
 
-function Base.:*(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
-    v  = f[!]
+function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
+    v  = fielddata(FourierField(f))
     w  = similar(v)
     wk = collect(eachcol(w))
     vk = collect(eachcol(v))
@@ -100,8 +102,8 @@ function Base.:*(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
     XF(Xfourier(fieldtransform(f),w))
 end
 
-function Base.:*(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
-    v  = f[!]
+function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
+    v  = fielddata(FourierField(f))
     w  = similar(v)
     wk = collect(eachcol(w))
     vk = collect(eachcol(v))
@@ -111,9 +113,12 @@ function Base.:*(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
     XF(Xfourier(fieldtransform(f),w))
 end
 
+function Base.:*(az::AzBlock, f::XF) where {XF<:Xfield}
+    XF(XFields._lmult(az, f))
+end
 
 function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, XF<:Xfield}
-    v  = f[!]
+    v  = fielddata(FourierField(f))
     w  = similar(v)
     wk = collect(eachcol(w))
     vk = collect(eachcol(v))
@@ -125,7 +130,7 @@ end
 
 
 function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
-    v  = f[!]
+    v  = fielddata(FourierField(f))
     w  = similar(v)
     wk = collect(eachcol(w))
     vk = collect(eachcol(v))
@@ -137,7 +142,7 @@ end
 
 
 function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Eigen, XF<:Xfield}
-    v  = deepcopy(f[!])
+    v  = deepcopy(fielddata(FourierField(f)))
     w  = deepcopy(v)
     wk = collect(eachcol(w))
     vk = collect(eachcol(v))

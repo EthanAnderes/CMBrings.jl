@@ -267,14 +267,14 @@ weight_θ  = θ -> 1
 ## weight_θ  = θ -> 1 + 1 ./ sin(θ).^2 # θ -> 1
 #-
 
-nnl, snl = @sblock let μK′n, ellknee, alphaknee, lmax = 11000
+nnl, wnl, snl = @sblock let μK′n, ellknee, alphaknee, lmax = 11000
     l = 0:lmax
     whitenoisel    = fill(μK′n^2 * (π/60/180)^2, size(l))
     smoothnoisel   = @. μK′n^2 * (π/60/180)^2 * Spectra.knee(l; ell=ellknee, alpha=alphaknee) 
     smoothnoisel .-= μK′n^2 * (π/60/180)^2 
     smoothnoisel[smoothnoisel .< 0] .= 0    
     noisel = smoothnoisel .+ whitenoisel
-    return noisel, smoothnoisel
+    return noisel, whitenoisel, smoothnoisel
 end;
 
 #-
@@ -432,12 +432,12 @@ end;
 Precon_fctr = map(Σaz, Naz, Baz) do Σ, N, B
     A = B*Matrix(Σ)*B' + Matrix(N)
     ## --------------------
-    ## C = cholesky(Symmetric(A,:L)) # , check=false)
-    ## return Cholesky(T_Precon.(C.factors), C.uplo, C.info)
+    C = cholesky(Symmetric(A,:L)) # , check=false)
+    return Cholesky(T_Precon.(C.factors), C.uplo, C.info)
     ## ---------------------
-    C = eigen(Symmetric(A,:L))
-    C.values[C.values .<= 0] .= 0
-    return C 
+    ## C = eigen(Symmetric(A,:L))
+    ## C.values[C.values .<= 0] .= 0
+    ## return C 
 end |> CMBrings.AzBlock;
 
 # Use this when Baz is set to 1
@@ -488,14 +488,17 @@ end
 
     leftlink =  n::Int -> ((cos.(range(-π,0,length=n)) .+ 1)./2).^2
     rightlink = n::Int -> ((cos.(range(0,π,length=n)) .+ 1)./2).^2
+    nbθ, nbφ  = 20, 5
     maθ = ones(size(θℝ))
-    n   = round(Int, 0.2 / (θℝ[2] - θℝ[1]) ) #<--- edge buffer which attinuates lensing
-    maθ[2:n+1]        =  leftlink(n)
-    maθ[end-n:end-1]  =  rightlink(n)
+    maθ[2:nbθ+1]        =  leftlink(nbθ)
+    maθ[end-nbθ:end-1]  =  rightlink(nbθ)
     maθ[1] = maθ[end] = 0
-
+    maφ = ones(size(θℝ))
+    maφ[2:nbφ+1]        =  leftlink(nbφ)
+    maφ[end-nbφ:end-1]  =  rightlink(nbφ)
+    maφ[1] = maφ[end] = 0
     mvx₁_init = maθ ./ rcϕ
-    mvx₂_init = sin⁻²θ .* maθ ./ rcϕ
+    mvx₂_init = sin⁻²θ .* maφ ./ rcϕ
     ## -------------
 
     mv1x = Mϕ[:]
@@ -549,7 +552,7 @@ end;
 
     ϕ_az = CMBrings.az_sim(tmS0, Φaz)
     Ln         = Ł(ϕ_az)
-    t_az       = Xmap(CMBrings.az_sim(fieldtransform(ϕ_az), Σaz))
+    t_az       = Xmap(CMBrings.az_sim(tmS0, Σaz))
     lnt_az     = Ln * t_az
     lense_time = @belapsed $Ln * $t_az
     t_az′      = Ln \ lnt_az
@@ -574,240 +577,199 @@ end;
 end;
 
 
+# t_az  = Xmap(CMBrings.az_sim(tmS0, Σaz))
+# bt_az = Baz * t_az
+# bt_az[:] |> matshow; colorbar()
+# t_az[:] |> matshow; colorbar()
+# (t_az - bt_az)[:][:,1:308] |> matshow
+
+# @benchmark $Baz * $t_az
+## 27 ms for 308 (308, 2048)
 
 
-
-# Other Methods 
+# Mixflow operator
 # ==============================================
 
+# perhaps make Ð a operator type ... 
+# then you can define logabsdet(Ð, θ) and Ð(θ) -> linear op. 
 
-function update_ϕ_maxlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr,  Φaz_fctr, Ł, ∇!, tmU, linesearch_time_max, solver = :LN_COBYLA,  ds...)
+# Ð = @sblock let tmT, Tcov, T̃cov, Wcov
+#     # Ð = sqrt(T̃cov / Tcov)
+#     Ð = sqrt((T̃cov + 2Wcov) / Tcov)
+#     return Ð
+# end
+
+
+Ð = @sblock let T=T_Σaz, tmW=unscale(tmS0), ttl, t̃tl, wnl, θℝ=θℝ64, φℝ=φℝ64
+
+    cl    =  t̃tl .+ 2 .* wnl ./ ttl 
+
+    dmax  = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+    θgrid = range(0, dmax^(1/2), length=100_000).^2
+    covf  = Spline1D(
+        θgrid, 
+        Spectra.spec2spherecov(cl, θgrid), 
+        k=3
+    )
+    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+
+    Daz = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
+        ## A = Symmetric(real.(A) + 1e-8*I ,:L)
+        ## A = Symmetric(real.(A),:L)
+        ## C = cholesky(A, Val(false)) #, check=false)
+        ## return Cholesky(T.(C.factors), C.uplo, C.info)
+        ## -------------
+        B = eigen(Symmetric(T.(real.(A)),:L))
+        B.values[B.values .<= 0] .= 0
+        return B 
+    end 
     
-    vmax, imax = findmax(map(lnf -> CMBrings.lllnf(ϕ, lnf, Ł, Σaz_fctr), lnf_array))
-    lnf        = lnf_array[imax]
-    sc_lllnf   = vmax
-
-    ## here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
-    inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz_fctr \ ϕ) 
-
-    T   = eltype_in(tmU)
-    opt = NLopt.Opt(solver, 1)
-    opt.maxtime      = linesearch_time_max
-    opt.upper_bounds = T[1.0]
-    opt.lower_bounds = T[0]
-    opt.max_objective = function (β, grad)
-        ϕβ = ϕ + β[1] * inHgrad
-        CMBrings.sum_kbn([CMBrings.lllnf(ϕβ, lnf, Ł, Σaz_fctr), CMBrings.llϕ(ϕβ, Φaz_fctr), -sc_lllnf])
-    end
-
-    ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
-    @show ll_opt, β_opt[1]
-    
-    return inHgrad, β_opt[1]
-end
-
-
-function update_ϕ_meanlllnf(gradϕ, ϕ, lnf_array, data; Pr, NΦNaz, Σaz_fctr,  Φaz_fctr, Ł, ∇!, tmU, linesearch_time_max, solver = :LN_COBYLA,  ds...)
-    
-    ## here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
-    inHgrad = NΦNaz * gradϕ - NΦNaz * (Φaz_fctr \ ϕ) 
-
-    T   = eltype_in(tmU)
-    opt = NLopt.Opt(solver, 1)
-    opt.maxtime      = linesearch_time_max
-    opt.upper_bounds = T[1.0]
-    opt.lower_bounds = T[0]
-    opt.max_objective = function (β, grad)
-        ϕβ = ϕ + β[1] * inHgrad
-        rtn  = mean(map(lnf -> CMBrings.lllnf(ϕβ, lnf, Ł, Σaz_fctr), lnf_array))
-        rtn += CMBrings.llϕ(ϕβ, Φaz_fctr)
-        rtn 
-    end
-
-    ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
-    @show ll_opt, β_opt[1]
-    
-    return inHgrad, β_opt[1]
-end
-
-
-function linesearchϕ(inHgrad, ϕ, lnf, data; tmU, Σaz_fctr, Φaz_fctr, linesearch_time_max, solver = :LN_COBYLA,  ds...)
-    # solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
-    T   = eltype_in(tmU)
-    opt = NLopt.Opt(solver, 1)
-    opt.maxtime      = linesearch_time_max
-    opt.upper_bounds = T[1.0]
-    opt.lower_bounds = T[0]
-    opt.max_objective = function (β, grad)
-        ϕβ = ϕ + β[1] * inHgrad
-        CMBrings.lllnf(ϕβ, lnf, Ł, Σaz_fctr) + CMBrings.llϕ(ϕβ, Φaz_fctr) 
-    end
-    ll_opt, β_opt, = NLopt.optimize(opt,  T[0])
-    @show ll_opt, β_opt
-    return β_opt[1]
-end
-## TODO: on the return ll_opt, add the full log likelihood7
-
-
-function ∇ϕ(ϕ, lnf, data; Pr, Σaz_fctr, Naz_fctr, Baz, ϕ2v, ϕ2v!, ϕ2vᴴ!, Ł, ∇!, tmU, grad_nsteps, ds...)
-    ## Remark: for the next line to be correct Naz_fctr must be diagonal in pixel space
-    ##dΔlnf     = Baz' * (Pr' * (Naz_fctr \ (data - Pr * (Baz * lnf))))
-    Ma        = DiagOp(Xmap(tmU, abs.(Pr[:]).>0))
-    dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * lnf)))))
-    v         = ϕ2v(ϕ)
-    f         = Ł(ϕ) \ lnf 
-    τŁ₀₁      = CMBrings.FieldLensing.τArrayLense(v, (f[:],), ∇!, 0, 1, grad_nsteps)
-    τŁ₁₀      = CMBrings.FieldLensing.τArrayLense(v, (lnf[:],), ∇!, 1, 0, grad_nsteps)        
-    ## τv₀, τf   = τŁ₁₀(map(zero,v),  (dΔlnf[:],))
-    τϕ₀, τf   = τpotential(τŁ₁₀, zero(ϕ[:]), (dΔlnf[:],), ϕ2v!, ϕ2vᴴ!)
-    ∇f        = Xmap(tmU, τf[1]) - Σaz_fctr \ f
-    ## τv₁, τlnf = τŁ₀₁(τv₀,  (∇f[:],))
-    τϕ₁, τlnf = τpotential(τŁ₀₁, τϕ₀,  (∇f[:],), ϕ2v!, ϕ2vᴴ!)
-    ## return ϕ2vᴴ(τv₁) #  - Φaz_fctr \ ϕ # this last term is added later
-    return Xmap(tmU, τϕ₁)
-end
-
-
-
-function τpotential(
-        τL::FieldLensing.τArrayLense{m,n,Tf,d,Tg,Tt},
-        τϕ::A, 
-        τf::NTuple{n,A}, 
-        ϕ2v!, ϕ2vᴴ!, 
-    )::Tuple{A, NTuple{n,A}} where {m,n,Tf,d,Tg,Tt<:Real,A<:Array{Tf,d}}
-
-    pτL!  = FieldLensing.plan(τL) 
-
-    # these are just storage containers
-    y′ = deepcopy(tuple(τL.v..., τf..., τL.f...))
-    ẏ′ = deepcopy(tuple(τL.v..., τf..., τL.f...))
-
-    f! = function (ẏ,t,y)
-
-        # fill y′ ≡ (τv,τf,f) from  y ≡ (τϕ,τf,f) 
-        # ------------------
-        # first y′[1:m] = ϕ2v(y[1])
-        τvₜ = tuple(y′[Base.OneTo(m)]...)
-        ϕ2v!(τvₜ, first(y)) 
-
-        # now y′[(m+1):(m+2n)] directly from tail of y
-        ytail  = Base.tail(y)
-        y′tail = y′[(m+1):end]
-        for i = 1:2n
-            @avx @. y′tail[i] = ytail[i]
-        end
-
-        # now compute ẏ′ from y′
-        # ------------------
-        pτL!(ẏ′, t, y′)
-
-        # finally compute ẏ via compression of ẏ′
-        # -----------------------
-        # compute τ̇vₜ (alisased to ẏ′[1:m])
-        τ̇vₜ = tuple(ẏ′[Base.OneTo(m)]...)
-        ϕ2vᴴ!(first(ẏ), τ̇vₜ)
-
-        # compute (τ̇fₜ, ḟₜ) (alisased to ẏ′[m+1:end])
-        ẏtail  = Base.tail(ẏ)
-        ẏ′tail = ẏ′[(m+1):end]
-        for i = 1:2n
-            @avx @. ẏtail[i] = ẏ′tail[i]
-        end
-    end
-
-    rtn   = FieldLensing.odesolve_RK4(f!, tuple(τϕ, τf..., τL.f...), τL.t₀, τL.t₁, τL.nsteps)
-    
-    return first(rtn), tuple(Base.tail(rtn)[Base.OneTo(n)]...)
-
-end
-
-
-
-
-
-# Benchmarks 
-# ==============================
-
-## ## f = Xmap(tmU, randn(eltype_in(tmU), size_in(tmU)))
-## f = Xfourier(tmU, randn(eltype_out(tmU), size_out(tmU)))
-## ## f = Xmap(tmU32, randn(eltype_in(tmU32), size_in(tmU32)))
-## ## f = Xfourier(tmU32, randn(eltype_out(tmU32), size_out(tmU32)))
-## 
-## 
-## @benchmark $Σaz * $f # 430 ms
-## #-
-## @benchmark $Σaz \ $f # 50 ms
-## #- 
-## @benchmark map(Matrix, $Σaz) # 2 s
-## #-
-## @benchmark $Baz * $f # 54.728 ms
-## #-
-## @benchmark $(Baz') * $f # 
-## #- 
-## 
-## @benchmark $(Ł(az_sim(tmU, Φaz))) * $f # 1s
-## @benchmark $∂θaz * $(f[:])    # 4ms
-## @benchmark $(f[:]) * $(∂φᵀaz) # 5ms
+    Daz 
+end;
 
 
 
 # Simulate data 
 # ================================================
 
-
-ϕ_az  = az_sim(tmU, Φaz) |> Xmap
-t_az  = az_sim(tmU, Σaz) |> Xfourier
-d_az  = Pr * (Baz * (Ł(ϕ_az)*t_az) + az_sim(tmU, Naz)) |> Xfourier;
-
-
-@sblock let Ł, Baz, t_az, d_az, ϕ_az, θℝ, φℝ, Pr, hide_plots
-    hide_plots && return
-    imgs = Dict(
-        1 => d_az[:],
-        2 => t_az[:],
-        3 => abs.((d_az - Pr * (Baz * (Ł(ϕ_az)*t_az)))[:])
-    )
-    txt =  Dict(
-        1 => "data",
-        2 => "signal",
-        3 => "abs(noise)"
-    )
-    ctxt = Dict(
-        3 => "w"
-    )
-    brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
-    ## diskplot(imgs, φℝ', π.-θℝ; txt=txt, nrows=2, fontsize=12)
-end;
+ϕ_az  = CMBrings.az_sim(tmS0, Φaz) |> Xmap
+t_az  = CMBrings.az_sim(tmS0, Σaz) |> Xmap
+d_az  = Pr * (Baz * (Ł_fixd∂(ϕ_az)*t_az) + CMBrings.az_sim(tmS0, Naz)) |> Xmap;
 
 
+
+
+# @time fsim_out, gwf, hst = CMBrings.update_f(
+#     Ł_fixd∂(ϕ_az) ; 
+#     data = d_az,
+#     Pr, Qr, CMBcov = Σaz, Ncov = Naz , Bm = Baz, Precon = Precon_fctr,
+#     pcg_nsteps = 100, 
+# )
+
+
+# @time fsim_out, gwf, hst = CMBrings.update_f(
+#     DiagOp(Xfourier(tmS0, 1));
+#     data = d_az,
+#     Pr, Qr, CMBcov = Σaz, Ncov = Naz , Bm = Baz, Precon = Precon_fctr,
+#     pcg_nsteps = 300, 
+# )
 
 
 # Put settings and needed parameters in ds ...
 # ===========================================
 
-
-ds = (;  
-    tmU, Ł, ∇!, Pr, Qr, 
-    Σaz_fctr=Σaz, Φaz_fctr=Φaz, Naz_fctr=Naz, Baz, 
-    Precon_fctr, NΦNaz, 
-    ϕ2v!, ϕ2vᴴ!,  ϕ2v, ϕ2vᴴ, # not sure the last two are needed
-    grad_nsteps = 14, pcg_nsteps=125, 
-    linesearch_time_max = 60*3,
-    solver = :LN_COBYLA, # :LN_SBPLX, ##  :LN_NELDERMEAD, 
+ds = (;
+    data   = d_az, 
+    Ł      = Ł_fixd∂, ### here we are using sub_Ł
+    ϕ2v!   = ϕ2v!_fixd∂, 
+    ϕ2vᴴ!  = ϕ2vᴴ!_fixd∂, ### but here we need the full gradient etc for transpose flow
+    CMBcov = Σaz, 
+    Φcov   = Φaz, 
+    Ncov   = Naz, 
+    Bm     = Baz, 
+    NΦNcov = NΦNaz, 
+    Precon = Precon_fctr, 
+    ∇!, 
+    tmS0, 
+    Pr, 
+    Qr, 
+    Ð, 
+    ## -------------- pcg ....
+    grad_nsteps = 14, # seems sensable to match the lensing nsteps 
+    ## -------------- pcg ....
+    pcg_nsteps = 150, #200, 
+    pcg_rel_tol = 1e-10,
+    ## ------------- For NLopt ....
+    upper_bound = 0.2,
+    ftol_abs = 10,  ## within 50 loglikelihood points is just fine
+    xtol_abs = 1e-7,
+    solver = :LN_COBYLA, # :LN_NELDERMEAD, :LN_COBYLA, :LN_SBPLX, 
 );
+
+
+
+
 
 
 
 # newton/gibbs iterations
 # ================================================
 
+ϕ_cr  = Xmap(tmS0)
+∇ϕ_cr_array = typeof(ϕ_cr)[]
+gradϕ_array = typeof(ϕ_cr)[]
+β_array     = Float64[]
+
+# Warm up the pcg
+@time p_cr, ginit, hst = CMBrings.update_f(
+    DiagOp(Xfourier(tmS0, 1));
+    ds...,
+    pcg_nsteps=300, 
+)
+p′_cr = Ð * p_cr;
+
+
+
+# Gradient iterations
+
+#@showprogress for otr = 1:25
+@showprogress for otr = 1:3
+    global p′_cr, ϕ_cr, ginit, hst
+    global ∇ϕ_cr_array, gradϕ_array, β_array
+
+    ## WF update p_cr, p′_cr and ginit for pcg warm start
+    if otr == 1
+         pcg_steps = 10
+    else 
+        pcg_steps = 150
+    end
+    @time p_cr, ginit, hst = CMBrings.update_f(
+        ds.Ł(ϕ_cr); 
+        ds..., 
+        ginit=ginit, 
+        pcg_nsteps=pcg_steps,
+    )
+    p′_cr = ds.Ł(ϕ_cr) * Ð * p_cr 
+    @show hst[end], length(hst)
+    @show CMBrings.ll_ϕf′(ϕ_cr, p′_cr; ds...)
+
+    ## ϕ gradient
+    @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, p′_cr; ds...)
+    @time ∇ϕ_cr = ds.NΦNcov * gradϕ
+    push!(gradϕ_array, gradϕ)
+    push!(∇ϕ_cr_array, ∇ϕ_cr)
+    
+    ## linesearch 
+    @time β = CMBrings.linesearch_ϕf′(∇ϕ_cr, ϕ_cr, p′_cr; ds...)
+    @show β
+    push!(β_array, β)
+
+    ## update ϕ_cr
+    ϕ_cr += β * ∇ϕ_cr
+ 
+end
+
+
+
+
+
+
+
+
+
+
+# Old 
+# ===========================
+
+
+
 
 # TODO: see if you can adjust the hessian with these samples 
 # Wouldn't a wishart type draw work? 
 
-ϕ_cr  = Xmap(tmU)
-ginit = Xfourier(tmU)
-∇ϕ_cr = Xmap(tmU)
+ϕ_cr  = Xmap(tmS0)
+ginit = Xmap(tmS0)
+∇ϕ_cr = Xmap(tmS0)
 ∇ϕ_cr_array  = typeof(∇ϕ_cr)[]
 
 # iterate ...
@@ -816,8 +778,8 @@ ginit = Xfourier(tmU)
     global ∇ϕ_cr_array, gradϕ
     
     ## for itr = 1:4
-        n′  = az_sim(tmU, Naz) |> Xfourier
-        f′  = az_sim(tmU, Σaz) |> Xfourier
+        n′  = CMBrings.az_sim(tmS0, Naz) |> Xfourier
+        f′  = CMBrings.az_sim(tmS0, Σaz) |> Xfourier
         data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier
 
         data′ *= 0
@@ -872,9 +834,9 @@ end
 ## CMBrings.llfield(t_test, ds.Σaz_fctr)[!] .|> abs .|> log |> matshow
 
 
-## ϕ_cr     = Xfourier(tmU)
-## ginit_cr = Xfourier(tmU)
-## ∇ϕ_cr    = Xfourier(tmU)
+## ϕ_cr     = Xfourier(tmS0)
+## ginit_cr = Xfourier(tmS0)
+## ∇ϕ_cr    = Xfourier(tmS0)
 ## 
 ## 
 ## # iterate ...
@@ -886,8 +848,8 @@ end
 ## 	lnt_cr_array  = typeof(ϕ_cr)[]
 ## 	ginit_array   = typeof(ginit_cr)[]
 ## 
-##     f′  = az_sim(tmU, Σaz) |> Xfourier
-##     n′  = az_sim(tmU, Naz) |> Xfourier
+##     f′  = CMBrings.az_sim(tmU, Σaz) |> Xfourier
+##     n′  = CMBrings.az_sim(tmU, Naz) |> Xfourier
 ##     
 ##     for itr = 1:1
 ##         data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier;

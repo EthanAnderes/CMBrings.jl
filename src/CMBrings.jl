@@ -3,8 +3,8 @@ module CMBrings
 using XFields
 using FFTransforms
 using FieldLensing
-using SphereTransforms  # specify what we need from this
-using HealpixTransforms # do we need this?
+using SphereTransforms  
+# using HealpixTransforms # do we need this?
 
 using LinearAlgebra
 using Statistics 
@@ -19,71 +19,30 @@ using NLopt
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
+
+# ----------------
+# Extras on SphereTransforms like simulation, getindex etc. 
+include("transformations.jl")
+
+# the latest prototype for covariance type, spin0 only
 include("az_blocks.jl")
 
+# old version ... has polarization implimentation
 include("az_cov.jl")
 
 include("lensing.jl")
+
+include("likelihoods.jl")
 
 include("methods.jl")
 
 include("plot.jl")
 
 
-# Linear Algebra extensions
+
+# moved to likelihoods.jl, methods.jl or transofrmations.jl
 # =====================================
-
-
-
-function LinearAlgebra.pinv(M::Eigen)
-    invM = deepcopy(M)
-    invM.values .= pinv.(M.values)
-    invM
-end
-
-
-function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎 
-    FFTransforms.sum_kbn(f[:].*g[:])
-end
-
-
-# quasi-gibbs updates
-# =====================================
-
-
-function update_lnf_f(ϕ, data; data′, f′, ginit, Pr, Qr, Ł, tmU, Σaz_fctr, Naz_fctr, Baz, Precon_fctr, pcg_nsteps, ds...)
-
-    Ln    = Ł(ϕ)
-    Lnᴴ   = Ln'
-    
-    # these make the multiplications faster ...
-    mΣaz = map(Matrix, Σaz_fctr) |> AzBlock
-    mNaz = map(Matrix, Naz_fctr) |> AzBlock
-    mPrecon = map(Matrix, Precon_fctr) |> AzBlock
-
-    A = function (g)
-        tmp0  = Pr * (Baz * (Ln * (mΣaz * (Lnᴴ * (Baz' * (Pr' * g))))))
-        tmp1  = Pr * (mNaz * (Pr' * g))
-        tmp2  = Qr * (mPrecon * (Qr' * g))   
-        return tmp0 + tmp1 + tmp2
-    end 
-
-    gwf, hst = pcg(
-        g -> Precon_fctr \ g, 
-        A, 
-        data + data′, 
-        ginit,
-        nsteps=pcg_nsteps, rel_tol=1e-10,
-    )
-
-    fsim    = mΣaz * ( Lnᴴ * (Baz' * (Pr' * gwf)))
-    fsim   -= f′
-    lnfsim  = Ln * fsim
-
-    return  lnfsim, fsim, gwf, hst
-end
-
- 
+#=
 function update_ϕ(ϕ, lnf, data; Pr, NΦNaz, Σaz_fctr, Naz_fctr, Φaz_fctr, Baz, ϕ2v, ϕ2vᴴ, Ł, ∇!, tmU, grad_nsteps, linesearch_time_max, solver = :LN_COBYLA,  ds...)
     # here are a couple other solvers :LN_SBPLX :LN_NELDERMEAD, :LN_COBYLA
 
@@ -188,42 +147,6 @@ end
 
 
 
-
-# A few useful methods 
-# =====================================
-
-
-
-
-function smooth(f::Xfield, θ, φ; fwhm′θ=100, fwhm′φ = 100)
-    𝕨 = r𝕎(length(θ), θ[end]-θ[1] ) ⊗ r𝕎(length(φ), φ[end] - φ[1]) |> x-> ordinary_scale(x)*x
-    beamfwhm1 = (arcmin=fwhm′θ; deg2rad(arcmin/60))
-    beamfwhm2 = (arcmin=fwhm′φ; deg2rad(arcmin/60))
-    σ²1 = beamfwhm1^2 / 8 / log(2)
-    σ²2 = beamfwhm2^2 / 8 / log(2)
-    k   = fullfreq(𝕨)
-    bk  = @. exp( - σ²1 * k[1]^2 / 2) * exp( - σ²2 * k[2]^2 / 2)
-    Bt  = DiagOp(Xfourier(𝕨, bk)) 
-    Xmap(fieldtransform(f), (Bt * Xmap(𝕨, f[:]))[:])
-end
-
-
-function laplace(ϕ_az::Xfield, θ, ∇!; padpix=5)
-    ϕ       = ϕ_az[:]
-    sinθ    = sin.(θ) 
-    sin⁻¹θ  = csc.(θ)
-    vθ, vφ  = ∇!(ϕ_az[:])
-    vθ    .*= sinθ 
-    wθ, wφ = ∇!((vθ, vφ))
-    wθ    .*=  sin⁻¹θ
-    wφ    .*=  sin⁻¹θ.^2
-    rtn    = wθ + wφ
-    rtn[1:padpix, :] .= 0
-    rtn[(end-padpix+1):end,:] .= 0
-    Xmap(fieldtransform(ϕ_az),rtn)
-end 
-
-
-
+=#
 
 end
