@@ -1,6 +1,9 @@
 
 # Modules
 # ==============================
+using FFTW
+FFTW.FFTW.set_num_threads(8)
+
 using CMBrings
 import CMBsphere as CS
 
@@ -39,7 +42,7 @@ tmS0 = @sblock let
 
     T_fld   = Float64
 
-    nθ, nφ  = 308, 2048
+    nθ, nφ  = 400, 2048-1
     # nθ, nφ  = 308, 3072
     # nθ, nφ  = 308, 4095
     
@@ -66,14 +69,16 @@ T_Precon = Float64
 
 #-
 
-Pr, Qr, Mϕ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let  tmS0, QP_bdry=1e-5, fwhm′=150, T_fld
+Pr, Qr, Mϕ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let  tmS0, QP_bdry=1e-5, fwhm′=200, T_fld
 
     ## --------- FIXME: make this work for any nθ, nφ ----
     data_mask_init = readdlm(joinpath(CMBrings.module_dir,"examples/lensing-spin0/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)
+    data_mask_init = data_mask_init[1:2:end,1:2:end-1]
     nθ, nφ = size_in(tmS0)
-    sθ_clip = (87*3072÷100 - nθ + 1):(87*3072÷100)
-    sφ_clip = 1:2:4095
+    sθ_clip = (92*(3072÷2)÷100 - nθ + 1):(92*(3072÷2)÷100)
+    sφ_clip = 1:nφ
 
+    # TODO: replace this with pixel area from θ and φ points ...
     CStmS0 = CS.𝕊0(size(data_mask_init)...)
     Ωℝ64 = CS.Ωpix(CStmS0)[sθ_clip]
     θℝ64, φℝ64 = CS.pix(CStmS0) |> x->(x[1][sθ_clip], x[2][sφ_clip])
@@ -86,8 +91,10 @@ Pr, Qr, Mϕ, Ωℝ, θℝ, φℝ, Ωℝ64, θℝ64, φℝ64 = @sblock let  tmS0,
     Qr = DiagOp(Xmap(tmS0, d_qr0x))
 
     ### ------------- lensing displacement mask
-    ϕ_pr0x, ϕ_qr0x = CS.PrQr(CStmS0, data_mask_init, fwhm′÷3, QP_bdry)
-    mϕx   =  ϕ_pr0x[sθ_clip,sφ_clip] .+ ϕ_qr0x[sθ_clip,sφ_clip]
+    fwhm′′ = 150
+    ϕ_pr0x, ϕ_qr0x = CS.PrQr(CStmS0, data_mask_init, fwhm′′, QP_bdry)
+    ## mϕx   =  ϕ_pr0x[sθ_clip,sφ_clip] .+ ϕ_qr0x[sθ_clip,sφ_clip]
+    mϕx   =  ϕ_pr0x[sθ_clip,sφ_clip]
     mϕx .-= minimum(mϕx)
     mϕx ./= maximum(mϕx)
     Mϕ    = DiagOp(Xmap(tmS0, mϕx))
@@ -100,7 +107,7 @@ end;
 
 # Azimuthal ring mask
 
-@sblock let ma=Pr[:], φℝ, θℝ, hide_plots
+@sblock let ma=Pr[:], φℝ, θℝ, hide_plots=false
     hide_plots && return
     imgs = Dict(1=>ma)
     txt  = Dict(1=>"Mask")
@@ -128,7 +135,8 @@ end;
 # ϕϕ, TT covariance
 # ================================
 
-rcϕ = T_fld(1e2)
+# rcϕ = T_fld(1e2)
+rcϕ = T_fld(1)
 
 # TODO: figure out what to do about low ell modes
 
@@ -145,8 +153,8 @@ ttl, t̃tl, ϕϕl = @sblock let rcϕ, lmax = 11000
     t̃tl[2] = t̃tl[3] /10
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    ϕϕl[1] =  ϕϕl[3]/100
-    ϕϕl[2] =  ϕϕl[3]/10
+    ϕϕl[1] =  0 # ϕϕl[3]/100
+    ϕϕl[2] =  0 # ϕϕl[3]/10
 
     ttl, t̃tl, rcϕ^2 .* ϕϕl
 end;
@@ -218,48 +226,61 @@ end;
 # Beam/Transfer function
 # ================================
 
-beamfwhm    = 3.0 |> arcmin -> deg2rad(arcmin/60)
+beamfwhm    = 5.0 |> arcmin -> deg2rad(arcmin/60)
 azmuth_transfer_k = (k, θ) -> 1
 ## azmuth_transfer_k = (k, θ) -> inv(1 + (k/cos(θ)/250)^2)
 ## azmuth_transfer_k = (k, θ) -> inv(1 + (k/75)^2)
 
 #-
 
-bl = @sblock let beamfwhm, lmax = 11000  
+bl = @sblock let beamfwhm, lmax = 11000, lcut = 2000  
     l = 0:lmax
     σ² = beamfwhm^2 / 8 / log(2)
     bl = @. exp( - σ²*l*(l+1) / 2)
+    #bl[l .< lcut] .= 0
     return bl
 end;
 
 #-
 
-Baz = @sblock let T_cov=T_Baz, tmW=unscale(tmS0),  bl, θℝ=θℝ64, φℝ=φℝ64, Ωℝ=Ωℝ64, azmuth_transfer_k
-    ##θgrid = range(0, π^(1/2), length=100_000).^2
-    dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
-    θgrid = range(0, dmax^(1/2), length=100_000).^2
-    
-    covf  = Spline1D(
-        θgrid, 
-        Spectra.spec2spherecov(bl, θgrid), 
-        k=3
-    )
-    
-    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+## Baz = @sblock let T_cov=T_Baz, tmW=unscale(tmS0),  bl, θℝ=θℝ64, φℝ=φℝ64, Ωℝ=Ωℝ64, azmuth_transfer_k
+##     ##θgrid = range(0, π^(1/2), length=100_000).^2
+##     dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+##     θgrid = range(0, dmax^(1/2), length=100_000).^2
+##     
+##     covf  = Spline1D(
+##         θgrid, 
+##         Spectra.spec2spherecov(bl, θgrid), 
+##         k=3
+##     )
+##     
+##     covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+## 
+##     Baz  = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
+##         T_cov.(real.(Σ) * Diagonal(azmuth_transfer_k.(k, θℝ) .* Ωℝ))
+##     end
+## 
+##     Baz
+## end;
+## 
 
-    Baz  = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do Σ, k
-        T_cov.(real.(Σ) * Diagonal(azmuth_transfer_k.(k, θℝ) .* Ωℝ))
-    end
+## alt ...
+Baz = map(Σaz) do Σ
+    Matrix(I(size(Matrix(Σ),1)))
+end |> CMBrings.AzBlock;
 
-    Baz
-end;
+for k = 1:length(Baz)
+    if k > length(Baz)÷2
+        Baz[k] .*= 0
+    end 
+end
 
 ## Baz = 1
 
 # Noise with weights weight and mask/projection
 # ==============================
 
-μK′n      = 2.5 # 10.0
+μK′n      = 4.5 # 10.0
 ellknee   = 0   # 150
 alphaknee = 3
 ## weight_θ  = θ -> 1 + 0.15 * sin(300 * θ) # θ -> 1
@@ -460,17 +481,53 @@ end |> CMBrings.AzBlock;
 
 
 
-∂θ = @sblock let tmS0, θℝ, T_fld
+∂θ, ∂φᵀ = @sblock let tmS0, θℝ, φℝ, T_fld
 
-    Δθℝ = θℝ[2] - θℝ[1]
+    Δθℝ = θℝ[3] - θℝ[2]
+
+
+    # ∂θ′ = spdiagm(
+    #         0 => fill(-1,length(θℝ)), 
+    #         1 => fill(1,length(θℝ)-1),
+    #     )
+    # ∂θ′[end,1] =  1
+    # ∂θ = T_fld(1 / (Δθℝ)) * ∂θ′
+
+
     ∂θ′ = spdiagm(
-            0 => fill(-1,length(θℝ)), 
-            1 => fill(1,length(θℝ)-1),
-        )
-    ∂θ′[end,1] =  1
-    ∂θ = T_fld(1 / (Δθℝ)) * ∂θ′
+            -2 => fill( 1,length(θℝ)-2),
+            -1 => fill(-8,length(θℝ)-1),
+             1 => fill( 8,length(θℝ)-1),
+             2 => fill(-1,length(θℝ)-2),
+            )
+    ∂θ′[1,end]   =  -8
+    ∂θ′[1,end-1] =  1
+    ∂θ′[2,end]   =  1
+    ∂θ′[end,1]   =  8
+    ∂θ′[end,2]   = -1
+    ∂θ′[end-1,1] = -1
+    ∂θ = T_fld(1 / (12Δθℝ)) * ∂θ′
 
-    ∂θ
+    Δφℝ = φℝ[3] - φℝ[2]
+
+    ∂φ  = spdiagm(
+            -2 => fill( 1,length(φℝ)-2),
+            -1 => fill(-8,length(φℝ)-1),
+             1 => fill( 8,length(φℝ)-1),
+             2 => fill(-1,length(φℝ)-2),
+            )
+    ∂φ[1,end]   =  -8
+    ∂φ[1,end-1] =  1
+    ∂φ[2,end]   =  1
+    ∂φ[end,1]   =  8
+    ∂φ[end,2]   =  -1
+    ∂φ[end-1,1] =  -1
+    ∂φᵀ = transpose(T_fld(1 / (12Δφℝ)) * ∂φ)
+
+
+
+
+    ∂θ, ∂φᵀ
 end
 
 ## ------- or alternatively ----------
@@ -478,7 +535,13 @@ end
 ## ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
 ## ------- or ------------
 ∇!   = CMBrings.Pix1dFFTNabla!((∂θ - ∂θ')/2, tmS0)
-∇!_ϕ = CMBrings.Pix1dFFTNabla!(∂θ, tmS0)
+∇!_ϕ = CMBrings.Pix1dFFTNabla!((∂θ - ∂θ')/2, tmS0)
+## ------- or ------------
+## sz     = (length(θℝ), length(φℝ))
+## period = (length(θℝ)*(θℝ[2]-θℝ[1]), length(φℝ)*(φℝ[2]-φℝ[1]))
+## ∇!   = CMBrings.FFTNabla!(T_fld, sz, period)
+## ∇!_ϕ = CMBrings.FFTNabla!(T_fld, sz, period)
+
 
 
 Ł_fixd∂, ϕ2v!_fixd∂, ϕ2vᴴ!_fixd∂, Ł_free∂ = @sblock let tmS0, Mϕ, rcϕ, ∇!, ∇!_ϕ, nsteps_lensing = 14,  θℝ=θℝ64, φℝ=φℝ64 
@@ -488,7 +551,7 @@ end
 
     leftlink =  n::Int -> ((cos.(range(-π,0,length=n)) .+ 1)./2).^2
     rightlink = n::Int -> ((cos.(range(0,π,length=n)) .+ 1)./2).^2
-    nbθ, nbφ  = 20, 5
+    nbθ, nbφ  = 20, 20
     maθ = ones(size(θℝ))
     maθ[2:nbθ+1]        =  leftlink(nbθ)
     maθ[end-nbθ:end-1]  =  rightlink(nbθ)
@@ -547,7 +610,7 @@ end;
 
 # Show lensing (zoomed into 1/2 of azimuth band).
 
-@sblock let Ł=Ł_fixd∂, tmS0, Σaz, Φaz, φℝ, θℝ, fφ=1/2, hide_plots
+@sblock let Ł=Ł_fixd∂, tmS0, Σaz, Φaz, φℝ, θℝ, fφ=1/2, hide_plots=false
     hide_plots && return
 
     ϕ_az = CMBrings.az_sim(tmS0, Φaz)
@@ -600,33 +663,39 @@ end;
 # end
 
 
-Ð = @sblock let T=T_Σaz, tmW=unscale(tmS0), ttl, t̃tl, wnl, θℝ=θℝ64, φℝ=φℝ64
+# Ð = @sblock let T=T_Σaz, tmW=unscale(tmS0), ttl, t̃tl, wnl, θℝ=θℝ64, φℝ=φℝ64
 
-    cl    =  t̃tl .+ 2 .* wnl ./ ttl 
+#     cl    =  (t̃tl .+ 2 .* wnl) ./ ttl 
 
-    dmax  = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
-    θgrid = range(0, dmax^(1/2), length=100_000).^2
-    covf  = Spline1D(
-        θgrid, 
-        Spectra.spec2spherecov(cl, θgrid), 
-        k=3
-    )
-    covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
+#     dmax  = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θℝ[1], θℝ[1], φℝ .- φℝ[1]))
+#     θgrid = range(0, dmax^(1/2), length=100_000).^2
+#     covf  = Spline1D(
+#         θgrid, 
+#         Spectra.spec2spherecov(cl, θgrid), 
+#         k=3
+#     )
+#     covf_θ1θ2Δφℝ = (θ1,θ2,Δφℝ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφℝ)) 
 
-    Daz = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
-        ## A = Symmetric(real.(A) + 1e-8*I ,:L)
-        ## A = Symmetric(real.(A),:L)
-        ## C = cholesky(A, Val(false)) #, check=false)
-        ## return Cholesky(T.(C.factors), C.uplo, C.info)
-        ## -------------
-        B = eigen(Symmetric(T.(real.(A)),:L))
-        B.values[B.values .<= 0] .= 0
-        return B 
-    end 
+#     Daz = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θℝ, φℝ, tmW) do A, k
+#         ## A = Symmetric(real.(A) + 1e-8*I ,:L)
+#         ## A = Symmetric(real.(A),:L)
+#         ## C = cholesky(A, Val(false)) #, check=false)
+#         ## return Cholesky(T.(C.factors), C.uplo, C.info)
+#         ## -------------
+#         B = eigen(Symmetric(T.(real.(A)),:L))
+#         B.values[B.values .<= 0] .= 0
+#         return B 
+#     end 
     
-    Daz 
-end;
+#     Daz 
+# end;
 
+
+
+
+Ð = map(Σaz) do Σ
+    Matrix(I(size(Matrix(Σ),1)))
+end |> CMBrings.AzBlock;
 
 
 # Simulate data 
@@ -680,7 +749,7 @@ ds = (;
     pcg_nsteps = 150, #200, 
     pcg_rel_tol = 1e-10,
     ## ------------- For NLopt ....
-    upper_bound = 0.2,
+    upper_bound = 0.8,
     ftol_abs = 10,  ## within 50 loglikelihood points is just fine
     xtol_abs = 1e-7,
     solver = :LN_COBYLA, # :LN_NELDERMEAD, :LN_COBYLA, :LN_SBPLX, 
@@ -709,20 +778,20 @@ gradϕ_array = typeof(ϕ_cr)[]
 p′_cr = Ð * p_cr;
 
 
+# Fixme: needs to adjust for rcϕ in the likelihood or the gradient ...
 
 # Gradient iterations
 
-#@showprogress for otr = 1:25
-@showprogress for otr = 1:3
+@showprogress for otr = 1:25
     global p′_cr, ϕ_cr, ginit, hst
     global ∇ϕ_cr_array, gradϕ_array, β_array
 
     ## WF update p_cr, p′_cr and ginit for pcg warm start
-    if otr == 1
-         pcg_steps = 10
-    else 
+    # if otr == 1
+    #      pcg_steps = 10
+    # else 
         pcg_steps = 150
-    end
+    #end
     @time p_cr, ginit, hst = CMBrings.update_f(
         ds.Ł(ϕ_cr); 
         ds..., 
@@ -752,10 +821,16 @@ end
 
 
 
+v_cr = (similar(ϕ_cr[:]), similar(ϕ_cr[:]))
+v_az = (similar(ϕ_az[:]), similar(ϕ_az[:]))
+ϕ2v!_fixd∂(v_cr, ϕ_cr[:])
+ϕ2v!_fixd∂(v_az, ϕ_az[:])
 
+v_az[1] |> matshow
+v_cr[1] |> matshow
 
-
-
+v_az[2] |> matshow
+v_cr[2] |> matshow
 
 
 # Old 
@@ -763,164 +838,8 @@ end
 
 
 
-
-# TODO: see if you can adjust the hessian with these samples 
-# Wouldn't a wishart type draw work? 
-
-ϕ_cr  = Xmap(tmS0)
-ginit = Xmap(tmS0)
-∇ϕ_cr = Xmap(tmS0)
-∇ϕ_cr_array  = typeof(∇ϕ_cr)[]
-
-# iterate ...
-@showprogress for otr = 1:4
-    global lnt_cr, t_cr, hst
-    global ∇ϕ_cr_array, gradϕ
-    
-    ## for itr = 1:4
-        n′  = CMBrings.az_sim(tmS0, Naz) |> Xfourier
-        f′  = CMBrings.az_sim(tmS0, Σaz) |> Xfourier
-        data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier
-
-        data′ *= 0
-        f′ *=0
-        @time lnt_cr, t_cr, ginit, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit, ds...)
-        # @show hst[end]
-
-        @time gradϕ   = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-        ## @time gradϕ = ∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-
-        @time ∇ϕ_cr = NΦNaz * gradϕ - NΦNaz * (Φaz \ ϕ_cr)  |> Xmap
-        @time β = linesearchϕ(∇ϕ_cr, ϕ_cr, lnt_cr, d_az; ds...)
-
-        push!(∇ϕ_cr_array, β * ∇ϕ_cr)
-    ## end
-
-    ϕ_cr += mean(∇ϕ_cr_array) 
-    ∇ϕ_cr_array = typeof(∇ϕ_cr)[]
-end
-
-
-  
-## βs = collect(range(0., .05, length = 25))
-## lls1 = zeros(T_fld, length(βs))
-## lls2 = zeros(T_fld, length(βs))
-## for i=1:length(βs)
-##     ϕβ = ϕ_cr + βs[i] * ∇ϕ_cr
-##     ## ϕβ.fd[:,1] .= 0
-##     
-##     t_test = Ł(ϕβ) \ lnt_cr |> Xfourier
-##     t_test.fd[:,end-1:end] .= 0 
-##     lls1[i] = CMBrings.llϕ(t_test, ds.Σaz_fctr)
-## 
-##     ## lls1[i] = CMBrings.lllnf(ϕβ, lnt_cr,  ds.Ł, ds.Σaz_fctr) 
-##     lls2[i] = CMBrings.llϕ(ϕβ, ds.Φaz_fctr)
-## end 
-## plot(βs, lls1)
-## plot(βs, lls2)
-## 
-## plot(βs, lls1 .+ lls2)
-## 
-## hcat(βs, lls1, lls2, lls1 .+ lls2 ./ 100)
-## 
-## ϕβ = ϕ_cr + 0.015 * ∇ϕ_cr
-## t_test = Ł(ϕβ) \ lnt_cr |> Xfourier
-## t_test.fd[:,end] .= 0 
-## CMBrings.llϕ(t_test, ds.Σaz_fctr)
-## CMBrings.lllnf(ϕβ, lnt_cr,  ds.Ł, ds.Σaz_fctr) 
-
-
-## CMBrings.llfield(ϕβ, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
-## CMBrings.llfield(t_test, ds.Σaz_fctr)[!] .|> abs .|> log |> matshow
-
-
-## ϕ_cr     = Xfourier(tmS0)
-## ginit_cr = Xfourier(tmS0)
-## ∇ϕ_cr    = Xfourier(tmS0)
-## 
-## 
-## # iterate ...
-## @showprogress for otr = 1:10
-##     global lnt_cr, t_cr, inHgrad, hst 
-##     global ∇ϕ_cr_array, lnt_cr_array, ginit_array
-## 
-## 	∇ϕ_cr_array   = typeof(∇ϕ_cr)[]
-## 	lnt_cr_array  = typeof(ϕ_cr)[]
-## 	ginit_array   = typeof(ginit_cr)[]
-## 
-##     f′  = CMBrings.az_sim(tmU, Σaz) |> Xfourier
-##     n′  = CMBrings.az_sim(tmU, Naz) |> Xfourier
-##     
-##     for itr = 1:1
-##         data′ = Pr * (Baz * (Ł(ϕ_cr) * f′)) +  Pr * n′ |> Xfourier;
-##         @time lnt_cr, t_cr, ginit_wf, hst = CMBrings.update_lnf_f(ϕ_cr, d_az; data′, f′, ginit=ginit_cr, ds...)
-##         ## @show hst[end]
-##         ∇ϕ_cr = CMBrings.∇ϕ(ϕ_cr, lnt_cr, d_az; ds...)
-##         push!(∇ϕ_cr_array,  ∇ϕ_cr)
-##         push!(lnt_cr_array, lnt_cr)
-##         push!(ginit_array,  ginit_wf)
-##     end
-## 
-##     @time inHgrad, β = update_ϕ_maxlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
-##     ## @time inHgrad, β = update_ϕ_meanlllnf(mean(∇ϕ_cr_array), ϕ_cr, lnt_cr_array, d_az; ds...)
-##     ϕ_cr += β * inHgrad
-##     ginit_cr = mean(ginit_array)
-## 
-## 
-## end
-## 
-
-## dΔlnf     = Baz' * (Ma * (Naz_fctr \ (Pr \ (data - Pr * (Baz * (Ł(ϕ_az)*t_az))))))
-## 
-## 
-## 
-## 
-
-## ϕβ = ϕ_cr + 0.05 * inHgrad;
-## 
-## ϕβ[:] |> matshow
-## ϕ_az[:] |> matshow
-## 
-## 
-## CMBrings.llfield(ϕβ, ds.Φaz_fctr)[!] .|> abs .|> log |> matshow
-## CMBrings.lllnf(ϕβ, lnt_cr,  ds.Ł, ds.Σaz_fctr) 
-## CMBrings.llϕ(ϕβ, ds.Φaz_fctr)
-## 
-## (ds.Ł(ϕβ) \ lnt_cr)[:] |> matshow
-## lnt_cr[:] |> matshow
-## t_cr[:] |> matshow
-
-##  t_cr[:] .- lnt_cr[:] |> matshow; colorbar()
-##  t_az[:] .- (Ł(ϕ_az)*t_az)[:]  |> matshow; colorbar()
-
-##  t_cr[:] .- t_az[:] |> matshow; colorbar()
-##  (Pr*(t_cr - t_az))[:] |> matshow; colorbar()
-##  (Pr*(lnt_cr - (Ł(ϕ_az)*t_az)))[:] |> matshow; colorbar()
-
-##  d_az[:] .- lnt_cr[:] |> matshow
-##  d_az[:] .- (Ł(ϕ_az)*t_az)[:] |> matshow
-
-## t_cr[!] .|> abs .|> log |> matshow; colorbar() 
-## t_az[!] .|> abs .|> log |> matshow; colorbar() 
-## 
-## ϕ_cr[!] .|> abs .|> log |> matshow; colorbar() 
-## ϕ_az[!] .|> abs .|> log |> matshow; colorbar() 
-## 
-## figure()
-## for i = 2:4
-##     semilogy(abs.(ϕ_sumi[!][:,i]))
-## end
-## figure()
-## for i = 2:4
-##     semilogy(abs.(ϕ_az[!][:,i]), ":")
-## end
-## 
-## ϕ_sumi.fd[:,2:3] .= ϕ_az.fd[:,2:3]
-
-
-
 #- 
-@sblock let fest = ϕ_cr, ftru = ϕ_az, tmU, φℝ, θℝ, ∇!, Pr, hide_plots
+@sblock let fest = ϕ_cr, ftru = ϕ_az, tmS0, φℝ, θℝ, ∇!, Pr, hide_plots
     hide_plots && return
 
     ## set mask
@@ -943,11 +862,11 @@ end
                         x->𝕄*x 
             
     ##---------------- Fourier filter
-    k   = CMBrings.fullfreq(tmU)
+    k   = CMBrings.fullfreq(tmS0)
     fltr = abs.(k[2])
-    ## fltr = ones(eltype_out(tmU), size_out(tmU))
+    ## fltr = ones(eltype_out(tmS0), size_out(tmS0))
     ## fltr[:,1:10] .= 0    
-    𝔽 = Xfourier(tmU,fltr) |> DiagOp
+    𝔽 = Xfourier(tmS0,fltr) |> DiagOp
     fest_F = 𝕄 * 𝔽 * fest            
     ftru_F = 𝕄 * 𝔽 * ftru
 
@@ -1092,7 +1011,7 @@ matshow(ϕ_az[:])
 
 75 .* cos.(φℝ')
 
-cosfield  = Xmap(tmU, cos.(φℝ') .* sin.(θℝ))
+cosfield  = Xmap(tmS0, cos.(φℝ') .* sin.(θℝ))
 Δcosfield = CMBrings.laplace(cosfield, θℝ, ∇!; padpix=5)
 Δcosfield[:] |> matshow
 

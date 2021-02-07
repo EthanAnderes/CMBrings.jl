@@ -8,7 +8,7 @@ function ∇ll_ϕf′(ϕ, f′; data, Ł, Ð, Pr, Bm, CMBcov, Φcov, Ncov, ϕ2v!
     L    = Ł(ϕ)
     Lᴴ   = Ł(ϕ)'
     D    = Ð
-    Dᴴ   = Ð'
+    Dᴴ   = map(B->adjoint(Matrix(B)), Ð) |> AzBlock
 
     f    = D \ (L \ f′)
     lnf  = L * f

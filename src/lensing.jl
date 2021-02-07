@@ -83,6 +83,63 @@ end
 
 
 
+# A gradient abstract type which does boiler plate extensions of the 
+# basic mutating gradient.
+# ===============================================
+
+# Fourier space increment gradients
+# ---------------------------------------
+
+struct FFTNabla!{TW,Tik,Tx} <: FieldLensing.Gradient{2}
+    planW::TW
+    ikθ::Tik
+    ikφ::Tik
+    sk::Tik
+    sx::Tx
+end
+
+function LinearAlgebra.adjoint(∇!::FFTNabla!{TW,Tik,Tx}) where {TW,Tik,Tx}
+    return FFTNabla!{TW,Tik,Tx}(
+        ∇!.planW, 
+        .- ∇!.ikθ,
+        .- ∇!.ikφ,
+        similar(∇!.sk),
+        similar(∇!.sx),
+    )
+end
+
+function FFTNabla!(::Type{Tf}, sz, period) where Tf
+    w = 𝕎(Tf, sz, period)
+    planW = plan(w)
+    c_forFFTNabla = Tf(planW.scale_forward * planW.scale_inverse)
+
+    ∇! = FFTNabla!(
+        planW, 
+        im .* fullfreq(w)[1] .* c_forFFTNabla, 
+        im .* fullfreq(w)[2] .* c_forFFTNabla,
+        Array{eltype_out(w)}(undef,size_out(w)),
+        Array{eltype_in(w)}(undef,size_in(w)),
+    )
+
+    return ∇!
+end 
+
+function (∇!::FFTNabla!{TW,Tik,Tx})(des, y, ::Val{1}) where {TW,Tik,Tx}
+    @inbounds ∇!.sx .= y
+    mul!(∇!.sk, ∇!.planW.unscaled_forward_transform, ∇!.sx)
+    @inbounds ∇!.sk .*= ∇!.ikθ
+    mul!(des, ∇!.planW.unscaled_inverse_transform, ∇!.sk)
+end
+
+function (∇!::FFTNabla!{TW,Tik,Tx})(des, y, ::Val{2}) where {TW,Tik,Tx}
+    @inbounds ∇!.sx .= y
+    mul!(∇!.sk, ∇!.planW.unscaled_forward_transform, ∇!.sx)
+    @inbounds ∇!.sk .*= ∇!.ikφ
+    mul!(des, ∇!.planW.unscaled_inverse_transform, ∇!.sk)
+end
+
+
+
 # Now we specify  the details of how lensing distributes to array storage fields 
 # in a particular corrdinate.
 # ===================================================
