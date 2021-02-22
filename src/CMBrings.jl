@@ -4,7 +4,6 @@ using XFields
 using FFTransforms
 using FieldLensing
 using SphereTransforms  
-# using HealpixTransforms # do we need this?
 
 using LinearAlgebra
 using Statistics 
@@ -26,6 +25,9 @@ include("transformations.jl")
 
 # the latest prototype for covariance type, spin0 only
 include("az_blocks.jl")
+
+# RingBeam struct for beaming an azimuthal strip on the full sky
+include("ring_beam.jl")
 
 # old version ... has polarization implimentation
 include("az_cov.jl")
