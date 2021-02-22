@@ -67,7 +67,7 @@ end
 
 data_mask_init, Ω, θ, φ, θnorth∂, θsouth∂ = @sblock let tmS0, QP_bdry=1e-5, fwhm′=150
 
-    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/lensing-spin0/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)
+    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)
     
     full_sky_tm𝕊0 = CS.𝕊0(size(pr_mat_init)...)
     θ_mat_init, φ_mat_init = CS.pix(full_sky_tm𝕊0)
