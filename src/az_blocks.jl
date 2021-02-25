@@ -89,71 +89,132 @@ end
 # Mult and div on the left of fields
 # =======================================
 
-
-
-function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, XF<:Xfield}
-    v  = fielddata(FourierField(f))
-    w  = similar(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(vk)
-        mul!(wk[i], az[i], vk[i])
-    end
-    XF(Xfourier(fieldtransform(f),w))
-end
-
-function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:Factorization, XF<:Xfield}
-    v  = fielddata(FourierField(f))
-    w  = similar(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(vk)
-        mul!(wk[i], Matrix(az[i]), vk[i])
-    end
-    XF(Xfourier(fieldtransform(f),w))
-end
+## multiply 
 
 function Base.:*(az::AzBlock, f::XF) where {XF<:Xfield}
     XF(XFields._lmult(az, f))
 end
 
-function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, XF<:Xfield}
+## FIXME: is there an easy way to fix all this code repeat
+
+## _lmult for AzBlock{Matrices} on data storage 2 & 3
+
+function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
     v  = fielddata(FourierField(f))
     w  = similar(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(vk)
-        ldiv!(wk[i], factorize(az[i]), vk[i])
+    Threads.@threads for i ∈ axes(v, 2)
+        mul!(view(w,:, i), az[i], view(v,:, i))
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+function XFields._lmult(az::CMBrings.AzBlock{M}, f::XF) where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,3}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    for j ∈ axes(v, 3)
+        Threads.@threads for i ∈ axes(v, 2)
+            mul!(view(w,:, i, j), az[i], view(v,:, i, j))
+        end
+    end
+    Xfourier(fieldtransform(f), w)
+end
+
+## _lmult for AzBlock{Factorization} on data storage 2 & 3
+
+function XFields._lmult(az::AzBlock{M}, f::XF) where {M<:Factorization, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    Threads.@threads for i ∈ axes(v, 2)
+        mul!(view(w,:, i), Matrix(az[i]), view(v,:, i))
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+function _lmult(az::CMBrings.AzBlock{M}, f::XF) where {M<:Factorization, TM, Ti, To, XF<:Xfield{TM,Ti,To,3}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    for j ∈ axes(v, 3)
+        Threads.@threads for i ∈ axes(v, 2)
+            mul!(view(w,:, i, j), Matrix(az[i]), view(v,:, i, j))
+        end
+    end
+    Xfourier(fieldtransform(f), w)
+end
+
+
+## divide
+
+## div for AzBlock{Matrices} on data storage 2 & 3
+
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    Threads.@threads for i ∈ axes(v, 2)
+        ldiv!(view(w,:, i), factorize(az[i]), view(v,:, i))
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,3}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    for j ∈ axes(v, 3)
+        Threads.@threads for i ∈ axes(v, 2)
+            ldiv!(view(w,:, i, j), factorize(az[i]), view(v,:, i, j))
+        end
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+## div for AzBlock{Factorization} on data storage 2 & 3
+
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    Threads.@threads for i ∈ axes(v, 2)
+        ldiv!(view(w,:, i), az[i], view(v,:, i))
     end
     XF(Xfourier(fieldtransform(f),w))
 end
 
 
-function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, XF<:Xfield}
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Factorization, TM, Ti, To, XF<:Xfield{TM,Ti,To,3}}
     v  = fielddata(FourierField(f))
     w  = similar(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(vk)
-        ldiv!(wk[i], az[i], vk[i])
+    for j ∈ axes(v, 3)
+        Threads.@threads for i ∈ axes(v, 2)
+            ldiv!(view(w,:, i, j), az[i], view(v,:, i, j))
+        end
     end
     XF(Xfourier(fieldtransform(f),w))
 end
 
+## div for AzBlock{Eigen} on data storage 2 & 3
 
-function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Eigen, XF<:Xfield}
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Eigen, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
     v  = deepcopy(fielddata(FourierField(f)))
     w  = deepcopy(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(vk)
-        mul!(vk[i], az[i].vectors', wk[i])
-        vk[i] .*= pinv.(az[i].values)
-        mul!(wk[i], az[i].vectors, vk[i])
+    Threads.@threads for i ∈ axes(v, 2)
+        mul!(view(v,:, i), az[i].vectors', view(w,:, i))
+        v[:, i] .*= pinv.(az[i].values)
+        mul!(view(w,:, i), az[i].vectors, view(v,:, i))
     end
     XF(Xfourier(fieldtransform(f),w))
 end
 
+
+function Base.:\(az::AzBlock{M}, f::XF)  where {M<:Eigen, TM, Ti, To, XF<:Xfield{TM,Ti,To,3}}
+    v  = deepcopy(fielddata(FourierField(f)))
+    w  = deepcopy(v)
+    for j ∈ axes(v, 3)
+        Threads.@threads for i ∈ axes(v, 2)
+            mul!(view(v,:, i, j), az[i].vectors', view(w,:, i, j))
+            v[:, i, j] .*= pinv.(az[i].values)
+            mul!(view(w,:, i, j), az[i].vectors, view(v,:, i, j))
+        end
+    end
+    XF(Xfourier(fieldtransform(f),w))
+end
 
 
 

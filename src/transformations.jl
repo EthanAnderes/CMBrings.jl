@@ -56,6 +56,10 @@ function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎
 end
 
 
+# function LinearAlgebra.dot(f::Xfield{TM}, g::Xfield{TM}) where TM<:Union{𝕎,QU2EB}
+#     return  FFTransforms.dot_in(f,g)
+# end
+
 # getindex and XFields stuff
 # =====================================
 
