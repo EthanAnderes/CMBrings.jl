@@ -1,54 +1,7 @@
 
 
-
-# CMBsphere hooking into SphereTransforms
-# =================================================
-
-
-# Simulation
+# Linear Algebra extensions general ring encoded as Xfield{<:𝕎} 
 # =====================================
-
-# Extend this to AzBlocks once it is complete ...
-
-# function simfourier(Cl::DiagOp{Fi}) where {Tm<:Abstract𝕊, Fi<:Xfourier{Tm}} 
-#     tm  = fieldtransform(Cl.f)
-#     wlm = SphereTransforms.randn_out(tm)
-#     √Cl * Xfourier(tm, wlm)
-# end 
-
-# # function simmap(Cl::DiagOp{<:Xfourier}) 
-# #     tm  = fieldtransform(Cl.f)
-# #     wx = SphereTransforms.randn_in(tm)
-# #     Xmap(√Cl * Xmap(tm, wx))
-# # end 
-# # ------ or here we make sure to bandpass the high frequency
-# function simmap(Cl::DiagOp{Fi}) where {Tm<:Abstract𝕊, Fi<:Xfourier{Tm}} 
-#     tm    = fieldtransform(Cl.f)
-#     l,m,a = SphereTransforms.lma(tm)
-#     A     = DiagOp(Xfourier(tm,a))
-#     Xmap(simfourier(A*Cl)) 
-# end
-
-# # Fix me: Decide if your going to band limit high frequency
-# function flatnoisemap(μK′n::Number, tm::Abstract𝕊) 
-#     (μK′n * π / 60 / 180) * Xmap(tm, SphereTransforms.randn_in(tm))
-# end 
-
-# function flatnoisefourier(μK′n::Number, tm::Abstract𝕊) 
-#     (μK′n * π / 60 / 180) * Xfourier(tm, SphereTransforms.randn_out(tm))
-# end
-
-
-# Linear Algebra extensions
-# =====================================
-
-
-
-function LinearAlgebra.pinv(M::Eigen)
-    invM = deepcopy(M)
-    invM.values .= pinv.(M.values)
-    invM
-end
 
 
 function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎 
@@ -56,64 +9,150 @@ function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎
 end
 
 
-# function LinearAlgebra.dot(f::Xfield{TM}, g::Xfield{TM}) where TM<:Union{𝕎,QU2EB}
-#     return  FFTransforms.dot_in(f,g)
+
+# Transform types Az𝕊0 and Az𝕊2 that are rings 
+# but hold an extra 𝕊0 or 𝕊2 transform to allow 
+# operations on the embedded sphere. 
+# ==================================================================
+
+struct Az𝕊0{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,2} 
+    tmAz::𝕎{Tf, 2, Tf, Tf}
+    tm𝕊::𝕊0
+    ringidx::C     
+    function Az𝕊0(tmAz::𝕎{Tf, 2, Tp, Tf}, tm𝕊::𝕊0, ringidx::C) where {Tf, Tp, C}
+        nθAz, nφAz = size_in(tmAz)
+        nθ𝕊, nφ𝕊   = size_in(tm𝕊)
+        @assert nθAz <= nθ𝕊
+        @assert nφAz == nφ𝕊
+        @assert isodd(nφ𝕊)
+        @assert size(ringidx) == (nθAz, nφAz)
+        ## ensure the transformation is unitary
+        tmAz′ = unscale(tmAz) |> tm -> unitary_scale(tm)*tm 
+        new{Tf,C}(tmAz′, tm𝕊, ringidx)
+    end 
+end 
+
+@inline XFields.size_in(tm::Az𝕊0)   = XFields.size_in(tm.tmAz)
+@inline XFields.size_out(tm::Az𝕊0)  = XFields.size_out(tm.tmAz)
+@inline XFields.eltype_in(tm::Az𝕊0{Tf})  where {Tf}       = Tf
+@inline XFields.eltype_out(tm::Az𝕊0{Tf}) where {Tf<:Real} = Complex{Tf}
+@inline XFields.plan(tm::Az𝕊0) = XFields.plan(tm.tmAz) 
+
+struct Az𝕊2{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,3} 
+    tmAz::𝕎{Tf, 3, Tf, Tf}
+    tm𝕊::𝕊2
+    ringidx::C     
+    function Az𝕊2(tmAz::𝕎{Tf, 3, Tp, Tf}, tm𝕊::𝕊2, ringidx::C) where {Tf, Tp, C}
+        nθAz, nφAz, = size_in(tmAz)
+        nθ𝕊, nφ𝕊,   = size_in(tm𝕊)
+        @assert nθAz <= nθ𝕊
+        @assert nφAz == nφ𝕊
+        @assert isodd(nφ𝕊)
+        @assert size(ringidx) == (nθAz, nφAz,2)
+        ## ensure the transformation is unitary
+        tmAz′ = unscale(tmAz) |> tm -> unitary_scale(tm)*tm 
+        new{Tf,C}(tmAz′, tm𝕊, ringidx)
+    end 
+end 
+
+@inline XFields.size_in(tm::Az𝕊2)   = XFields.size_in(tm.tmAz)
+@inline XFields.size_out(tm::Az𝕊2)  = XFields.size_out(tm.tmAz)
+@inline XFields.eltype_in(tm::Az𝕊2{Tf})  where {Tf}       = Tf
+@inline XFields.eltype_out(tm::Az𝕊2{Tf}) where {Tf<:Real} = Complex{Tf}
+@inline XFields.plan(tm::Az𝕊2) = XFields.plan(tm.tmAz) 
+
+function SphereTransforms.Ωpix(tm::Union{Az𝕊0,Az𝕊2})
+	SphereTransforms.Ωpix(tm.tm𝕊)[tm.ringidx[:,1,1]]
+end
+
+function SphereTransforms.pix(tm::Union{Az𝕊0,Az𝕊2})
+    θ, φ = SphereTransforms.pix(tm.tm𝕊)
+    return θ[tm.ringidx[:,1,1]], φ
+end
+
+# extras ========
+
+function XFields.Xmap(tm::Az𝕊2{Tf}, x1, x2) where {Tf}
+    mat = zeros(Tf, size_in(tm))
+    mat[:,:,1] .= x1
+    mat[:,:,2] .= x2
+    return Xmap(tm, mat)
+end
+
+XFields.Xmap(tm::Az𝕊2, x::AbstractMatrix) = Xmap(tm, x, x)
+
+function XFields.Xfourier(tm::Az𝕊2{Tf}, x1, x2) where {Tf}
+    mat = zeros(Complex{Tf},size_out(tm))
+    mat[:,:,1] .= x1
+    mat[:,:,2] .= x2
+    return Xfourier(tm, mat)
+end
+
+XFields.Xfourier(tm::Az𝕊2, x::AbstractMatrix) = Xfourier(tm, x, x)
+
+function Base.getindex(f::Xfield{<:Az𝕊2}, sym::Symbol)
+    (sym == :Qx) ? fielddata(MapField(f))[:,:,1] :
+    (sym == :Ux) ? fielddata(MapField(f))[:,:,2] :
+    (sym == :Qk) ? fielddata(FourierField(f))[:,:,1] :
+    (sym == :Uk) ? fielddata(FourierField(f))[:,:,2] :
+    error("index is not defined")
+end
+
+
+function LinearAlgebra.dot(f::Xfield{TM}, g::Xfield{TM}) where TM<:Union{Az𝕊0,Az𝕊2}
+    FFTransforms.sum_kbn(f[:].*g[:])
+end
+
+
+# No need to teach AzBlocks how to multiply and divide Xfield{<:Az𝕊} ...
+# it is already part of how AzBlocks operate on any Xfield
+
+# We do however need to teach DiagOp{Xfields{<:𝕊0 or S2}} how to operate on 
+# f::Xfield{<:Az𝕊}. The operation is defined by extending MapField(f) to pixels on the 
+# full sphere, at which point DiagOp{Xfields{<:𝕊0 or S2}} activates, then 
+# the map pixels are and again contracted back to the ring. 
+
+function XFields._lmult(O::DiagOp{Xfield{T1}}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}}
+    ## only allow 𝕊0 & Az𝕊0 or 𝕊2 & Az𝕊2
+    @assert length(size_in(T1)) == length(size_in(T2))
+
+    tmAzS, tmS = fieldtransform(f), fieldtransform(O.f)
+    f_map_on𝕊 = Xmap(tmS)
+    f_map_on𝕊[tmAzS.ringidx] .= f[:]
+    return Xmap(tmAzS, (O * f_map_on𝕊)[:][tmAzS.ringidx])
+end
+
+function Base.:*(O::DiagOp{Xfield{T1}}, f::XT2) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}, XT2<:Xfield{T2}}
+    return XT2(XFields._lmult(O, f))
+end
+
+
+function Base.:\(O::DiagOp{Xfield{T1}}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}}
+    return inv(O) * f
+end
+
+
+# Simulation ======
+
+
+# function simmap(Cl::DiagOp{Fi}) where {Fi<:Xfourier} 
+#     tm  = fieldtransform(Cl.f)
+#     √Cl * Xmap(tm, FFTransforms.randn_in(tm))
 # end
 
-# getindex and XFields stuff
-# =====================================
+# function simfourier(Cl::DiagOp{Fi}) where {Fi<:Xfourier} 
+#     tm  = fieldtransform(Cl.f)
+#     #√Cl * Xfourier(tm, FFTransforms.randn_out(tm))
+#     # We need the following instead since we don't have randn for fft yet
+#     Xfourier(simmap(Cl))
+# end 
+ 
+# function flatnoisemap(μK′n::Number, tm::Union{𝕎,QU𝕊2ring}) 
+#     (μK′n * π / 60 / 180) * Xmap(tm, FFTransforms.randn_in(tm))
+# end 
 
-
-# function XFields.Xmap(tm::𝕊2, x1, x2)
-#     mat = zeros(eltype_in(tm),size_in(tm))
-#     mat[:,:,1] .= x1
-#     mat[:,:,2] .= x2
-#     return Xmap(tm, mat)
+# function flatnoisefourier(μK′n::Number, tm::Union{𝕎,QU𝕊2ring}) 
+#     # We need the following instead since we don't have randn for fft yet
+#     Xfourier(flatnoisemap(μK′n, tm)) 
 # end
-
-# function XFields.Xfourier(tm::𝕊2, x1, x2)
-#     mat = zeros(eltype_out(tm),size_out(tm))
-#     mat[:,:,1] .= x1
-#     mat[:,:,2] .= x2
-#     return Xfourier(tm, mat)
-# end
-
-# XFields.Xmap(tm::𝕊2, x::AbstractMatrix) = Xmap(tm, x, x)
-
-# XFields.Xfourier(tm::𝕊2, x::AbstractMatrix) = Xfourier(tm, x, x)
-
-# function Base.getindex(f::Xfield{<:𝕊2}, sym::Symbol)
-#     if sym == :Qx
-#         return fielddata(MapField(f))[:,:,1]
-#     elseif sym == :Ux
-#         return fielddata(MapField(f))[:,:,2]
-#     elseif sym == :El 
-#         return fielddata(FourierField(f))[:,:,1]
-#     elseif sym == :Bl 
-#         return fielddata(FourierField(f))[:,:,2]
-#     elseif sym == :Ql
-#         qx     = fielddata(MapField(f))[:,:,1]
-#         tmS2  = fieldtransform(f)
-#         tmS0c  = 𝕊(0, tmS2.nθ, tmS2.nφ)
-#         return plan(tmS0c) * complex.(qx)
-#     elseif sym == :Ul 
-#         ux     = fielddata(MapField(f))[:,:,2]
-#         tmS2  = fieldtransform(f)
-#         tmS0c  = 𝕊(0, tmS2.nθ, tmS2.nφ)
-#         return plan(tmS0c) * complex.(ux)
-#     elseif sym == :Ex
-#         elm   = fielddata(FourierField(f))[:,:,1]
-#         tmS2  = fieldtransform(f)
-#         tmS0c  = 𝕊(0, tmS2.nθ, tmS2.nφ)
-#         return real.(plan(tmS0c) \ spin_s_to_0(elm; spin=2))
-#     elseif sym == :Bx 
-#         blm   = fielddata(FourierField(f))[:,:,2]
-#         tmS2  = fieldtransform(f)
-#         tmS0c  = 𝕊(0, tmS2.nθ, tmS2.nφ)
-#         return real.(plan(tmS0c) \ spin_s_to_0(blm; spin=2))
-#     else
-#         error("index is not defined")
-#     end
-# end
-
 

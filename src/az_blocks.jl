@@ -85,6 +85,7 @@ for op ∈ (:adjoint, :transpose, :inv)
     end |> eval
 end
 
+
 # Interface methods for Abstract linear ops
 # Mult and div on the left of fields
 # =======================================
@@ -221,8 +222,13 @@ end
 # misc
 # =======================================
 
-check_factorization(az::AzBlock) = all(map(issuccess, az))
+function LinearAlgebra.pinv(M::Eigen)
+    invM = deepcopy(M)
+    invM.values .= pinv.(M.values)
+    invM
+end
 
+check_factorization(az::AzBlock) = all(map(issuccess, az))
 
 function az_sim(tmU::Transform, az::AzBlock{M}) where {M<:Eigen}
     vx  = randn(eltype_in(tmU), size_in(tmU))

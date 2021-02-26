@@ -1,8 +1,8 @@
 
 # Modules
 # ==============================
-using FFTW
-FFTW.FFTW.set_num_threads(12)
+# using FFTW
+# FFTW.FFTW.set_num_threads(12)
 ## FFTW.FFTW.set_num_threads(5)
 
 using CMBrings
@@ -761,7 +761,6 @@ gradϕ_array = typeof(ϕ_cr)[]
     pcg_nsteps=300, 
 )
 p′_cr = Ð * p_cr;
-
 
 
 # Fixme: needs to adjust for rcϕ in the likelihood or the gradient ...

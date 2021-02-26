@@ -8,7 +8,7 @@
 
 using XFields
 using CMBrings
-using CMBsphere # we will use CMBsphere to do the EBcovariance operator
+using CMBsphere     # we will use CMBsphere to do the EBcovariance operator
 using CMBflat: PrQr # Eventually remove this CMBflat.PrQr dependence ...
 
 import FFTransforms as FT
@@ -39,164 +39,6 @@ else
     hide_plots = true
 end
 
-# Template out a wrapper for tmS2 
-# ==========================================
-
-# The fourier transform is just the broadcased unitary 𝕀(nθ) ⊗ 𝕎(Tf, nφ, 2π)
-
-struct Az𝕊0{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,2} 
-    tmAz::FT.𝕎{Tf, 2, Tf, Tf}
-    tm𝕊::ST.𝕊0
-    ringidx::C     
-    function Az𝕊0(tmAz::FT.𝕎{Tf, 2, Tp, Tf}, tm𝕊::ST.𝕊0, ringidx::C) where {Tf, Tp, C}
-        nθAz, nφAz = size_in(tmAz)
-        nθ𝕊, nφ𝕊   = size_in(tm𝕊)
-        @assert nθAz <= nθ𝕊
-        @assert nφAz == nφ𝕊
-        @assert isodd(nφ𝕊)
-        @assert size(ringidx) == (nθAz, nφAz)
-        ## ensure the transformation is unitary
-        tmAz′ = FT.unscale(tmAz) |> tm -> FT.unitary_scale(tm)*tm 
-        new{Tf,C}(tmAz′, tm𝕊, ringidx)
-    end 
-end 
-
-@inline XFields.size_in(tm::Az𝕊0)   = XFields.size_in(tm.tmAz)
-@inline XFields.size_out(tm::Az𝕊0)  = XFields.size_out(tm.tmAz)
-@inline XFields.eltype_in(tm::Az𝕊0{Tf})  where {Tf}       = Tf
-@inline XFields.eltype_out(tm::Az𝕊0{Tf}) where {Tf<:Real} = Complex{Tf}
-@inline XFields.plan(tm::Az𝕊0) = XFields.plan(tm.tmAz) 
-
-struct Az𝕊2{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,3} 
-    tmAz::FT.𝕎{Tf, 3, Tf, Tf}
-    tm𝕊::ST.𝕊2
-    ringidx::C     
-    function Az𝕊2(tmAz::FT.𝕎{Tf, 3, Tp, Tf}, tm𝕊::ST.𝕊2, ringidx::C) where {Tf, Tp, C}
-        nθAz, nφAz, = size_in(tmAz)
-        nθ𝕊, nφ𝕊,   = size_in(tm𝕊)
-        @assert nθAz <= nθ𝕊
-        @assert nφAz == nφ𝕊
-        @assert isodd(nφ𝕊)
-        @assert size(ringidx) == (nθAz, nφAz)
-        ## ensure the transformation is unitary
-        tmAz′ = FT.unscale(tmAz) |> tm -> FT.unitary_scale(tm)*tm 
-        new{Tf,C}(tmAz′, tm𝕊, ringidx)
-    end 
-end 
-
-@inline XFields.size_in(tm::Az𝕊2)   = XFields.size_in(tm.tmAz)
-@inline XFields.size_out(tm::Az𝕊2)  = XFields.size_out(tm.tmAz)
-@inline XFields.eltype_in(tm::Az𝕊2{Tf})  where {Tf}       = Tf
-@inline XFields.eltype_out(tm::Az𝕊2{Tf}) where {Tf<:Real} = Complex{Tf}
-@inline XFields.plan(tm::Az𝕊2) = XFields.plan(tm.tmAz) 
-
-# struct QU𝕊2ring{Tf<:Number, C<:CartesianIndices} <: XFields.Transform{Tf,3} 
-#     sz::NTuple{2,Int}
-#     tm𝕊2::ST.𝕊2
-#     index𝕊2ring::C     
-#     function QU𝕊2ring{Tf}(sz, tm𝕊2::ST.𝕊2, index𝕊2ring::C) where {Tf,C}
-#         nθ𝕊, nφ𝕊 = size_in(tm𝕊2)
-#         @assert sz[1] <= nθ𝕊
-#         @assert sz[2] == nφ𝕊
-#         @assert isodd(nφ𝕊)
-#         @assert size(index𝕊2ring) == sz
-#         new{Tf,C}(sz, tm𝕊2, index𝕊2ring)
-#     end 
-# end 
-
-# @inline XFields.size_in(tm::QU𝕊2ring)             = (tm.sz[1], tm.sz[2], 2)
-# @inline XFields.size_out(tm::QU𝕊2ring{<:Complex}) = (tm.sz[1], tm.sz[2], 2)
-# @inline XFields.size_out(tm::QU𝕊2ring{<:Real})    = (tm.sz[1], tm.sz[2]÷2+1, 2)
-# @inline XFields.eltype_in(tm::QU𝕊2ring{Tf})  where {Tf} = Tf
-# @inline XFields.eltype_out(tm::QU𝕊2ring{Tf}) where {Tf<:Real}    = Complex{Tf}
-# @inline XFields.eltype_out(tm::QU𝕊2ring{Tf}) where {Tf<:Complex} = Tf
-# @inline XFields.plan(tm::QU𝕊2ring{Tf}) where {Tf} = XFields.plan(𝕌(st)) 
-
-
-# function FT.𝕎(tm::QU𝕊2ring{Tf}) where {Tf}
-#     nθ, nφ = tm.sz[1], tm.sz[2]
-#     return FT.:⊗(FT.𝕀(nθ) , FT.𝕎(Tf, nφ, 2π) , FT.𝕀(2) ) 
-# end
-# function 𝕌(tm::QU𝕊2ring{Tf}) where {Tf}
-#     tmW2  = FT.𝕎(tm)
-#     return FT.unitary_scale(tmW2) * tmW2
-# end
-# ST.𝕊2(tm::QU𝕊2ring) = tm.tm𝕊2
-
-
-ST.Ωpix(tm::Union{Az𝕊0,Az𝕊2}) = ST.Ωpix(tm.tm𝕊)[tm.ringidx[:,1]]
-
-function ST.pix(tm::Union{Az𝕊0,Az𝕊2})
-    θ, φ = ST.pix(tm.tm𝕊)
-    return θ[tm.ringidx[:,1]], φ
-end
-
-
-# extras ========
-
-function XFields.Xmap(tm::Az𝕊2{Tf}, x1, x2) where {Tf}
-    mat = zeros(Tf, size_in(tm))
-    mat[:,:,1] .= x1
-    mat[:,:,2] .= x2
-    return Xmap(tm, mat)
-end
-
-XFields.Xmap(tm::Az𝕊2, x::AbstractMatrix) = Xmap(tm, x, x)
-
-function XFields.Xfourier(tm::Az𝕊2{Tf}, x1, x2) where {Tf}
-    mat = zeros(Complex{Tf},size_out(tm))
-    mat[:,:,1] .= x1
-    mat[:,:,2] .= x2
-    return Xfourier(tm, mat)
-end
-
-XFields.Xfourier(tm::Az𝕊2, x::AbstractMatrix) = Xfourier(tm, x, x)
-
-function Base.getindex(f::Xfield{<:Az𝕊2}, sym::Symbol)
-    (sym == :Qx) ? fielddata(MapField(f))[:,:,1] :
-    (sym == :Ux) ? fielddata(MapField(f))[:,:,2] :
-    (sym == :Qk) ? fielddata(FourierField(f))[:,:,1] :
-    (sym == :Uk) ? fielddata(FourierField(f))[:,:,2] :
-    error("index is not defined")
-end
-
-function LinearAlgebra.dot(f::Xfield{TM}, g::Xfield{TM}) where TM<:Union{Az𝕊0,Az𝕊2}
-    FT.sum_kbn(f[:].*g[:])
-end
-
-
-# need to teach AzBlocks how to multiply and divide Xfield{<:Az𝕊} ========
-
-
-
-# need to teach DiagOp{XField{<:𝕊}} how to multiply and divide Xfield{<:Az𝕊} ========
-
-
-# Simulation ======
-
-
-# function simmap(Cl::DiagOp{Fi}) where {Fi<:Xfourier} 
-#     tm  = fieldtransform(Cl.f)
-#     √Cl * Xmap(tm, FT.randn_in(tm))
-# end
-
-# function simfourier(Cl::DiagOp{Fi}) where {Fi<:Xfourier} 
-#     tm  = fieldtransform(Cl.f)
-#     #√Cl * Xfourier(tm, FT.randn_out(tm))
-#     # We need the following instead since we don't have randn for fft yet
-#     Xfourier(simmap(Cl))
-# end 
- 
-# function flatnoisemap(μK′n::Number, tm::Union{𝕎,QU𝕊2ring}) 
-#     (μK′n * π / 60 / 180) * Xmap(tm, FT.randn_in(tm))
-# end 
-
-# function flatnoisefourier(μK′n::Number, tm::Union{𝕎,QU𝕊2ring}) 
-#     # We need the following instead since we don't have randn for fft yet
-#     Xfourier(flatnoisemap(μK′n, tm)) 
-# end
-
-
 
 # Set ring transforms
 # ==============================
@@ -218,8 +60,9 @@ tmAzS0, tmAzS2 = @sblock let
     θnorth∂ = 2.2 # 2.12
     θsouth∂ = 2.85
     θrng    = findall(θnorth∂ .<= θ𝕊 .<= θsouth∂)
-    ringidx = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
-    nθ, nφ  = size(ringidx)
+    ringidxS0 = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
+    ringidxS2 = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊), 1:2))
+    nθ, nφ  = size(ringidxS0)
 
     ## Spin 0 ring transform is just inherited from FFTransforms
     Tf = Float64
@@ -227,8 +70,8 @@ tmAzS0, tmAzS2 = @sblock let
     tmW2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Tf, nφ, 2π), FT.𝕀(2)) 
 
     ## Spin 2 transform includes the ring embedding ...
-    tmAzS0 = Az𝕊0(tmW0, tmS0, ringidx)
-    tmAzS2 = Az𝕊2(tmW2, tmS2, ringidx)
+    tmAzS0 = CMBrings.Az𝕊0(tmW0, tmS0, ringidxS0)
+    tmAzS2 = CMBrings.Az𝕊2(tmW2, tmS2, ringidxS2)
 
     return tmAzS0, tmAzS2
 end
