@@ -112,22 +112,24 @@ end
 # full sphere, at which point DiagOp{Xfields{<:𝕊0 or S2}} activates, then 
 # the map pixels are and again contracted back to the ring. 
 
-function XFields._lmult(O::DiagOp{Xfield{T1}}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}}
-    ## only allow 𝕊0 & Az𝕊0 or 𝕊2 & Az𝕊2
-    @assert length(size_in(T1)) == length(size_in(T2))
-
+function XFields._lmult(O::DiagOp{D1}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}, D1<:Xfield{T1}}
     tmAzS, tmS = fieldtransform(f), fieldtransform(O.f)
-    f_map_on𝕊 = Xmap(tmS)
-    f_map_on𝕊[tmAzS.ringidx] .= f[:]
-    return Xmap(tmAzS, (O * f_map_on𝕊)[:][tmAzS.ringidx])
+    ## only allow 𝕊0 & Az𝕊0 or 𝕊2 & Az𝕊2
+    @assert length(size_in(tmAzS)) == length(size_in(tmS))
+    
+    fx_on𝕊  = zeros(eltype_in(tmS), size_in(tmS))
+    fx_on𝕊[tmAzS.ringidx] .= f[:]
+    fmap_on𝕊 = O * Xmap(tmS, fx_on𝕊)
+    
+    return Xmap(tmAzS, fmap_on𝕊[:][tmAzS.ringidx])
 end
 
-function Base.:*(O::DiagOp{Xfield{T1}}, f::XT2) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}, XT2<:Xfield{T2}}
+function Base.:*(O::DiagOp{D1}, f::XT2) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}, D1<:Xfield{T1}, XT2<:Xfield{T2}}
     return XT2(XFields._lmult(O, f))
 end
 
 
-function Base.:\(O::DiagOp{Xfield{T1}}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}}
+function Base.:\(O::DiagOp{D1}, f::Xfield{T2}) where {T1<:Union{𝕊0,𝕊2}, T2<:Union{Az𝕊0,Az𝕊2}, D1<:Xfield{T1}}
     return inv(O) * f
 end
 

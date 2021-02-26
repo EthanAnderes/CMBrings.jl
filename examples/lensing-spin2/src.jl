@@ -351,8 +351,25 @@ end
 
 ei  = Xmap(tmAzS2)
 ei.fd[50,100,1] = 1
-ei𝕊 = Xmap(tmAzS2.tm𝕊)
-ei𝕊.fd[tmAzS2.ringidx,:] .= ei.fd
-Σei𝕊 = EBcov * ei𝕊
-Σei  = Xmap(tmAzS2, Σei𝕊.fd[tmAzS2.ringidx,:])
-Σei[:Qx]
+
+@time ei′ = EBcov * ei
+@time ei′ = Lcut * ei
+
+ei′[:Qx] |> matshow
+ei′[:Ux] |> matshow
+
+## ========
+
+ei  = Xmap(tmAzS2)
+ei.fd[50,100,1] = 1
+
+@time ei′ = EBcov * ei
+@time ei′ = Lcut * ei
+
+ei′[:Qx] |> matshow
+ei′[:Ux] |> matshow
+
+
+
+ϕ_sim = Xmap(tmAzS0, CMBsphere.simmap(Φcov)[:][tmAzS0.ringidx])
+p_sim = Xmap(tmAzS2, CMBsphere.simmap(EBcov)[:][tmAzS2.ringidx])
