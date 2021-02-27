@@ -1,16 +1,34 @@
 # Specify how lensing will be generated ...
 
-# 1. First Define some gradient methods
-# 2. Specify how lensing lensing acts on the array storage fields
+
+# 1. Specify how lensing lensing acts on the array storage fields
+# 2. Define some gradient methods
 
 
-# A gradient abstract type which does boiler plate extensions of the 
-# basic mutating gradient.
+
+
+# 1. Specify how lensing lensing acts on the array storage fields
+# ===================================================
+
+# 1. FieldLensing.flow_field(L::AbstractFlow, f::Field) = MapField(f)
+# 2. FieldLensing.flow_data(L::AbstractFlow, ff::Field) = (fielddata(ff),)
+# 3. FieldLensing.flow_reconstruct(L::AbstractFlow, ff::MF, ln_ffd::AbstractArray) 
+
+AbstractArrayLense = Union{FieldLensing.ArrayLense, FieldLensing.ArrayLenseᴴ}
+
+function FieldLensing.flow_data(L::AbstractArrayLense, ff::Xmap{<:Az𝕊2}) 
+    fd = fielddata(ff)
+    (fd[:,:,1], fd[:,:,2])
+end
+
+
+
+# 2. Define some gradient methods
 # ===============================================
 
 
-# Pixels space increment gradients
-# ======================================
+# Sparse increments
+# -----------------------------------------
 
 struct Nabla!{Tθ,Tφ} <: FieldLensing.Gradient{2}
     ∂θ::Tθ
@@ -31,6 +49,7 @@ end
 function (∇!::Nabla!{Tθ,Tφ})(des, y, ::Val{2}) where {Tθ,Tφ}
     mul!(des, y, ∇!.∂φᵀ)
 end 
+
 
 # Same as PixFFTNabla but with 1-d gradients in second coordinates
 # ---------------------------------------
@@ -83,9 +102,6 @@ end
 
 
 
-# A gradient abstract type which does boiler plate extensions of the 
-# basic mutating gradient.
-# ===============================================
 
 # Fourier space increment gradients
 # ---------------------------------------
@@ -137,22 +153,5 @@ function (∇!::FFTNabla!{TW,Tik,Tx})(des, y, ::Val{2}) where {TW,Tik,Tx}
     @inbounds ∇!.sk .*= ∇!.ikφ
     mul!(des, ∇!.planW.unscaled_inverse_transform, ∇!.sk)
 end
-
-
-
-# Now we specify  the details of how lensing distributes to array storage fields 
-# in a particular corrdinate.
-# ===================================================
-
-# 1. FieldLensing.flow_field(L::AbstractFlow, f::Field) = MapField(f)
-# 2. FieldLensing.flow_data(L::AbstractFlow, ff::Field) = (fielddata(ff),)
-# 3. FieldLensing.flow_reconstruct(L::AbstractFlow, ff::MF, ln_ffd::AbstractArray) 
-
-# AbstractArrayLense = Union{FieldLensing.ArrayLense, FieldLensing.ArrayLenseᴴ}
-
-# function FieldLensing.flow_data(L::AbstractArrayLense, ff::Xmap{<:CMBflat.QU2EB}) 
-#     fd = fielddata(ff)
-#     (fd[:,:,1], fd[:,:,2])
-# end
 
 

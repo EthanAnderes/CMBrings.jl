@@ -93,6 +93,7 @@ data_mask_init, Ω, θ, φ = @sblock let tmAzS0, tmAzS2, QP_bdry=1e-5, fwhm′=1
     nθ, nφ,  = size_in(tmAzS2)
     θ, φ  = ST.pix(tmAzS2)
     Ω     = ST.Ωpix(tmAzS2)
+
     ## θ = θnorth∂ .+ ((θsouth∂ - θnorth∂) / nθ) .* (0:nθ-1)
     ## φ = (2π / nφ) .* (0:nφ-1)
     ## Ω = ST.Ωpix.(θ, θ[2] - θ[1], φ[2] .- φ[1])
@@ -202,19 +203,10 @@ eel, bbl, ẽel, b̃bl, ϕϕl = @sblock let
 
 end;
 
-# beam/transfer
 
-bl = @sblock let 
 
-    beamfwhm  = 4.0 |> arcmin -> deg2rad(arcmin/60)
-
-    lmax = 11000 
-    l = 0:lmax
-    σ² = beamfwhm^2 / 8 / log(2)
-    bl = @. exp( - σ²*l*(l+1) / 2)
-    return bl
-
-end;
+# AzBlock operators
+# ==============================
 
 # noise
 
@@ -237,32 +229,6 @@ end;
 
 #-
 
-## @sblock let hide_plots, nnl, eel, bbl, ϕϕl, bl # , lmax=5000
-##     hide_plots && return
-## 
-##     l = 0:length(nnl)-1
-##     rng = 2:5000
-## 
-##     fig,ax = subplots(1)
-##     ax.plot(l[rng], l[rng].^2 .* eel[rng], label="ee")
-##     ax.plot(l[rng], l[rng].^2 .* bbl[rng], label="bb")
-##     ax.plot(l[rng], l[rng].^2 .* nnl[rng], ":", label="noise")
-##     ax.plot(l[rng], l[rng].^2 .* nnl[rng]./bl[rng], ":", label="noise/beam")
-##     ## ax.axvline(x=lmax, color="r", label="data lmax")
-##     ax.set_xscale("log")
-##     ax.set_yscale("log")
-##     ax.set_xlabel(L"\ell")
-##     ax.set_ylabel(L"\ell^2 C_\ell")
-##     ax.legend()
-##     return fig
-## end
-
-
-
-
-# AzBlock Beam and Noise operators (only white noise for now)
-# ==============================
-
 
 Naz = @sblock let tmAzS0, Ω, μK′n = 2.5
     μKᵒn = μK′n / 60
@@ -282,6 +248,21 @@ Nei[:][end - 50,100]
 deg2rad(2.5 / 60)^2 / Ω[end - 50]
 
 =#
+
+
+# beam/transfer
+
+bl = @sblock let 
+
+    beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
+
+    lmax = 11000 
+    l = 0:lmax
+    σ² = beamfwhm^2 / 8 / log(2)
+    bl = @. exp( - σ²*l*(l+1) / 2)
+    return bl
+
+end;
 
 
 Baz = @sblock let tmAzS0,  bl, θ, φ, Ω
@@ -319,7 +300,56 @@ eiS2.fd[end - 50,100,1] = 1
 @time XFields._lmult(Baz, eiS2)
 =#
 
-# Simulation
+
+
+#-
+
+Φaz = @sblock let tmAzS0,  ϕϕl, θ, φ
+
+    tmW=FFTransforms.unscale(tmAzS0.tmAz)
+    
+    dmax = 1.2maximum(CMBrings.geoθ1θ2Δφcol(θ[1], θ[1], φ .- φ[1]))
+    θgrid = range(0, dmax^(1/2), length=100_000).^2
+    
+    covf  = Dierckx.Spline1D(
+        θgrid, 
+        Spectra.spec2spherecov(ϕϕl, θgrid), 
+        k=3
+    )
+    
+    covf_θ1θ2Δφℝ = (θ1, θ2, Δφ) -> covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφ)) 
+
+    ## Φaz  = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θ, φ, tmW) do Σ, k
+    ##     factorize(Symmetric(real.(Σ)))
+    ## end
+    ## ------
+    ## Φaz  = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θ, φ, tmW) do Σ, k
+    ##     C = cholesky(Symmetric(real.(Σ), :L)) # , check=false)
+    ##     Cholesky(C.factors, C.uplo, C.info)
+    ## end
+    ## ------
+    Φaz  = CMBrings.AzBlock(covf_θ1θ2Δφℝ, θ, φ, tmW) do Σ, k
+        ## B = eigen(Symmetric( real.(Σ) + 1e-9*I, :L))
+        B = eigen(Symmetric( real.(Σ), :L))
+        B.values[B.values .<= 0] .= 0
+        B
+    end
+
+    return Φaz
+end;
+
+
+
+#=
+ei  = Xmap(tmAzS0)
+ei.fd[150,400] = 1
+@time ei′ = Φaz * ei; # this mult takes a long time if the factorization isn't convert to matrix
+ei′[:] |> matshow
+=#
+
+
+
+# Full sphere signal operators
 # ==============================
 
 
@@ -346,30 +376,193 @@ EBcov, Lcut, Φcov = @sblock let tmAzS0, tmAzS2, eel, bbl, ϕϕl, lcut = 2000
 end
 
 
-## We need to teach EBcov, Lcut and Φcov how to multiply against 
-
+#=
 
 ei  = Xmap(tmAzS2)
-ei.fd[50,100,1] = 1
+ei.fd[150,400,1] = 1
 
-@time ei′ = EBcov * ei
-@time ei′ = Lcut * ei
+@time ei′ = Lcut * ei;
+@time ei′ = EBcov * ei;
+@time ei′ = Naz * ei;
+@time ei′ = Baz * ei; # 10 times faster than EBcov * ei 
+@time ei′ = Pr * Baz * EBcov * ei; 
 
 ei′[:Qx] |> matshow
 ei′[:Ux] |> matshow
-
-## ========
-
-ei  = Xmap(tmAzS2)
-ei.fd[50,100,1] = 1
-
-@time ei′ = EBcov * ei
-@time ei′ = Lcut * ei
-
-ei′[:Qx] |> matshow
-ei′[:Ux] |> matshow
-
 
 
 ϕ_sim = Xmap(tmAzS0, CMBsphere.simmap(Φcov)[:][tmAzS0.ringidx])
 p_sim = Xmap(tmAzS2, CMBsphere.simmap(EBcov)[:][tmAzS2.ringidx])
+
+
+(Baz * p_sim)[:Qx] |> matshow
+(Baz * p_sim)[:Ux] |> matshow
+
+=#
+
+
+# Gradients Set sparse increment matrices for non-FFT lensing
+# ==================================================
+
+import CMBrings: Nabla!
+
+
+# Subset transform for lensing
+
+subidx, θ_sub, φ_sub, mϕ_sub = @sblock let tmAzS0, Mϕ
+
+    nθ, nφ = size_in(tmAzS0)
+    nθ_sub_range = 1:nθ
+    nφ_sub_range = 1:round(Int, .35 * nφ) 
+
+    subidx = CartesianIndices((nθ_sub_range, nφ_sub_range))
+    nθ_sub = length(nθ_sub_range)
+    nφ_sub = length(nφ_sub_range)
+
+    θ, φ = ST.pix(tmAzS0) 
+    θ_sub = θ[nθ_sub_range]
+    φ_sub = φ[nφ_sub_range]
+
+    mϕ_sub = Mϕ[:][subidx]
+
+    return subidx, θ_sub, φ_sub, mϕ_sub
+end;
+
+
+
+
+function generate_∇!_∇!ϕ_1storder(θℝ::Vector{T_fld}, φℝ::Vector{T_fld}) where T_fld
+    Δθℝ, Δφℝ = θℝ[2] - θℝ[1], φℝ[2] - φℝ[1]
+
+    ∂θ′ = spdiagm(
+            0 => fill(-1,length(θℝ)), 
+            1 => fill(1,length(θℝ)-1),
+        )
+    ∂θ′[end,1] =  1
+    ∂θ = T_fld(1 / (Δθℝ)) * ∂θ′
+
+    ∂φ  = spdiagm(
+            0 => fill(-1,length(φℝ)), 
+            1 => fill(1,length(φℝ)-1)
+        )
+    ∂φ[end,1] =  1
+    ∂φᵀ = transpose(T_fld(1 / (Δφℝ)) * ∂φ)
+
+    ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
+    ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
+
+    return ∇!, ∇!_ϕ
+end  
+
+
+function generate_lense_sublense(;
+        tmS0, subidx, mv1x=1, mv2x=1, 
+        ∇!,  ∇!_ϕ, sub_∇!, 
+        nsteps_lensing=14
+        ) 
+
+    ## ∇!_ϕ used in ϕ2v! and ϕ2vᴴ!
+    ## ∇! used in Ł
+    ## sub_∇! used in sub_Ł
+    
+    ## need to adjust for curvature 
+    θ      = ST.pix(tmS0)[1]
+    sin⁻²θ = @. csc(θ)^2 
+    maθ = ones(size(θ))
+    maφ = ones(size(θ))
+    mvx₁_init = maθ
+    mvx₂_init = sin⁻²θ .* maφ
+
+    ## 
+    mvx₁ = mvx₁_init .* mv1x
+    mvx₂ = mvx₂_init .* mv2x
+
+
+    ϕ2v! = function (v::NTuple{2,Array}, ϕ::Array)
+        ∇!_ϕ(v, ϕ)
+        v[1] .*= mvx₁
+        v[2] .*= mvx₂
+        v
+    end 
+
+    ϕ2vᴴ! = function (ϕ::Array, v::NTuple{2,Array})
+        mv = (similar(v[1]), similar(v[2]))
+        ∇!_ϕ'(mv, (mvx₁.*v[1], mvx₂.*v[2]) )
+        ϕ .= mv[1] .+ mv[2]
+        ϕ 
+    end 
+
+    Ł = function (ϕ_az::Xfield)
+        ϕ = ϕ_az[:]
+        v = (similar(ϕ), similar(ϕ))
+        ϕ2v!(v,ϕ)
+        FieldLensing.ArrayLense(v, ∇!, 0, 1, nsteps_lensing)
+    end
+
+    sub_Ł = function (ϕ_az::Xfield)
+        ϕ = ϕ_az[:]
+        v = (similar(ϕ), similar(ϕ))
+        ϕ2v!(v,ϕ)
+        sub_v  = getindex.(v, Ref(subidx))  
+        sub_Łϕ = CMBsphere.SubArrayLense(
+            FieldLensing.ArrayLense(sub_v, sub_∇!, 0, 1, nsteps_lensing), 
+            subidx
+        )
+        sub_Łϕ
+    end
+
+    Ł, ϕ2v!, ϕ2vᴴ!, ∇!, sub_Ł
+end
+
+#-
+
+∇!,  ∇!_ϕ = generate_∇!_∇!ϕ_1storder(ST.pix(tmAzS0)...) 
+sub_∇!,   = generate_∇!_∇!ϕ_1storder(θ_sub, φ_sub) 
+
+#-
+
+Ł, ϕ2v!, ϕ2vᴴ!, ∇!, sub_Ł = generate_lense_sublense(;
+        tmS0=tmAzS0, subidx, 
+        mv1x=Mϕ[:], mv2x=Mϕ[:], 
+        ∇!,  ∇!_ϕ, sub_∇!,
+        nsteps_lensing=11
+);
+
+#-
+## ϕ_ring = Xmap(tmAzS0, CMBsphere.simmap(Φcov)[:][tmAzS0.ringidx])
+## v = (ϕ_ring[:], ϕ_ring[:]) .|> deepcopy
+## ∇!_ϕ(v, ϕ_ring[:])
+## ∇!(v, ϕ_ring[:])
+
+@sblock let hide_plots, plot_field=:Qx, tmAzS0, tmAzS2, Ł, sub_Ł, Φcov, EBcov
+    hide_plots && return
+
+
+    ϕ_ring = Xmap(tmAzS0, CMBsphere.simmap(Φcov)[:][tmAzS0.ringidx])
+    p_ring = Xmap(tmAzS2, CMBsphere.simmap(EBcov)[:][tmAzS2.ringidx])
+
+    lnp_ring     = Ł(ϕ_ring) * p_ring
+    sub_lnp_ring = sub_Ł(ϕ_ring) * p_ring
+
+    time_Ł     = @belapsed $(Ł(ϕ_ring))    * $(Xmap(p_ring))
+    time_sub_Ł = @belapsed $(sub_Ł(ϕ_ring)) * $(Xmap(p_ring))
+
+    imgs = Dict(
+        1 => lnp_ring[plot_field],
+        2 => sub_lnp_ring[plot_field],
+    )
+    txt =  Dict(
+        1 => "full lense with M, time=$time_Ł",
+        2 => "sub lense with M, time=$time_sub_Ł",
+    )
+    fig, ax = CMBrings.brickplot(
+        imgs; 
+        txt=txt,
+        fφ   = 1/2,  # fraction of azimuth
+    )
+    ## fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+
+
+    fig
+end;
+
