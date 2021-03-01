@@ -15,11 +15,11 @@ end
 # operations on the embedded sphere. 
 # ==================================================================
 
-struct Az𝕊0{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,2} 
-    tmAz::𝕎{Tf, 2, Tf, Tf}
+struct Az𝕊0{Tf<:Number, Ts<:Number, Tp<:Number, C<:CartesianIndices} <: XFields.Transform{Tf,2} 
+    tmAz::𝕎{Tf, 2, Ts, Tp}
     tm𝕊::𝕊0
     ringidx::C     
-    function Az𝕊0(tmAz::𝕎{Tf, 2, Tp, Tf}, tm𝕊::𝕊0, ringidx::C) where {Tf, Tp, C}
+    function Az𝕊0(tmAz::𝕎{Tf, 2, Ts, Tp}, tm𝕊::𝕊0, ringidx::C) where {Tf, Ts, Tp, C}
         nθAz, nφAz = size_in(tmAz)
         nθ𝕊, nφ𝕊   = size_in(tm𝕊)
         @assert nθAz <= nθ𝕊
@@ -27,8 +27,9 @@ struct Az𝕊0{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,2}
         @assert isodd(nφ𝕊)
         @assert size(ringidx) == (nθAz, nφAz)
         ## ensure the transformation is unitary
-        tmAz′ = unscale(tmAz) |> tm -> unitary_scale(tm)*tm 
-        new{Tf,C}(tmAz′, tm𝕊, ringidx)
+        tmAz′ = unscale(tmAz) |> tm -> unitary_scale(tm)*tm
+        rTf = real(Tf) 
+        new{Tf, rTf, Tp, C}(tmAz′, tm𝕊, ringidx)
     end 
 end 
 
@@ -36,13 +37,14 @@ end
 @inline XFields.size_out(tm::Az𝕊0)  = XFields.size_out(tm.tmAz)
 @inline XFields.eltype_in(tm::Az𝕊0{Tf})  where {Tf}       = Tf
 @inline XFields.eltype_out(tm::Az𝕊0{Tf}) where {Tf<:Real} = Complex{Tf}
+@inline XFields.eltype_out(tm::Az𝕊0{Tf}) where {Tf<:Complex} = Tf
 @inline XFields.plan(tm::Az𝕊0) = XFields.plan(tm.tmAz) 
 
-struct Az𝕊2{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,3} 
-    tmAz::𝕎{Tf, 3, Tf, Tf}
+struct Az𝕊2{Tf<:Number, Ts<:Number, Tp<:Number, C<:CartesianIndices} <: XFields.Transform{Tf,3} 
+    tmAz::𝕎{Tf, 3, Ts, Tp}
     tm𝕊::𝕊2
     ringidx::C     
-    function Az𝕊2(tmAz::𝕎{Tf, 3, Tp, Tf}, tm𝕊::𝕊2, ringidx::C) where {Tf, Tp, C}
+    function Az𝕊2(tmAz::𝕎{Tf, 2, Ts, Tp}, tm𝕊::𝕊2, ringidx::C) where {Tf, Ts, Tp, C}
         nθAz, nφAz, = size_in(tmAz)
         nθ𝕊, nφ𝕊,   = size_in(tm𝕊)
         @assert nθAz <= nθ𝕊
@@ -51,7 +53,8 @@ struct Az𝕊2{Tf<:Real, C<:CartesianIndices} <: XFields.Transform{Tf,3}
         @assert size(ringidx) == (nθAz, nφAz,2)
         ## ensure the transformation is unitary
         tmAz′ = unscale(tmAz) |> tm -> unitary_scale(tm)*tm 
-        new{Tf,C}(tmAz′, tm𝕊, ringidx)
+        rTf = real(Tf) 
+        new{Tf, rTf, Tp, C}(tmAz′, tm𝕊, ringidx)
     end 
 end 
 
@@ -59,6 +62,7 @@ end
 @inline XFields.size_out(tm::Az𝕊2)  = XFields.size_out(tm.tmAz)
 @inline XFields.eltype_in(tm::Az𝕊2{Tf})  where {Tf}       = Tf
 @inline XFields.eltype_out(tm::Az𝕊2{Tf}) where {Tf<:Real} = Complex{Tf}
+@inline XFields.eltype_out(tm::Az𝕊2{Tf}) where {Tf<:Complex} = Tf
 @inline XFields.plan(tm::Az𝕊2) = XFields.plan(tm.tmAz) 
 
 function SphereTransforms.Ωpix(tm::Union{Az𝕊0,Az𝕊2})

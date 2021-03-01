@@ -70,7 +70,7 @@ data_mask_init, Ω, θ, φ, θnorth∂, θsouth∂ = @sblock let tmS0, QP_bdry=1
     pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)
     
     full_sky_tm𝕊0 = CS.𝕊0(size(pr_mat_init)...)
-    θ_mat_init, φ_mat_init = CS.pix(full_sky_tm𝕊0)
+    θ_mat_init, φ_mat_init = CS.SphereTransforms.pix(full_sky_tm𝕊0)
     spline_mask = Dierckx.Spline2D(θ_mat_init, φ_mat_init, pr_mat_init, kx=1, ky=1, s=0.0)
 
     nθ, nφ  = size_in(tmS0)
@@ -79,7 +79,7 @@ data_mask_init, Ω, θ, φ, θnorth∂, θsouth∂ = @sblock let tmS0, QP_bdry=1
     θsouth∂ = 2.85
     θ = θnorth∂ .+ ((θsouth∂ - θnorth∂) / nθ) .* (0:nθ-1)
     φ = (2π / nφ) .* (0:nφ-1)
-    Ω = CS.Ωpix.(θ, θ[2] - θ[1], φ[2] .- φ[1])
+    Ω = CS.SphereTransforms.Ωpix.(θ, θ[2] - θ[1], φ[2] .- φ[1])
 
     data_mask_init = spline_mask.(θ, φ') .> 0
     data_mask_init[1:30,:] .= 0
@@ -353,7 +353,7 @@ Naz = @sblock let tmW=unscale(tmS0),  μK′n, snl, weight_θ, θ, φ, Δθ = θ
         rtn   = covf(CMBrings.geoθ1θ2Δφcol(θ1, θ2, Δφ′))
         if θ1 == θ2
             cc = μK′n^2 * (π/60/180)^2
-            pa = CS.Ωpix(θ1, Δθ, Δφ) # sin(θ1) * Δθ * Δφ
+            pa = CS.SphereTransforms.Ωpix(θ1, Δθ, Δφ) # sin(θ1) * Δθ * Δφ
             rtn[Δφ′ .== 0] .+= cc / pa # <- since we are using ST grid
         end
         rtn

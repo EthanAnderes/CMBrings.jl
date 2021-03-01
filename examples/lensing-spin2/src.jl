@@ -566,3 +566,49 @@ sub_∇!,   = generate_∇!_∇!ϕ_1storder(θ_sub, φ_sub)
     fig
 end;
 
+
+
+
+
+
+# Try 
+# ==========================================
+
+
+Qθi  = Xmap(tmAzS2)
+Qθi.fd[end - 60, 1, 1] = 1
+Uθi  = Xmap(tmAzS2)
+Uθi.fd[end - 60, 1, 2] = 1
+
+@time Qθi′ = EBcov * Qθi;
+@time Uθi′ = EBcov * Uθi;
+
+# Qθi′[:Qx] |> matshow
+# Qθi′[:Ux] |> matshow
+
+Qθik = Xfourier(Qθi′)
+Uθik = Xfourier(Uθi′)
+
+Qθik[!][:,:,1] .|> real |> maximum # *
+Qθik[!][:,:,1] .|> imag |> maximum
+
+Qθik[!][:,:,2] .|> real |> maximum
+Qθik[!][:,:,2] .|> imag |> maximum # *
+
+
+Uθik[!][:,:,1] .|> real |> maximum
+Uθik[!][:,:,1] .|> imag |> maximum # *
+
+Uθik[!][:,:,2] .|> real |> maximum # *
+Uθik[!][:,:,2] .|> imag |> maximum
+
+
+# * 
+Qθik[!][:,:,1] .|> real |> matshow
+Uθik[!][:,:,2] .|> real |> matshow
+
+Uθik[!][:,:,1] .|> imag |> matshow
+Qθik[!][:,:,2] .|> imag |> matshow
+
+
+
