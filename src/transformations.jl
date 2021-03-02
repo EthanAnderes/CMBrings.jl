@@ -44,7 +44,7 @@ struct Az𝕊2{Tf<:Number, Ts<:Number, Tp<:Number, C<:CartesianIndices} <: XFiel
     tmAz::𝕎{Tf, 3, Ts, Tp}
     tm𝕊::𝕊2
     ringidx::C     
-    function Az𝕊2(tmAz::𝕎{Tf, 2, Ts, Tp}, tm𝕊::𝕊2, ringidx::C) where {Tf, Ts, Tp, C}
+    function Az𝕊2(tmAz::𝕎{Tf, 3, Ts, Tp}, tm𝕊::𝕊2, ringidx::C) where {Tf, Ts, Tp, C}
         nθAz, nφAz, = size_in(tmAz)
         nθ𝕊, nφ𝕊,   = size_in(tm𝕊)
         @assert nθAz <= nθ𝕊

@@ -46,7 +46,8 @@ end
 tmAzS0, tmAzS2 = @sblock let 
 
     ## size of the embedding full sphere
-    𝕊nθ, 𝕊nφ = (2560, 2560-1)
+    𝕊nθ, 𝕊nφ = (2048, 1536-1)
+    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2048-1)
 
     ## Spin ±2 transform
@@ -205,7 +206,132 @@ end;
 
 
 
-# AzBlock operators
+# Full sphere signal operators
+# ==============================
+
+
+EBcov, Lcut, Φcov = @sblock let tmAzS0, tmAzS2, eel, bbl, ϕϕl, lcut = 2000
+
+    n𝕊θ, n𝕊φ, = size_in(tmAzS2.tm𝕊)
+    l2,m2,a2 = ST.lma(-2, n𝕊θ, n𝕊φ)
+    l0,m0,a0 = ST.lma(0, n𝕊θ, n𝕊φ)
+    
+    ECL  = @. getindex((eel,), l2 + 1)
+    BCL  = @. getindex((bbl,), l2 + 1)
+    ΦCL  = @. getindex((ϕϕl,), l0 + 1)
+    LCL  =  (0 .< l2 .<= lcut)
+    ECL[.!a2] .= 0
+    BCL[.!a2] .= 0
+    ΦCL[.!a0] .= 0
+
+    EBcov = DiagOp(Xfourier(tmAzS2.tm𝕊, ECL, BCL))
+    Lcut  = DiagOp(Xfourier(tmAzS2.tm𝕊, LCL, LCL))
+    Φcov  = DiagOp(Xfourier(tmAzS0.tm𝕊, ΦCL))
+
+    return EBcov, Lcut, Φcov
+
+end
+
+
+
+
+# Can I parameterize q + i*u
+# ==========================================
+
+
+nθ, nφ  = size(tmAzS0.ringidx)
+tmW  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{Float64}, nφ, 2π)) #  |> x -> FT.unitary_scale(x)*x
+ptmW = plan(tmW)
+
+## Qθi  = Xmap(tmAzS2)
+## Qθi.fd[end - 60, 1, 1] = 1
+## Uθi  = Xmap(tmAzS2)
+## Uθi.fd[end - 60, 1, 2] = 1
+## 
+## Qθi′ = EBcov * Qθi;
+## Uθi′ = EBcov * Uθi;
+## 
+## ## Λqq = ptmW * complex.(Qθi′[:Qx], 0)
+## ## Λuu = ptmW * complex.(Uθi′[:Ux], 0)
+## ## Λqu = ptmW * complex.(Qθi′[:Ux], 0)
+## ## Λuq = ptmW * complex.(Uθi′[:Qx], 0)
+## ## ΓΛ = @. (Λqq + Λuu + im * (Λqu - Λuq)) / 2
+## ## CΛ = @. (Λqq - Λuu + im * (Λqu + Λuq)) / 2
+## 
+## ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
+## CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
+## 
+## ## ΓΛ .|> real |> matshow; colorbar()
+## ## ΓΛ .|> imag |> matshow; colorbar()
+## ## 
+## ## CΛ .|> real |> matshow; colorbar()
+## ## CΛ .|> imag |> matshow; colorbar()
+
+# ---------- template out a function to generate Γand C for az polarization
+
+lengthθ, nblks = size_out(tmW)
+Tb = Float64
+azΓ = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
+azC = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
+
+Qθi  = Xmap(tmAzS2)
+Uθi  = Xmap(tmAzS2)
+
+@time begin 
+
+@sblock let azΓ, azC, lengthθ, nblks, ptmW, EBcov, Qθi, Uθi
+
+    @showprogress for i = 1:lengthθ
+
+        Qθi.fd[i, 1, 1] = 1
+        Uθi.fd[i, 1, 2] = 1
+        # TODO: make a version of the following that doesn't allocate memory
+        Qθi′ = EBcov * Qθi
+        Uθi′ = EBcov * Uθi
+    
+        ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
+        CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
+    
+        ## Threads.@threads for k = 1:nblks
+        for k = 1:nblks
+            azΓ[k][:,i] .= real.(ΓΛ[:,k])
+            azC[k][:,i] .= real.(CΛ[:,k])
+        end
+
+        Qθi.fd[i, 1, 1] = 0
+        Uθi.fd[i, 1, 2] = 0
+
+    end 
+
+end
+
+end
+
+
+k = 50
+M = [
+    azΓ[k] azC[k]
+    azC[k] azΓ[k]
+]
+
+va, Ve = Symmetric( M ) |> eigen
+
+plot(va)
+
+plot(Ve[:,end-15])
+plot(Ve[:,end-5])
+plot(Ve[:,end])
+plot(Ve[:,1])
+
+# Base.summarysize(azΣ) * 1e-9 #-> gigabites
+
+
+
+
+
+
+
+# AzBlock operators for noise, beam phi covariance matrix
 # ==============================
 
 # noise
@@ -348,34 +474,6 @@ ei′[:] |> matshow
 =#
 
 
-
-# Full sphere signal operators
-# ==============================
-
-
-EBcov, Lcut, Φcov = @sblock let tmAzS0, tmAzS2, eel, bbl, ϕϕl, lcut = 2000
-
-    n𝕊θ, n𝕊φ, = size_in(tmAzS2.tm𝕊)
-    l2,m2,a2 = ST.lma(-2, n𝕊θ, n𝕊φ)
-    l0,m0,a0 = ST.lma(0, n𝕊θ, n𝕊φ)
-    
-    ECL  = @. getindex((eel,), l2 + 1)
-    BCL  = @. getindex((bbl,), l2 + 1)
-    ΦCL  = @. getindex((ϕϕl,), l0 + 1)
-    LCL  =  (0 .< l2 .<= lcut)
-    ECL[.!a2] .= 0
-    BCL[.!a2] .= 0
-    ΦCL[.!a0] .= 0
-
-    EBcov = DiagOp(Xfourier(tmAzS2.tm𝕊, ECL, BCL))
-    Lcut  = DiagOp(Xfourier(tmAzS2.tm𝕊, LCL, LCL))
-    Φcov  = DiagOp(Xfourier(tmAzS0.tm𝕊, ΦCL))
-
-    return EBcov, Lcut, Φcov
-
-end
-
-
 #=
 
 ei  = Xmap(tmAzS2)
@@ -399,6 +497,9 @@ p_sim = Xmap(tmAzS2, CMBsphere.simmap(EBcov)[:][tmAzS2.ringidx])
 (Baz * p_sim)[:Ux] |> matshow
 
 =#
+
+
+
 
 
 # Gradients Set sparse increment matrices for non-FFT lensing
@@ -571,7 +672,7 @@ end;
 
 
 
-# Try 
+#  
 # ==========================================
 
 
@@ -604,11 +705,12 @@ Uθik[!][:,:,2] .|> imag |> maximum
 
 
 # * 
-Qθik[!][:,:,1] .|> real |> matshow
-Uθik[!][:,:,2] .|> real |> matshow
+Qθik[!][:,:,1] .|> real |> matshow; colorbar()
+Uθik[!][:,:,2] .|> real |> matshow; colorbar()
 
-Uθik[!][:,:,1] .|> imag |> matshow
-Qθik[!][:,:,2] .|> imag |> matshow
+Uθik[!][:,:,1] .|> imag |> matshow; colorbar()
+Qθik[!][:,:,2] .|> imag |> matshow; colorbar()
+
 
 
 
