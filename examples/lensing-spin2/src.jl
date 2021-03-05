@@ -279,42 +279,51 @@ Uθi  = Xmap(tmAzS2)
 
 @time begin 
 
-@sblock let azΓ, azC, lengthθ, nblks, ptmW, EBcov, Qθi, Uθi
+    @sblock let azΓ, azC, lengthθ, nblks, ptmW, EBcov, Qθi, Uθi, Ω
 
-    @showprogress for i = 1:lengthθ
+        @showprogress for i = 1:lengthθ
 
-        Qθi.fd[i, 1, 1] = 1
-        Uθi.fd[i, 1, 2] = 1
-        # TODO: make a version of the following that doesn't allocate memory
-        Qθi′ = EBcov * Qθi
-        Uθi′ = EBcov * Uθi
-    
-        ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
-        CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
-    
-        ## Threads.@threads for k = 1:nblks
-        for k = 1:nblks
-            azΓ[k][:,i] .= real.(ΓΛ[:,k])
-            azC[k][:,i] .= real.(CΛ[:,k])
-        end
+            Qθi.fd[i, 1, 1] = 1 / Ω[i]
+            Uθi.fd[i, 1, 2] = 1 / Ω[i]
+            ## TODO: make a version of the following that doesn't allocate memory
+            Qθi′ = EBcov * Qθi
+            Uθi′ = EBcov * Uθi
+        
+            Λqq = ptmW * complex.(Qθi′[:Qx], 0)
+            Λuq = ptmW * complex.(Qθi′[:Ux], 0)
+            Λuu = ptmW * complex.(Uθi′[:Ux], 0)
+            Λqu = ptmW * complex.(Uθi′[:Qx], 0)
+            ΓΛ = @. (Λqq + Λuu + im * (Λuq - Λqu)) / 2
+            CΛ = @. (Λqq - Λuu + im * (Λuq + Λqu)) / 2
 
-        Qθi.fd[i, 1, 1] = 0
-        Uθi.fd[i, 1, 2] = 0
+            ## ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
+            ## CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
+        
+            ## Threads.@threads for k = 1:nblks
+            for k = 1:nblks
+                azΓ[k][i,:] .= real.(ΓΛ[:,k])
+                azC[k][i,:] .= real.(CΛ[:,k])
+                ## azΓ[k][:,i] .= ΓΛ[:,k]
+                ## azC[k][:,i] .= CΛ[:,k]
+            end
 
-    end 
+            Qθi.fd[i, 1, 1] = 0
+            Uθi.fd[i, 1, 2] = 0
+
+        end 
+
+    end
 
 end
 
-end
 
-
-k = 50
+k = 4
 M = [
-    azΓ[k] azC[k]
-    azC[k] azΓ[k]
+     azΓ[k]        azC[k]
+     conj.(azC[k]) conj.(azΓ[k])
 ]
-
-va, Ve = Symmetric( M ) |> eigen
+va, Ve = Symmetric( M, :U ) |> eigen
+## va, Ve = M |> eigen
 
 plot(va)
 
@@ -325,9 +334,162 @@ plot(Ve[:,1])
 
 # Base.summarysize(azΣ) * 1e-9 #-> gigabites
 
+k = 10
+azΓ[k] .- azΓ[k]' |> matshow; colorbar() 
+azΓ[k]  |> matshow; colorbar() 
+
+azC[k] .- azC[k]' |> matshow; colorbar() 
+azC[k] |> matshow; colorbar() 
 
 
 
+
+
+i = 100
+j = 300
+c = 100
+Qθi  = Xmap(tmAzS2)
+Qθj  = Xmap(tmAzS2)
+Qθi.fd[i, c, 1] = 1 / Ω[i] 
+Qθj.fd[j, c, 1] = 1 / Ω[j] 
+Qθi′ = EBcov * Qθi
+Qθj′ = EBcov * Qθj
+
+Qθi′[:Qx][i:i+50,c] |> plot
+Qθj′[:Qx][j:j+50,c] |> plot
+
+
+Qθi′[:Qx][i-50:i+50,c-50:c+50] |> matshow
+Qθj′[:Qx][j-50:j+50,c-50:c+50] |> matshow
+
+
+######
+
+QSθi  = Xmap(tmAzS2.tm𝕊)
+QSθj  = Xmap(tmAzS2.tm𝕊)
+
+QSθi.fd[tmAzS2.ringidx[i, c, 1]] = 1
+QSθj.fd[tmAzS2.ringidx[j, c, 1]] = 1
+
+Ωop = DiagOp(Xmap(tmAzS2.tm𝕊, ST.Ωpix(tmAzS2.tm𝕊) .+ zeros(size_in(tmAzS2.tm𝕊))))
+QSθi′′ = sqrt(EBcov) * inv(Ωop) * sqrt(EBcov) * QSθi
+QSθj′′ = sqrt(EBcov) * inv(Ωop) * sqrt(EBcov) * QSθj
+
+
+QSθi′ = EBcov * inv(Ωop) * QSθi
+QSθj′ = EBcov * inv(Ωop) * QSθj
+
+
+
+
+QSθi′[:][tmAzS2.ringidx][i:i+50,c,1] |> plot
+QSθj′[:][tmAzS2.ringidx][j:j+50,c,1] |> plot
+
+
+QSθi′[:][tmAzS2.ringidx][i-50:i+50,c-50:c+50,1] |> matshow
+QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,1] |> matshow
+
+
+###### 
+
+
+
+Qθi′[:Qx][i:i+50,c] |> plot
+QSθi′[:][tmAzS2.ringidx][i:i+50,c,1] |> plot
+
+
+Qθj′[:Qx][j:j+50,c] |> plot
+QSθj′[:][tmAzS2.ringidx][j:j+50,c,1] |> plot
+
+
+# these ↓ do not seem to match
+
+
+Qθi′[:Ux][i,c:c+50] |> plot
+QSθi′[:][tmAzS2.ringidx][i,c:c+50,2] |> plot
+
+
+Qθj′[:Ux][j,c:c+50] |> plot
+QSθj′[:][tmAzS2.ringidx][j,c:c+50,2] |> plot
+
+
+
+# 
+
+
+Qθi′[:Ux][i-50:i+50,c-50:c+50] |> matshow; colorbar()
+QSθi′[:][tmAzS2.ringidx][i-50:i+50,c-50:c+50,2] |> matshow; colorbar()
+
+
+Qθj′[:Ux][j-50:j+50,c-50:c+50] |> matshow; colorbar()
+QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,2] |> matshow; colorbar()
+QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,2] .- Qθj′[:Ux][j-50:j+50,c-50:c+50] |> matshow; colorbar()
+
+
+
+
+
+
+#############
+
+
+
+
+Λqjqi = ptmW * complex.(Qθi′[:Qx], 0)
+Λqiqj = ptmW * complex.(Qθj′[:Qx], 0)
+
+Λqjqi[j,:] .|> real |> semilogy
+Λqiqj[i,:] .|> real |> semilogy
+
+abs.(real.(Λqjqi[j,:]) .- real.(Λqiqj[i,:])) |> semilogy
+
+
+
+
+
+QθjQθi = zeros(Float64, nblks, nblks)
+QθiQθj = zeros(Float64, nblks, nblks)
+i = 3
+j = 300
+Qθi  = Xmap(tmAzS2)
+Qθj  = Xmap(tmAzS2)
+@sblock let QθjQθi, QθiQθj, i, j, Qθi, Qθj, EBcov, Ω,nblks 
+    @showprogress for φp = 1:nblks
+        Qθi.fd[i, φp, 1] = 1 / Ω[i] #!!!!!! this is what I was missing ....
+        Qθj.fd[j, φp, 1] = 1 / Ω[j]
+        Qθi′ = EBcov * Qθi
+        Qθj′ = EBcov * Qθj
+        QθjQθi[:,φp] .= Qθi′.fd[j, :, 1]
+        QθiQθj[:,φp] .= Qθj′.fd[i, :, 1]
+        Qθi.fd[i, φp, 1] = 0
+        Qθj.fd[j, φp, 1] = 0
+    end
+end
+
+
+
+
+[diag(QθjQθi)[1:20]  diag(QθiQθj)[1:20]]
+
+
+QθjQθi[1000:1050,1:20] |> matshow; colorbar()
+QθiQθj[1000:1050,1:20] |> matshow; colorbar()
+
+
+QθjQθi[:,1] |> plot
+QθiQθj[:,1] |> plot
+
+[QθjQθi[:,1]  QθiQθj[:,1]]
+
+i    = 3
+j    = 300
+φp   = 1
+Qθi  = Xmap(tmAzS2)
+Qθj  = Xmap(tmAzS2)
+Qθi.fd[i, φp, 1] = Ω[i]
+Qθj.fd[j, φp, 1] = Ω[j]
+Qθi′ = EBcov * Qθi
+Qθj′ = EBcov * Qθj
 
 
 

@@ -16,6 +16,10 @@ using PyPlot
 using PyCall
 using NLopt
 
+# used in cmb_cov.jl
+import Dierckx 
+using ApproxFun: Fun, Jacobi
+
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
 
@@ -29,8 +33,11 @@ include("az_blocks.jl")
 # RingBeam struct for beaming an azimuthal strip on the full sky
 include("ring_beam.jl")
 
+# For computing pixel space covariance 
+include("cmb_cov.jl")
+
 # old version ... has polarization implimentation
-include("az_cov.jl")
+# include("az_cov.jl")
 
 include("lensing.jl")
 
