@@ -18,6 +18,9 @@ using PyPlot
 using BenchmarkTools
 using ProgressMeter
 
+
+using Test 
+
 #- 
 
 if isdefined(Main,:PlutoRunner)
@@ -123,7 +126,7 @@ eeℓ, bbℓ, ttℓ, ϕϕℓ, ℓ = @sblock let
 end;
 
 
-## Test case 1
+## Test case: first define the iso cov interpolators
 ## =================================================
 
 
@@ -138,7 +141,10 @@ covTβ = CMBrings.βcovSpin0(ℓ, ttℓ;
         ## β_grid = range(0, π^(1/3), length=n_grid).^3,
 )
 
+
 @sblock let covPβ, covTβ 
+    hide_plots && return
+
     βs      = range(0,deg2rad(3),length=4000) |> collect
     covTTβs = covTβ(βs)
     covPP̄βs, covPPβs = covPβ(βs)
@@ -152,9 +158,36 @@ covTβ = CMBrings.βcovSpin0(ℓ, ttℓ;
 end
 
 
+## Test that the multipliers have the right conj symmetry
+## =================================================
 
-@time covPP̄, covPP, covQ1Q2, covU1U2, covQ1U2, covU1Q2, r1, c1 = @sblock let θ, φ, covPβ
+θ1, φ1 = π/2 + .01, π/8
+θ2, φ2 = θ1 + .2, φ1 + .4
+@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ2, θ1, φ2, φ1))
+@test CMBrings.multPP(θ1, θ2, φ1, φ2) == CMBrings.multPP(θ2, θ1, φ2, φ1)
+## the above should be true for Γ and C
 
+## ↓ these should be true via spin 2 to spin -2 conversion via conj I think
+@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ1, θ2, -φ1, -φ2))
+@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ1, θ2, φ2, φ1))
+@test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, -φ1, -φ2))
+@test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, φ2, φ1))
+
+@test CMBrings.multPP̄(θ1, θ2, 0, φ2) 
+@test CMBrings.multPP̄(θ1, θ2, 0, -φ2)
+
+@test CMBrings.multPP(θ1, θ2, 0, φ2) 
+@test CMBrings.multPP(θ1, θ2, 0, -φ2)
+
+
+## Test case: view pixel space cov 
+## =================================================
+
+
+@time fig = @sblock let θ, φ, covPβ
+
+    hide_plots && return
+    
     r1, c1  = 100, 100 
     θ1, φ1  = θ[r1], φ[c1]
 
@@ -172,29 +205,190 @@ end
     covQ1U2 = CMBrings.Q1U2.(covPP̄, covPP)
     covU1Q2 = CMBrings.U1Q2.(covPP̄, covPP)
 
-    return covPP̄, covPP, covQ1Q2, covU1U2, covQ1U2, covU1Q2, r1, c1
 
+    fig,ax = subplots(2,2,figsize=(7,5))
+    ax[1,1].imshow(covQ1Q2[r1-50:r1+50, c1-50:c1+50])
+    ax[1,2].imshow(covU1U2[r1-50:r1+50, c1-50:c1+50])
+    ax[2,1].imshow(covQ1U2[r1-50:r1+50, c1-50:c1+50])
+    ax[2,2].imshow(covU1Q2[r1-50:r1+50, c1-50:c1+50])
+
+
+    fig
 end
 
 
 
-fig,ax = subplots(2,2,figsize=(7,5))
-ax[1,1].imshow(covQ1Q2[r1-50:r1+50, c1-50:c1+50])
-ax[1,2].imshow(covU1U2[r1-50:r1+50, c1-50:c1+50])
-ax[2,1].imshow(covQ1U2[r1-50:r1+50, c1-50:c1+50])
-ax[2,2].imshow(covU1Q2[r1-50:r1+50, c1-50:c1+50])
+## Test case: Form the full covariance matrix for Q,U on a single ring
+## =================================================
+
+## testing without multipliers
+
+ΓΛ, CΛ = @sblock let θ, φ, covPβ
+
+    nθ, nφ  = length(θ), length(φ)
+
+    ΓΛ = zeros(Complex{Float64}, nφ, nφ)
+    CΛ = zeros(Complex{Float64}, nφ, nφ)
+
+    θ1 = θ[100]
+    @showprogress for c1 = 1:length(φ)
+
+        φ1  = φ[c1]
+        β            =  CMBrings.geoβ.(θ1, θ1, φ1, φ) 
+        covPP̄, covPP = covPβ(β)  
+        covPP̄ .*= CMBrings.multPP̄.(θ1, θ1, φ1, φ) 
+        covPP .*= CMBrings.multPP.(θ1, θ1, φ1, φ)
+        
+        ΓΛ[:,c1] = covPP̄
+        CΛ[:,c1] = covPP
+
+    end
+
+    return ΓΛ, CΛ
+end
 
 
-# now construct Γ, C ...
-p𝒲col  = tmAzS0.tmAz |> FT.unscale |> complex |> plan
-covPP̄φ2k = p𝒲col * covPP̄
-covPPφ2k = p𝒲col * covPP
 
-covPP̄φ2k .|> real |> matshow; colorbar()
-covPPφ2k .|> real |> matshow; colorbar()
+Σ = [
+    ΓΛ        CΛ
+    conj.(CΛ) conj.(ΓΛ)
+]
 
-covPP̄φ2k .|> imag |> matshow; colorbar()
-covPPφ2k .|> imag |> matshow; colorbar()
+
+covQ1Q2 = CMBrings.Q1Q2.(ΓΛ, CΛ)
+covU1U2 = CMBrings.U1U2.(ΓΛ, CΛ)
+covQ1U2 = CMBrings.Q1U2.(ΓΛ, CΛ)
+covU1Q2 = CMBrings.U1Q2.(ΓΛ, CΛ)
+
+
+fk =   fft( exp.(-im .* φ ./ 2) .* covQ1U2[:,1])
+fk′, Uk′ = eigen(covQ1U2)
+
+imag.(fk′)
+fk′ .|> abs |> sort |> plot
+fk  .|> real |> plot
+covQ1U2 |> matshow
+
+
+Σ .|> real |> matshow; colorbar()
+Σ .|> imag |> matshow; colorbar()
+Σ .- adjoint(Σ) .|> abs |> matshow; colorbar()
+
+
+CΛ[200,:] .|> real |> plot
+CΛ[200,:] .|> imag |> plot
+
+ΓΛ[end÷2,:] .|> real |> plot
+ΓΛ[end÷2,:] .|> imag |> plot
+
+##
+
+d,U =  eigen(Hermitian(Σ))
+d′ = FT.fft(Σ[:,1])
+g′ = FT.fft(ΓΛ[:,1])
+
+
+plot(d)
+sort(vcat(real.(d′[1:2:end]), imag.(d′[2:2:end]))) |> plot
+
+real.(d′[1:2:end]) |> plot
+imag.(d′[2:2:end]) |> plot
+
+imag.(d′[1:2:end]) |> plot
+real.(d′[2:2:end]) |> plot
+
+
+
+
+plot(sort(real.(d′[1:2:end])))
+
+# check Σ is Hermitian.
+
+# perhaps Σ is diagonalized by fourier transform ... so 
+
+
+## Test case: now construct ring Γ, C
+## =================================================
+
+
+nθ, nφ  = length(θ), length(φ)
+tmW  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{Float64}, nφ, 2π)) #  |> x -> FT.unitary_scale(x)*x
+ptmW = plan(tmW)
+# We want complex fft here since covPP̄ and covPP will be complex
+
+lengthθ, nblks = size_out(tmW)
+Tb = Complex{Float64}
+azΓ = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
+azC = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
+
+
+@sblock let covPβ, azΓ, azC, ptmW, θ, φ      
+    nθ, nφ  = length(θ), length(φ)
+    nblks   = nφ 
+    θgd     = θ  .+ zeros(nθ, nφ) 
+    φgd     = φ' .+ zeros(nθ, nφ) 
+    c1  = 1
+    @showprogress for r1 = 1:length(θ)
+
+        θ1, φ1  = θ[r1], φ[c1]
+        β            =  CMBrings.geoβ.(θ1, θgd, φ1, φgd) 
+        covPP̄, covPP = covPβ(β)  
+        # testing without multipliers 
+        # covPP̄ .*= CMBrings.multPP̄.(θ1, θgd, φ1, φgd) 
+        # covPP .*= CMBrings.multPP.(θ1, θgd, φ1, φgd)
+        
+        ΓΛ = ptmW * covPP̄
+        CΛ = ptmW * covPP
+
+        ## Threads.@threads for k = 1:nblks
+        for k = 1:nblks
+            azΓ[k][:,r1] .= ΓΛ[:,k]
+            azC[k][:,r1] .= CΛ[:,k]
+        end
+    end
+end
+k = 4
+
+azΓ[k] .|> real |> matshow; colorbar()
+azΓ[k] .|> imag |> matshow; colorbar()
+azΓ[k] - adjoint(azΓ[k]) .|> real |> matshow; colorbar()
+azΓ[k] - adjoint(azΓ[k]) .|> imag |> matshow; colorbar()
+
+azC[k] .|> real |> matshow; colorbar()
+azC[k] .|> imag |> matshow; colorbar()
+azC[k] - transpose(azC[k]) .|> real |> matshow; colorbar()
+azC[k] - transpose(azC[k]) .|> imag |> matshow; colorbar()
+
+
+k = 15
+M = [
+     azΓ[k]        azC[k]
+     conj.(azC[k]) conj.(azΓ[k])
+]
+M  .|> real |> matshow; colorbar()
+M  .|> imag |> matshow; colorbar()
+M - adjoint(M) .|> abs |> matshow; colorbar()
+
+
+
+va, Ve = Symmetric( M, :U ) |> eigen
+## va, Ve = M |> eigen
+
+plot(va)
+
+plot(Ve[:,end-15])
+plot(Ve[:,end-5])
+plot(Ve[:,end])
+plot(Ve[:,1])
+
+# Base.summarysize(azΣ) * 1e-9 #-> gigabites
+
+k = 10
+azΓ[k] .- azΓ[k]' |> matshow; colorbar() 
+azΓ[k]  |> matshow; colorbar() 
+
+azC[k] .- azC[k]' |> matshow; colorbar() 
+azC[k] |> matshow; colorbar() 
 
 
 

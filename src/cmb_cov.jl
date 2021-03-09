@@ -124,7 +124,7 @@ function sincosΔθpθΔφ(θ1, θ2, φ1, φ2)
     s𝓅θ½, c𝓅θ½ = sincos(𝓅θ½)
     sΔθ½, cΔθ½ = sincos(Δθ½)
     sΔφ½, cΔφ½ = sincos(Δφ½)
-    return sΔθ½, sΔφ½, s𝓅θ½, cΔθ½, cΔφ½, c𝓅θ½
+    return sΔθ½, sΔφ½, cΔθ½, cΔφ½, s𝓅θ½, c𝓅θ½
 end
 
 function geoβ(θ1, θ2, φ1, φ2)
@@ -150,12 +150,12 @@ end
 # =====================================================
 
 function multPP̄(θ1, θ2, φ1, φ2)
-    sΔθ½, sΔφ½, s𝓅θ½, cΔθ½, cΔφ½, c𝓅θ½ = sincosΔθpθΔφ(θ1, θ2, φ1, φ2)
+    sΔθ½, sΔφ½, cΔθ½, cΔφ½, s𝓅θ½, c𝓅θ½ = sincosΔθpθΔφ(θ1, θ2, φ1, φ2)
     return complex(sΔφ½ * c𝓅θ½,   cΔφ½ * cΔθ½)^4
 end
 
 function multPP(θ1, θ2, φ1, φ2)
-    sΔθ½, sΔφ½, s𝓅θ½, cΔθ½, cΔφ½, c𝓅θ½ = sincosΔθpθΔφ(θ1, θ2, φ1, φ2)
+    sΔθ½, sΔφ½, cΔθ½, cΔφ½, s𝓅θ½, c𝓅θ½ = sincosΔθpθΔφ(θ1, θ2, φ1, φ2)
     return complex(sΔφ½ * s𝓅θ½, - cΔφ½ * sΔθ½)^4
 end
 
