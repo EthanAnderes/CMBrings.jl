@@ -16,14 +16,8 @@ using PyPlot
 using PyCall
 using NLopt
 
-# used in cmb_cov.jl
-import Dierckx 
-using ApproxFun: Fun, Jacobi
-
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
-
-# ----------------
 # Extras on SphereTransforms like simulation, getindex etc. 
 include("transformations.jl")
 
@@ -33,12 +27,6 @@ include("az_blocks.jl")
 # RingBeam struct for beaming an azimuthal strip on the full sky
 include("ring_beam.jl")
 
-# For computing pixel space covariance 
-include("cmb_cov.jl")
-
-# old version ... has polarization implimentation
-# include("az_cov.jl")
-
 include("lensing.jl")
 
 include("likelihoods.jl")
@@ -47,6 +35,18 @@ include("methods.jl")
 
 include("plot.jl")
 
+
+# This one is left over from old code
+# Repeats functionality of geoβ
+# TODO: slated for removal but need to drop all instances of it
+function geoθ1θ2Δφcol(θ1, θ2, Δφcol)
+    @warn "Use CMBrings.geoβ(θ1, θ2, φ1, φ2) instead" maxlog=2
+    sθ1, sθ2 = sin(θ1), sin(θ2)
+    sΔθ½     = sin((θ1 - θ2)/2)
+    sΔφ½     = @. sin(Δφcol / 2)
+    β        = @. 2asin(√(sΔθ½^2 + sθ1 * sθ2 * sΔφ½^2))
+    return β
+end
 
 
 # moved to likelihoods.jl, methods.jl or transofrmations.jl

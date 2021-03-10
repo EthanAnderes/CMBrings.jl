@@ -1,7 +1,6 @@
 
 # Modules
 # ==============================
-# TODO: needs trimming
 
 using XFields
 using CMBrings
@@ -73,7 +72,7 @@ tmAzS0, tmAzS2, θ, φ, Ω = @sblock let
     Ω     = ST.Ωpix(tmAzS2)
 
     return tmAzS0, tmAzS2, θ, φ, Ω
-end
+end;
 
 
 # Plot √Ωpix over ring θ's 
@@ -87,7 +86,7 @@ end
     ax.set_xlabel(L"polar coordinate $\theta$")
     ax.legend()
     return fig
-end
+end;
 
 
 # Spectral densities
@@ -126,20 +125,27 @@ eeℓ, bbℓ, ttℓ, ϕϕℓ, ℓ = @sblock let
 end;
 
 
-## Test case: first define the iso cov interpolators
-## =================================================
+# Define the iso cov interpolators
+# =================================================
 
+# These two need more testing to check that the optional arguments work correctly
 
-## Recall at this point covP
-covPβ = CMBrings.βcovSpin2(ℓ, eeℓ, bbℓ;
+covPβ = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ;
         ## n_grid::Int = 100_000, 
         ## β_grid = range(0, π^(1/3), length=n_grid).^3,
-)
+);
 
-covTβ = CMBrings.βcovSpin0(ℓ, ttℓ;
+covTβ = Spectra.βcovSpin0(ℓ, ttℓ;
         ## n_grid::Int = 100_000, 
         ## β_grid = range(0, π^(1/3), length=n_grid).^3,
-)
+);
+
+
+
+
+
+# Test case: plot radial profile of isotropic version
+# =================================================
 
 
 @sblock let covPβ, covTβ, hide_plots 
@@ -155,29 +161,31 @@ covTβ = CMBrings.βcovSpin0(ℓ, ttℓ;
     ax[2].plot(βs, real.(covPPβs) .* sin.(βs./2).^4 )
 
     fig 
-end
+end;
 
 
-## Test that the multipliers have the right conj symmetry
-## =================================================
+
+# Test: that the multipliers have the right conj symmetry
+# =================================================
 
 θ1, φ1 = π/2 + .01, π/8
 θ2, φ2 = θ1 + .2, φ1 + .4
-@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ2, θ1, φ2, φ1))
-@test CMBrings.multPP(θ1, θ2, φ1, φ2) == CMBrings.multPP(θ2, θ1, φ2, φ1)
+@test Spectra.multPP̄(θ1, θ2, φ1, φ2) == conj(Spectra.multPP̄(θ2, θ1, φ2, φ1))
+@test Spectra.multPP(θ1, θ2, φ1, φ2) == Spectra.multPP(θ2, θ1, φ2, φ1)
 ## the above should be true for Γ and C
 
 ## ↓ these should be true via spin 2 to spin -2 conversion via conj I think
-@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ1, θ2, -φ1, -φ2))
-@test CMBrings.multPP̄(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP̄(θ1, θ2, φ2, φ1))
-@test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, -φ1, -φ2))
-@test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, φ2, φ1))
+@test Spectra.multPP̄(θ1, θ2, φ1, φ2) == conj(Spectra.multPP̄(θ1, θ2, -φ1, -φ2))
+@test Spectra.multPP̄(θ1, θ2, φ1, φ2) == conj(Spectra.multPP̄(θ1, θ2, φ2, φ1))
+@test Spectra.multPP(θ1, θ2, φ1, φ2) == conj(Spectra.multPP(θ1, θ2, -φ1, -φ2))
+@test Spectra.multPP(θ1, θ2, φ1, φ2) == conj(Spectra.multPP(θ1, θ2, φ2, φ1))
 
 # test the non-sign symmetry of the cross correlations ...
 
 
-## Test case: view pixel space cov 
-## =================================================
+
+# Test: view pixel space cov 
+# =================================================
 
 
 @time fig = @sblock let θ, φ, covPβ, hide_plots
@@ -191,15 +199,15 @@ end
     θgd     = θ  .+ zeros(nθ, nφ) 
     φgd     = φ' .+ zeros(nθ, nφ) 
 
-    β              =  CMBrings.geoβ.(θ1, θgd, φ1, φgd) 
+    β              =  Spectra.geoβ.(θ1, θgd, φ1, φgd) 
     covPP̄, covPP = covPβ(β)   
-    covPP̄ .*= CMBrings.multPP̄.(θ1, θgd, φ1, φgd) 
-    covPP .*= CMBrings.multPP.(θ1, θgd, φ1, φgd)
+    covPP̄ .*= Spectra.multPP̄.(θ1, θgd, φ1, φgd) 
+    covPP .*= Spectra.multPP.(θ1, θgd, φ1, φgd)
 
-    covQ1Q2 = CMBrings.Q1Q2.(covPP̄, covPP)
-    covU1U2 = CMBrings.U1U2.(covPP̄, covPP)
-    covQ1U2 = CMBrings.Q1U2.(covPP̄, covPP)
-    covU1Q2 = CMBrings.U1Q2.(covPP̄, covPP)
+    covQ1Q2 = Spectra.Q1Q2.(covPP̄, covPP)
+    covU1U2 = Spectra.U1U2.(covPP̄, covPP)
+    covQ1U2 = Spectra.Q1U2.(covPP̄, covPP)
+    covU1Q2 = Spectra.U1Q2.(covPP̄, covPP)
 
 
     fig,ax = subplots(2,2,figsize=(7,5))
@@ -210,12 +218,12 @@ end
 
 
     fig
-end
+end;
 
 
 
-## Test case: Form the full covariance matrix for Q,U on a single ring
-## =================================================
+# Test: Form the full covariance matrix for Q,U on a single ring
+# =================================================
 
 
 ## Γjk, Cjk, jₒ, kₒ = @sblock let θ, φ, covPβ, jₒ = 100, kₒ = 150 
@@ -231,10 +239,10 @@ end
     @showprogress for c1 = 1:length(φ)
 
         φ1  = φ[c1]
-        β   =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
+        β   =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
         covPP̄, covPP = covPβ(β)  
-        covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
-        covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)
+        covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+        covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)
         
         Γ[:,c1] = covPP̄
         C[:,c1] = covPP
@@ -242,9 +250,8 @@ end
     end
 
     return Γ, C, jₒ, kₒ
-end
+end;
 
-# note that when jₒ = kₒ it appears Cjk is real. 
 
 # Check Γjk, Cjk are circulant.
 # ------------------------------------
@@ -270,22 +277,23 @@ end
 # When j == k check Σ is positive definite (models the pixel cov of P(n̂) on right)
 # ------------------------------------
 
-Σ, dsΣ = @sblock let runit = jₒ == kₒ, Γjk, Cjk
+Σ, dsΣ = @sblock let Γjk, Cjk
 
     Σ = [
         Γjk        Cjk
         conj.(Cjk) conj.(Γjk)
     ]
 
-    if runit
-        @test maximum(abs2.(Σ - adjoint(Σ))) < 1e-10
-    end
-
     dsΣ, = eigen(Hermitian(Σ))
-    @test all(dsΣ .>= 0)
 
     return Σ, dsΣ
+end;
+
+if jₒ == kₒ
+    @test maximum(abs2.(Σ - adjoint(Σ))) < 1e-10
 end
+
+@test all(dsΣ .>= 0)
 
 # Check dΓΛjk = eigen(ΓΛjk), dCΛjk = eigen(CΛjk) 
 # ..and ΣΛ has eigen values the same as Σ 
@@ -309,7 +317,7 @@ dCΛjk = FT.fft(Cjk[:,1])
     ]
 
     return ΓΛjk, CΛjkJ, ΣΛ
-end
+end;
 
 @sblock let ΣΛ, runit = jₒ == kₒ
     !runit && return 
@@ -317,7 +325,7 @@ end
     Vix, ix = findmax(abs.(V))
     @test Vix < 1e-10
     I[ix], J[ix], Vix
-end
+end;
 
 
 # Test that diag(Uᴴ,U) * ΣΛ * diag(U,Uᴴ) == Σ 
@@ -334,791 +342,71 @@ dsΣ′, = eigen(Hermitian(Matrix(ΣΛ)))
 
 
 
+# Test (under construction): now construct ring Γ, C 
+# .... be sure to use the CΛjkJ.
+# =================================================
 
 
-# Reorganize ΣΛ, ΓΛjk, CΛjk by grouping by azimuth freq index ℓ
-# ------------------------------------
-
-
-# Λ_k = Matrix{ComplexF64}[[Λ11[k] Λ12[k];Λ21[k] Λ22[k]] for k=1:length(φ)]
-# Λ_k = Hermitian.(Λ_k)
-# dsΛ_k = map(Λ_k) do M
-#     d, = eigen(M)
-#     return d 
-# end
-# ds1 = map(x->x[1], dsΛ_k)
-# ds2 = map(x->x[2], dsΛ_k)
-
-# dsfull, = eigen(Hermitian(Σ))
-# plot(sort(vcat(ds1, ds2)))
-# plot(dsfull)
-
-
-# ####
-
-# covQ1Q2 = CMBrings.Q1Q2.(ΓΛ, CΛ)
-# covU1U2 = CMBrings.U1U2.(ΓΛ, CΛ)
-# covQ1U2 = CMBrings.Q1U2.(ΓΛ, CΛ)
-# covU1Q2 = CMBrings.U1Q2.(ΓΛ, CΛ)
-
-# Dkk = exp.(-im .* φ ./ 2)
-# λk  = FT.fft( Dkk .* covQ1U2[:,1])
-# γk  = FT.fft( covQ1U2[:,1])
-
-# fsim = randn(length(φ)) 
-# covQ1U2_fsim_test1 = conj.(Dkk) .* FT.ifft(λk .* FT.fft(Dkk .* fsim))
-# covQ1U2_fsim_test2 = FT.ifft(γk .* FT.fft(fsim))
-# covQ1U2_fsim      = covQ1U2 * fsim 
-
-# covQ1U2_fsim      .|> real |> plot
-# covQ1U2_fsim_test2 .|> real |> plot
-# covQ1U2_fsim_test1 .|> real |> plot
-
-######################
-
-
-
-
-## Test case: now construct ring Γ, C
-## =================================================
-
-nθ, nφ  = length(θ), length(φ)
-tmW  = FT.𝕎(Complex{Float64}, nφ, 2π) 
-ptmW = plan(tmW)
-
-Tb = ComplexF64
-ΓΛ = Vector{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
-CΛ = Vector{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
-
-@sblock let θ, φ, covPβ, ptmW, ΓΛ, CΛ 
-    @showprogress for r1 = 1:length(θ)
-        for r2 = 1:length(θ)
-            θ1 = θ[r1]
-            θ2 = θ[r2]
-            c1 = 1
-            φ1 = φ[c1]
-            β  =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
-            covPP̄, covPP = covPβ(β)  
-            covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
-            covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)            
-            mul!(ΓΛ[r1,r2], ptmW, covPP̄)
-            mul!(CΛ[r1,r2], ptmW, covPP)
-        end
-    end
-
-end
-
-
-## Now we try to convert 
-
-
-
-
-
-
-
-
-
-
-
-Tb = Complex{Float64}
-azΛ11 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
-azΛ12 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
-azΛ21 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
-azΛ22 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
-
-@sblock let θ, φ,  Λ11, Λ22, Λ12, Λ21, azΛ11, azΛ22, azΛ12, azΛ21 
-
-    @showprogress for k = 1:length(φ)
-        for r1 = 1:length(θ)
-            for r2 = 1:length(θ)
-                @inbounds azΛ11[k][r1,r2] = Λ11[r1,r2][k]
-                @inbounds azΛ22[k][r1,r2] = Λ22[r1,r2][k]
-                @inbounds azΛ12[k][r1,r2] = Λ12[r1,r2][k]
-                @inbounds azΛ21[k][r1,r2] = Λ21[r1,r2][k]
-            end
-        end
-    end
-
-end
-
-k = 3
-Σ = [
-    azΛ11[k] azΛ12[k]
-    azΛ21[k] azΛ22[k]
-]
-
-Σ .- Σ' .|> abs |> maximum
-
-ds, Us = eigen(Hermitian(Σ))
-
-ds |> semilogy
-Us[:,end-1] .|> real |> plot
-Us[:,end-2] .|> real |> plot
-Us[:,end-10] .|> real |> plot
-
-# Note: for multiply you only need azΛ11[k] azΛ12[k]
-# Also do we need azΛ21[k] azΛ22[k]? can't we get them from azΛ11[k] azΛ12[k]?
-
-################
-
-## Test case: now construct ring Γ, C
-## =================================================
-
-
-nθ, nφ  = length(θ), length(φ)
-tmW  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{Float64}, nφ, 2π)) #  |> x -> FT.unitary_scale(x)*x
-ptmW = plan(tmW)
-# We want complex fft here since covPP̄ and covPP will be complex
-
-lengthθ, nblks = size_out(tmW)
-Tb = Complex{Float64}
-azΓ = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
-azC = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
-
-Λ11[:,c1] = FT.fft(covPP̄)
-Λ12[:,c1] = FT.fft(covPP)
-
-Λ11 = Matrix{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
-Λ12 = Matrix{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
-
-ΓΛ, CΛ = @sblock let θ, φ, covPβ
+dΓΛjk, dCΛjk = @sblock let θ, φ, covPβ
 
     nθ, nφ  = length(θ), length(φ)
+    ptmW    = plan(FT.𝕎(ComplexF64, nφ, 2π)) 
 
-    ΓΛ = zeros(Complex{Float64}, nφ, nφ)
-    CΛ = zeros(Complex{Float64}, nφ, nφ)
+    # dΓΛ, dCΛ with `d` for diagonal
+    dΓΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    dCΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
 
-    θ1 = θ[100]
-    θ2 = θ[100]
-    @showprogress for r1 = 1:length(θ)
-        for r2 = 1:length(θ)
-            θ1 = θ[r1]
-            θ2 = θ[r2]
-            c1 = 1
-            φ1 = φ[c1]
-            β  =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
+    # ℓ indexes within ring. ℓ = 1 since we just compute 
+    # first column of the ringj × ringk block
+    ℓ = 1  
+
+    @showprogress for j = 1:length(θ)
+        for k = 1:length(θ)
+            φ1 = φ[ℓ]
+            θ1 = θ[j]
+            θ2 = θ[k]
+            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
             covPP̄, covPP = covPβ(β)  
-            covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
-            covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)
-            
-            Λ11[:,c1] = FT.fft(covPP̄)
-            Λ12[:,c1] = FT.fft(covPP)
+            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
+            mul!(dΓΛjk[j,k], ptmW, covPP̄)
+            mul!(dCΛjk[j,k], ptmW, covPP)
         end
     end
 
-    return ΓΛ, CΛ
-end
-
-
-
-
-
-
-
-@sblock let covPβ, azΓ, azC, ptmW, θ, φ      
-    nθ, nφ  = length(θ), length(φ)
-    nblks   = nφ 
-    θgd     = θ  .+ zeros(nθ, nφ) 
-    φgd     = φ' .+ zeros(nθ, nφ) 
-    c1  = 1
-    @showprogress for r1 = 1:length(θ)
-
-        θ1, φ1  = θ[r1], φ[c1]
-        β            =  CMBrings.geoβ.(θ1, θgd, φ1, φgd) 
-        covPP̄, covPP = covPβ(β)  
-        # testing without multipliers 
-        # covPP̄ .*= CMBrings.multPP̄.(θ1, θgd, φ1, φgd) 
-        # covPP .*= CMBrings.multPP.(θ1, θgd, φ1, φgd)
-        
-        ΓΛ = ptmW * covPP̄
-        CΛ = ptmW * covPP
-
-        ## Threads.@threads for k = 1:nblks
-        for k = 1:nblks
-            azΓ[k][:,r1] .= ΓΛ[:,k]
-            azC[k][:,r1] .= CΛ[:,k]
-        end
-    end
-end
-k = 4
-
-azΓ[k] .|> real |> matshow; colorbar()
-azΓ[k] .|> imag |> matshow; colorbar()
-azΓ[k] - adjoint(azΓ[k]) .|> real |> matshow; colorbar()
-azΓ[k] - adjoint(azΓ[k]) .|> imag |> matshow; colorbar()
-
-azC[k] .|> real |> matshow; colorbar()
-azC[k] .|> imag |> matshow; colorbar()
-azC[k] - transpose(azC[k]) .|> real |> matshow; colorbar()
-azC[k] - transpose(azC[k]) .|> imag |> matshow; colorbar()
-
-
-k = 15
-M = [
-     azΓ[k]        azC[k]
-     conj.(azC[k]) conj.(azΓ[k])
-]
-M  .|> real |> matshow; colorbar()
-M  .|> imag |> matshow; colorbar()
-M - adjoint(M) .|> abs |> matshow; colorbar()
-
-
-
-va, Ve = Symmetric( M, :U ) |> eigen
-## va, Ve = M |> eigen
-
-plot(va)
-
-plot(Ve[:,end-15])
-plot(Ve[:,end-5])
-plot(Ve[:,end])
-plot(Ve[:,1])
-
-# Base.summarysize(azΣ) * 1e-9 #-> gigabites
-
-k = 10
-azΓ[k] .- azΓ[k]' |> matshow; colorbar() 
-azΓ[k]  |> matshow; colorbar() 
-
-azC[k] .- azC[k]' |> matshow; colorbar() 
-azC[k] |> matshow; colorbar() 
-
-
-
-
-
-
-
-
-
-
-### old stuff. slated for removal
-
-
-
-
-
-
-
-
-#%% Compute the cross covariance of the fourier modes 
-#%% ----------------------------------------------------
-
-#nsd = Nside(512)
-#nsd = Nside(1024)
-nsd = Nside(2048)
-
-Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, P̄P_PP, θ, φ, Δφk = @sblock let nsd, β2covϕϕ, β2covP̄P, β2covPP
-    θ,φ   = HH.θφ_eqbelt_align(nsd) # .|> x -> T.(x)
-    θ,φ = T.(θ),T.(φ) 
-    # ---------
-    # θ₀    = 1.0 
-    # θ₁    = 2.0
-    # θ₀idx = findmin(abs2.(θ .- θ₀))[2]
-    # θ₁idx = findmin(abs2.(θ .- θ₁))[2]
-    # #θ     = θ[θ₀idx:θ₁idx]
-    # θ     = θ[θ₀idx:2:θ₁idx]
-    # ---------
-    # θ = θ[1:2:end]
-    # θ = θ[1:3:end]
-    # ---------
-    # θ₀    = 0.25 
-    # θ₁    = 1.0
-    # θ   = range(θ₀, θ₁, length = 700)
-
-    #--------
-    #θ = π/2 .+ φ[1:512] .- mean(φ[1:512]) 
-    θ = π/2 .+ φ[1:1024] .- mean(φ[1:1024]) 
-
-    φcol = φ[:]
-
-    Δφk    = collect((sin.( ((1:length(φ)) .- 1) .* (π/length(φ)) ).^2)')[1:1,1:(length(φ)÷2+1)]
-    #𝒲col  = plan_rfft(similar(φcol))
-    
-    P̄P_PP = function (θ1, θ2)
-        sθ1, sθ2 = sin(θ1), sin(θ2)
-        𝓅θ½ = (θ1 + θ2)/2
-        Δθ½ = (θ1 - θ2)/2
-        Δφ½ = φcol ./ 2
-        s𝓅θ½, c𝓅θ½ = sincos(𝓅θ½)
-        sΔθ½, cΔθ½ = sincos(Δθ½)
-        sΔφ½ = sin.(Δφ½)
-        cΔφ½ = cos.(Δφ½)
-
-        β = @. 2asin(√(sΔθ½^2 + sθ1 * sθ2 * sΔφ½^2))
-        ξ⁺β, ξ⁻β  = T.(β2covP̄P(β)), T.(β2covPP(β))
-    
-        # pre-cancel out cos β½ and sin β½ in the denom
-        P̄P½ = @. complex(sΔφ½ * c𝓅θ½, - cΔφ½ * cΔθ½)^4 / 2 
-        PP½ = @. complex(sΔφ½ * s𝓅θ½, - cΔφ½ * sΔθ½)^4 / 2
-        P̄P½ .*= ξ⁺β
-        PP½ .*= ξ⁻β
-
-        reP̄P½, imP̄P½ = real.(P̄P½), imag.(P̄P½)
-        rePP½, imPP½ = real.(PP½), imag.(PP½)
-        return reP̄P½, imP̄P½, rePP½, imPP½
-    end
-
-    Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂ = function (θ1, θ2, 𝒲col)
-        reP̄P½, imP̄P½, rePP½, imPP½ = P̄P_PP(θ1, θ2)        
-        Q₁Q₂ = 𝒲col * (  reP̄P½ .+ rePP½)
-        U₁U₂ = 𝒲col * (  reP̄P½ .- rePP½)
-        Q₁U₂ = 𝒲col * (  imP̄P½ .+ imPP½)
-        U₁Q₂ = 𝒲col * (.-imP̄P½ .+ imPP½)
-        # try replacing the rfft plan with a direct call 
-        # ... to see if this is where the parallel issues is
-        #
-        # indeed, it appears that plan_rfft appearing in a closure 
-        # gives problems when running in parallel!
-        #
-        # Q₁Q₂ = rfft(  reP̄P½ .+ rePP½)
-        # U₁U₂ = rfft(  reP̄P½ .- rePP½)
-        # Q₁U₂ = rfft(  imP̄P½ .+ imPP½)
-        # U₁Q₂ = rfft(.-imP̄P½ .+ imPP½)
-
-        return Q₁Q₂, U₁U₂, Q₁U₂, U₁Q₂
-    end
-
-    return Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, P̄P_PP, θ, φ, Δφk
-
-end
-
-
-#=
-
-rad2deg(φ[2] - φ[1])*60
-rad2deg(θ[2] - θ[1])*60
-
-1.0 .+ φ[1:1024]
-
-ki = fftfreq(length(φ), length(φ)/2π)[1:end÷2+1]
-
-θ1, θ2 = θ[1],θ[2]
-#reP̄P½, imP̄P½, rePP½, imPP½ = P̄P_PP(θ1, θ2)
-Q₁Q₂,U₁U₂,Q₁U₂,U₁Q₂ = Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂(θ1, θ2)
-
-@sblock let  qq=Q₁Q₂,qu=Q₁U₂,uu=U₁U₂,uq=U₁Q₂, ki
-
-    fig,ax = subplots(2,2, figsize=(14,10))
-    abs.(ki) .* qq .|> real |>  ax[1,1].plot; ax[1,1].set_title("qq")
-    abs.(ki) .* qu .|> real |>  ax[1,2].plot; ax[1,2].set_title("qu")
-    abs.(ki) .* uu .|> real |>  ax[2,1].plot; ax[2,1].set_title("uu")
-    abs.(ki) .* uq .|> real |>  ax[2,2].plot; ax[2,2].set_title("uq")
-
-    abs.(ki) .* qq .|> imag |>  ax[1,1].plot; ax[1,1].set_title("qq")
-    abs.(ki) .* qu .|> imag |>  ax[1,2].plot; ax[1,2].set_title("qu")
-    abs.(ki) .* uu .|> imag |>  ax[2,1].plot; ax[2,1].set_title("uu")
-    abs.(ki) .* uq .|> imag |>  ax[2,2].plot; ax[2,2].set_title("uq")
-
-end
-
-=#
-
-
-
-
-
-
-
-#%% construct ΣQQ, ΣUU, ΣQU in blocks of frequency sheets 
-#%% ----------------------------------------------------
-
-
-
-
-Σsheets_k = @sblock let T, Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, φ
-
-    Σsheets_k = function (θ, idxk)
-        nθx = length(θ)
-        lowrΣQ₁Q₂_upperΣU₁U₂  = zeros(T,length(idxk), nθx,nθx)
-        ΣQ₁U₂    = zeros(Complex{T},length(idxk), nθx,nθx)
-
-        𝒲col  = plan_rfft(similar(φ[:]))
-
-        @showprogress for j=1:nθx, i=j+1:nθx 
-            Q₁Q₂,U₁U₂,Q₁U₂,U₁Q₂ = Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂(θ[i],θ[j], 𝒲col)
-            lowrΣQ₁Q₂_upperΣU₁U₂[:,i,j] = real.(Q₁Q₂[idxk])
-            lowrΣQ₁Q₂_upperΣU₁U₂[:,j,i] = real.(U₁U₂[idxk])
-            ΣQ₁U₂[:,i,j]   = Q₁U₂[idxk]
-            ΣQ₁U₂[:,j,i]   = conj.(U₁Q₂[idxk])
-        end
-
-        diagΣQ₁Q₂ = zeros(T,length(idxk), nθx)
-        diagΣU₁U₂ = zeros(T,length(idxk), nθx)
-        diagΣQ₁U₂ = zeros(Complex{T},length(idxk), nθx)
-        for j=1:nθx
-            Q₁Q₂,U₁U₂,Q₁U₂,U₁Q₂ = Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂(θ[j],θ[j], 𝒲col)
-            diagΣQ₁Q₂[:,j] = real.(Q₁Q₂[idxk])
-            diagΣU₁U₂[:,j] = real.(U₁U₂[idxk])
-            diagΣQ₁U₂[:,j] = Q₁U₂[idxk]
-        end
-
-        rtΣQQ = map(1:length(idxk)) do k 
-            Symmetric(lowrΣQ₁Q₂_upperΣU₁U₂[k,:,:], :L) + Diagonal(diagΣQ₁Q₂[k,:])
-        end 
-        rtΣUU = map(1:length(idxk)) do k 
-            Symmetric(lowrΣQ₁Q₂_upperΣU₁U₂[k,:,:], :U) + Diagonal(diagΣU₁U₂[k,:])
-        end 
-
-        rtΣQU = map(1:length(idxk)) do k 
-            ΣQ₁U₂[k,:,:] +  Diagonal(diagΣQ₁U₂[k,:])
-        end 
-
-        return rtΣQQ, rtΣUU, rtΣQU
-    end
-
-    return Σsheets_k
-end
-
-
-# ----- here is a parallel version 
-
-@everywhere function shared_chunck!(lowrΣQ₁Q₂_upperΣU₁U₂, ΣQ₁U₂, jrange, Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, θ, φ, idxk)
-    nθx = length(θ)
-    𝒲col  = plan_rfft(similar(φ[:]))
-    for j=jrange, i=j+1:nθx 
-        Q₁Q₂,U₁U₂,Q₁U₂,U₁Q₂ = Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂(θ[i],θ[j],𝒲col)
-        lowrΣQ₁Q₂_upperΣU₁U₂[:,i,j] = real.(Q₁Q₂[idxk])
-        lowrΣQ₁Q₂_upperΣU₁U₂[:,j,i] = real.(U₁U₂[idxk])
-        ΣQ₁U₂[:,i,j]   = Q₁U₂[idxk]
-        ΣQ₁U₂[:,j,i]   = conj.(U₁Q₂[idxk])
-    end
-end
-
-@everywhere function split_col_ranges(ncols,nwrks)
-    tot = 0
-    breaks = Int[0]
-    num_ind = (ncols*(ncols-1)/2)÷nwrks
-    for c = 1:ncols,r=c+1:ncols
-            tot += 1
-            if tot > num_ind
-                push!(breaks,c)
-                tot = 0
-            end 
-    end
-    push!(breaks,ncols)
-
-    jranges = UnitRange{Int64}[]
-    for i = 1:length(breaks)-1
-        push!(jranges, breaks[i]+1:breaks[i+1])
-    end
-
-    jranges
-end
-
-parallel_Σsheets_k = @sblock let T, Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, φ
-
-    parallel_Σsheets_k = function (θ, idxk)
-
-        nθx = length(θ)
-        
-        lowrΣQ₁Q₂_upperΣU₁U₂ = SharedArray{T,3}(
-            (length(idxk), nθx,nθx), 
-            init = S -> S[localindices(S)] = repeat([T(0)], length(localindices(S))),
-            # pids = workers(),
-        ) 
-        
-        ΣQ₁U₂ = SharedArray{Complex{T},3}(
-            (length(idxk), nθx,nθx), 
-            init = S -> S[localindices(S)] = repeat([Complex{T}(0)], length(localindices(S))),
-            # pids = workers(),
-        )
-
-        jranges = split_col_ranges(nθx,nworkers())
-        
-        @sync begin
-            for p in workers()
-                @async remotecall_wait(
-                    shared_chunck!, p, lowrΣQ₁Q₂_upperΣU₁U₂, ΣQ₁U₂, jranges[p-1], Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂, θ, φ, idxk
-                )
+    return dΓΛjk, dCΛjk
+end;
+
+
+# Reorganize dΓΛ, dCΛ by grouping by azimuth freq index ℓ
+
+dΓRℓ, dCRℓJ = @sblock let dΓΛjk, dCΛjk, nθ=length(θ), nφ=length(φ)
+
+    dΓRℓ  = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    dCRℓJ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    # Note: dCRℓJ already applys the J index flip so that
+    # ΓΛ * 𝒰P       = sum(dΓRℓ[ℓ]  * (𝒰 P(θ,⋅))[ℓ] for ℓ=1:nφ)
+    # CΛ * conj(𝒰P) = sum(dCRℓJ[ℓ] * conj(𝒰 P(θ,⋅))[ℓ] for ℓ=1:nφ)
+
+    @showprogress for ℓ = 1:nφ
+        for k = 1:nθ
+            for j = 1:nθ
+                @inbounds dΓRℓ[ℓ][j,k] = dΓΛjk[j,k][ℓ]
+                if ℓ == 1
+                    @inbounds dCRℓJ[ℓ][j,k] = dCΛjk[j,k][ℓ]
+                else 
+                    @inbounds dCRℓJ[ℓ][j,k] = dCΛjk[j,k][nφ - ℓ + 2]
+                end
             end
         end
-
-        diagΣQ₁Q₂ = zeros(T,length(idxk), nθx)
-        diagΣU₁U₂ = zeros(T,length(idxk), nθx)
-        diagΣQ₁U₂ = zeros(Complex{T},length(idxk), nθx)
-        𝒲col  = plan_rfft(similar(φ[:]))
-
-        for j=1:nθx
-            Q₁Q₂,U₁U₂,Q₁U₂,U₁Q₂ = Q₁Q₂_U₁U₂_Q₁U₂_U₁Q₂(θ[j],θ[j],𝒲col)
-            diagΣQ₁Q₂[:,j] = real.(Q₁Q₂[idxk])
-            diagΣU₁U₂[:,j] = real.(U₁U₂[idxk])
-            diagΣQ₁U₂[:,j] = Q₁U₂[idxk]
-        end
-
-        rtΣQQ = map(1:length(idxk)) do k 
-            Symmetric(lowrΣQ₁Q₂_upperΣU₁U₂[k,:,:], :L) + Diagonal(diagΣQ₁Q₂[k,:])
-        end 
-        rtΣUU = map(1:length(idxk)) do k 
-            Symmetric(lowrΣQ₁Q₂_upperΣU₁U₂[k,:,:], :U) + Diagonal(diagΣU₁U₂[k,:])
-        end 
-
-        rtΣQU = map(1:length(idxk)) do k 
-            ΣQ₁U₂[k,:,:] +  Diagonal(diagΣQ₁U₂[k,:])
-        end 
-
-        return rtΣQQ, rtΣUU, rtΣQU
     end
-
-    return parallel_Σsheets_k
-end
-
-
-
-
-
-
-
-#%% Construct the cholesky (in θ) for each frequency, in blocks.
-#%% Save them in a jld2 file
-#%% ----------------------------------------------------
-
-
-kidx = 1:4:(length(φ)÷2+1)
-#kidx = 1:8:(length(φ)÷2+1)
-
-kidx_blk = [
-    kidx[1:end÷4],
-    kidx[(1(end÷4)+1):(2(end÷4))],
-    kidx[(2(end÷4)+1):(3(end÷4))],
-    kidx[(3(end÷4)+1):end],
-]
-
-
-# kidx_blk = [
-#     kidx[1:end÷6],
-#     kidx[(1(end÷6)+1):(2(end÷6))],
-#     kidx[(2(end÷6)+1):(3(end÷6))],
-#     kidx[(3(end÷6)+1):(4(end÷6))],
-#     kidx[(4(end÷6)+1):(5(end÷6))],
-#     kidx[(5(end÷6)+1):end],
-# ]
-
-#=
-@time ΣQQ, ΣUU, ΣQU = Σsheets_k(θ, kidx_blk[1]);
-@time pΣQQ, pΣUU, pΣQU =parallel_Σsheets_k(θ, kidx_blk[1]);
-ΣQQ[2]
-pΣQQ[2]
-=#
-
-
-@time filenm = @sblock let θ, φ, kidx_blk, 
-                     #Σsheets_k = Σsheets_k, 
-                     Σsheets_k = parallel_Σsheets_k, 
-                     filenm = normpath(joinpath(HH.module_dir,"..","notebooks","L_kblock.jld2"))
     
-    jld2file = jldopen(filenm, "w")
-    write(jld2file, "θ", θ)
-    write(jld2file, "φ", φ)
-    write(jld2file, "kidx_blk", kidx_blk)
-    
-    nθx = length(θ)
-    lower_tri_Idx = [CartesianIndex(r,c) for r=1:2nθx for c=1:2nθx if r>=c]
-    write(jld2file, "lower_tri_Idx", lower_tri_Idx)
-
-    Lsheet_names = String[]
-    
-    @showprogress for (i,k) ∈ enumerate(kidx_blk)
-        ΣQQ, ΣUU, ΣQU = Σsheets_k(θ, k)
-
-        #L = progress_map(ΣQQ, ΣQU, ΣUU) do mqq, mqu, muu 
-        L = map(ΣQQ, ΣQU, ΣUU) do mqq, mqu, muu 
-            m = Hermitian(
-                [ mqq  mqu
-                  mqu' muu ]
-            )
-            C = cholesky(m, Val(false), check=false)
-            Lcol = C.L[lower_tri_Idx]
-            if !issuccess(C) 
-                Lcol[1] = NaN
-            end
-            Lcol
-        end
-
-        write(jld2file, "L$i", L)
-        push!(Lsheet_names, "L$i")  
-    end
-    write(jld2file, "Lsheet_names", Lsheet_names)
-    close(jld2file)
-
-    return filenm 
+    return dΓRℓ, dCRℓJ
 end;
 
 
 
-#%% use the saved cholesky decomps (in θ) for each frequency, in blocks, ...
-#%% to simulate the field
-#%% ----------------------------------------------------
+ΣRℓₒ = [ # acting on 𝒰P[ℓₒ], 𝒰P[ℓₒ]
+    dΓRℓ[ℓₒ]           dCRℓJ[ℓₒ]
+    conj.(dCRℓJ[ℓₒ])   conj.(dΓRℓ[ℓₒ])
 
-
-
-simQx, simUx = @sblock let filenm, T
-
-    jld2file = jldopen(filenm, "r")
-    θ             = read(jld2file, "θ")
-    φ             = read(jld2file, "φ")
-    kidx_blk      = read(jld2file, "kidx_blk")
-    Lsheet_names  = read(jld2file, "Lsheet_names")
-    lower_tri_Idx = read(jld2file, "lower_tri_Idx")
-    
-    nθx = length(θ)
-    nφk = length(φ)÷2+1
-    𝒰row  = T(1/√(length(φ))) * plan_rfft(zeros(T,2nθx,length(φ)),2) 
-    simQUk  = zeros(Complex{T}, 2nθx, nφk)
-
-    Lstorage = LowerTriangular(zeros(Complex{T},2nθx,2nθx)) 
-    @showprogress for blk_id ∈ 1:length(kidx_blk)
-        L    = read(jld2file, Lsheet_names[blk_id])
-        kidx = kidx_blk[blk_id]
-        for (indx,k) in enumerate(kidx)
-            if isfinite(L[indx][1])
-                Lstorage[lower_tri_Idx] = L[indx]
-                if (k==1) | (k==nφk)
-                    simQUk[:,k] = Lstorage * complex.(randn(T,2nθx),0)
-                else
-                    simQUk[:,k] = Lstorage * complex.(randn(T,2nθx)./√2, randn(T,2nθx)./√2)
-                end
-            else 
-                println("NaN at (indx, k) ", (indx,k))
-            end 
-        end
-    end
-    close(jld2file)
-    simQUx  = 𝒰row \ simQUk
-
-    simQx = simQUx[1:end÷2,:]
-    simUx = simQUx[(end÷2+1):end,:]
-    return simQx, simUx
-
-end
-
-
-
-
-fig,ax = subplots(2,1,figsize=(25/2,2*7))
-ax[1].pcolormesh(φ[:,1:end÷4],θ,simQx[:,1:end÷4])
-ax[2].pcolormesh(φ[:,1:end÷4],θ,simUx[:,1:end÷4])
-fig.tight_layout()
-
-
-fig,ax = subplots(1,2,figsize=(12,7),subplot_kw=Dict("projection"=>"polar"))
-ax[1].pcolormesh(φ[:,1:end÷4],π .- θ,simQx[:,1:end÷4])
-ax[2].pcolormesh(φ[:,1:end÷4],π .- θ,simUx[:,1:end÷4])
-fig.tight_layout()
-
-
-rad2deg.(diff(φ[1:end÷4])).*60 |> plot
-rad2deg.(diff(θ)).*60 |> plot
-
-
-
-#=
-
-Δθ = 3 arcmins
-
-
-jld2file = jldopen("example.jld2", "w") # open read-only (default)
-L = read(jld2file, "L_kblock1") 
-close(jld2file)
-
-
-
-ΣQQ[10] |> matshow
-ΣQQ[10] |> x->inv(x .+ 0.001 * minimum(diag(x)) * I(size(x,1))) |>  matshow
-ΣQQ[10] |> x->inv(x .+ 0.001 * minimum(diag(x)) * I(size(x,1))) |>  x->plot(abs.(x[:,end÷2]))
-ΣQQ[10] |> x->plot(abs.(x[:,end÷2]))
-
-ΣQQ[50] |> eigvals |> plot
-
-ΣQQ[200][:,end÷2] |> plot
-inv(ΣQQ[10])[:,end÷2] .|> abs |> plot
-
-plot(θ, inv(ΣQQ[1])[:,end÷2] .|> abs)
-=#
-
-
-
-
-
-
-#%% test the bandpowers of these maps
-#%% ----------------------------------------------------
-
-
-
-
-
-P, g = let T=T, Θpix = rad2deg(φ[2] - φ[1])*60, nside=1024
-    P     = FieldFlows.Flat{Θpix,nside}
-    g     = FieldFlows.r𝔽(P,T)
-    P, g
-end
-
-#let 
-    ell = collect(2:10_000)
-    cl = FieldFlows.Cl{P,T}(
-        ell,
-        tt=cTTℓ.(ell), 
-        ee=cEEℓ.(ell), 
-        bb=cBBℓ.(ell),  
-        te=cTEℓ.(ell), 
-        ϕϕ=cϕϕℓ.(ell), 
-    )
-
-    qx = simQx[1:1024,1:1024]
-    ux = simUx[1:1024,1:1024]
-
-    # --------  pixel masking    
-    αt = 1
-    αd = 20
-    dist_to_mid = (abs.(g.x[1]).^αd .+ abs.(g.x[2]).^αd).^(1/αd) # smoother boundary
-    taper(x::A) where A<:Number =  ((x < 0) | !isfinite(x)) ? A(1) : (x < 1) ? A((cos(π*x)+1)/2) : A(0)
-    a = (pixel_mask_lower=.9; pixel_mask_lower*g.period/2)
-    b = (pixel_mask_upper=.95; pixel_mask_upper*g.period/2)
-    Δab = b - a
-    𝓂sK = taper.((dist_to_mid .- a) ./ Δab).^αt |> fftshift
-
-    a = (pixel_mask_lower=.85; pixel_mask_lower*g.period/2)
-    b = (pixel_mask_upper=.9; pixel_mask_upper*g.period/2)
-    Δab = b - a
-    𝓂sK2 = taper.((dist_to_mid .- a) ./ Δab).^αt |> fftshift
-
-    #𝕄  = T.(𝓂sK) |> x->FieldFlows.QUmap{P,T}(x, x) |> FieldFlows.DiagOp
-
-
-    p    = FieldFlows.QUmap{P,T}(fftshift(𝓂sK.* qx), .- fftshift(𝓂sK.*ux))
-    pebmask    = FieldFlows.EBmap{P,T}(fftshift(𝓂sK2).*p[:ex],fftshift(𝓂sK2).*p[:bx])
-    opp  = FieldFlows.DiagOp(FieldFlows.EBfourier{P,T}(cl.kmag, cl.kmag))
-    pwr  = FieldFlows.bandpowers(g, p=opp * pebmask, Δl = 1)
-
-    # g.cos2ϕk
-
-    # qk = g * (𝓂sK.*qx)
-    # uk = g * (𝓂sK.*ux)
-    # ek = @.   qk * g.cos2ϕk + uk * g.sin2ϕk
-    # # bk = @. - qk * g.sin2ϕk + uk * g.cos2ϕk
-    # bk = @. qk * g.sin2ϕk + uk * g.cos2ϕk
-    # bx = g \ (bk)
-    # matshow(bx)
-#end
-
-
-
-fig,ax=subplots(1,1)
-ax.loglog(ell, ell.^2 .* cEEℓ.(ell))
-ax.loglog(ell, ell.^2 .* cBBℓ.(ell))
-ax.loglog(pwr.kmag[:,1], pwr.Σee[:,1])
-ax.loglog(pwr.kmag[:,1], pwr.Σbb[:,1])
-fig.tight_layout()
-
-fig,ax=subplots(2,2)
-ax[1,1].pcolormesh(fftshift(p[:qx])); ax[1,1].set_title("Qx")
-ax[1,2].pcolormesh(fftshift(p[:ux])); ax[1,2].set_title("Ux")
-ax[2,1].pcolormesh(fftshift(pebmask[:ex])); ax[2,1].set_title("Ex")
-ax[2,2].pcolormesh(fftshift(pebmask[:bx])); ax[2,2].set_title("Bx")
-fig.tight_layout()
-
-
-
-=#
