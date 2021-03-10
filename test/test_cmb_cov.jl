@@ -11,13 +11,13 @@ using Spectra
 import FFTransforms as FT
 import SphereTransforms as ST
 
-using  LinearAlgebra
+using LinearAlgebra
+using SparseArrays
 using DelimitedFiles
 using LBblocks: @sblock
 using PyPlot
 using BenchmarkTools
 using ProgressMeter
-
 
 using Test 
 
@@ -142,7 +142,7 @@ covTβ = CMBrings.βcovSpin0(ℓ, ttℓ;
 )
 
 
-@sblock let covPβ, covTβ 
+@sblock let covPβ, covTβ, hide_plots 
     hide_plots && return
 
     βs      = range(0,deg2rad(3),length=4000) |> collect
@@ -173,18 +173,14 @@ end
 @test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, -φ1, -φ2))
 @test CMBrings.multPP(θ1, θ2, φ1, φ2) == conj(CMBrings.multPP(θ1, θ2, φ2, φ1))
 
-@test CMBrings.multPP̄(θ1, θ2, 0, φ2) 
-@test CMBrings.multPP̄(θ1, θ2, 0, -φ2)
-
-@test CMBrings.multPP(θ1, θ2, 0, φ2) 
-@test CMBrings.multPP(θ1, θ2, 0, -φ2)
+# test the non-sign symmetry of the cross correlations ...
 
 
 ## Test case: view pixel space cov 
 ## =================================================
 
 
-@time fig = @sblock let θ, φ, covPβ
+@time fig = @sblock let θ, φ, covPβ, hide_plots
 
     hide_plots && return
     
@@ -221,91 +217,250 @@ end
 ## Test case: Form the full covariance matrix for Q,U on a single ring
 ## =================================================
 
-## testing without multipliers
 
-ΓΛ, CΛ = @sblock let θ, φ, covPβ
+## Γjk, Cjk, jₒ, kₒ = @sblock let θ, φ, covPβ, jₒ = 100, kₒ = 150 
+Γjk, Cjk, jₒ, kₒ = @sblock let θ, φ, covPβ, jₒ = 200, kₒ = 200 
 
     nθ, nφ  = length(θ), length(φ)
 
-    ΓΛ = zeros(Complex{Float64}, nφ, nφ)
-    CΛ = zeros(Complex{Float64}, nφ, nφ)
+    Γ = zeros(ComplexF64, nφ, nφ)
+    C = zeros(ComplexF64, nφ, nφ)
 
-    θ1 = θ[100]
+    θ1 = θ[jₒ]
+    θ2 = θ[kₒ]
     @showprogress for c1 = 1:length(φ)
 
         φ1  = φ[c1]
-        β            =  CMBrings.geoβ.(θ1, θ1, φ1, φ) 
+        β   =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
         covPP̄, covPP = covPβ(β)  
-        covPP̄ .*= CMBrings.multPP̄.(θ1, θ1, φ1, φ) 
-        covPP .*= CMBrings.multPP.(θ1, θ1, φ1, φ)
+        covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
+        covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)
         
-        ΓΛ[:,c1] = covPP̄
-        CΛ[:,c1] = covPP
+        Γ[:,c1] = covPP̄
+        C[:,c1] = covPP
 
     end
 
-    return ΓΛ, CΛ
+    return Γ, C, jₒ, kₒ
+end
+
+# note that when jₒ = kₒ it appears Cjk is real. 
+
+# Check Γjk, Cjk are circulant.
+# ------------------------------------
+
+@sblock let runit = jₒ == kₒ, Γjk, Cjk, nφ = length(φ)
+    if runit
+        j₁ = rand(1:nφ)
+        @test maximum(abs2.(Γjk[:,j₁+1] .- circshift(Γjk[:,j₁],1))) < 1e-10
+        @test maximum(abs2.(Cjk[:,j₁+1] .- circshift(Cjk[:,j₁],1))) < 1e-10
+    end
+end
+
+# When j == k check Γjk is hermitian and Cjk is symmetric
+# ------------------------------------
+
+@sblock let runit = jₒ == kₒ, Γjk, Cjk
+    if runit
+        @test maximum(abs2.(Γjk - adjoint(Γjk))) < 1e-10
+        @test maximum(abs2.(Cjk - transpose(Cjk))) < 1e-10
+    end
+end
+
+# When j == k check Σ is positive definite (models the pixel cov of P(n̂) on right)
+# ------------------------------------
+
+Σ, dsΣ = @sblock let runit = jₒ == kₒ, Γjk, Cjk
+
+    Σ = [
+        Γjk        Cjk
+        conj.(Cjk) conj.(Γjk)
+    ]
+
+    if runit
+        @test maximum(abs2.(Σ - adjoint(Σ))) < 1e-10
+    end
+
+    dsΣ, = eigen(Hermitian(Σ))
+    @test all(dsΣ .>= 0)
+
+    return Σ, dsΣ
+end
+
+# Check dΓΛjk = eigen(ΓΛjk), dCΛjk = eigen(CΛjk) 
+# ..and ΣΛ has eigen values the same as Σ 
+# ------------------------------------
+
+dΓΛjk = FT.fft(Γjk[:,1])
+dCΛjk = FT.fft(Cjk[:,1])
+
+ΓΛjk, CΛjkJ, ΣΛ = @sblock let dΓΛjk, dCΛjk
+    ΓΛjk  = spdiagm(0 => dΓΛjk)
+    
+    CΛjkJ = spzeros(ComplexF64, length(dCΛjk), length(dCΛjk))
+    CΛjkJ[1,1] = dCΛjk[1]
+    for t = 0:length(dCΛjk)-2
+        CΛjkJ[end-t,2+t] = dCΛjk[end-t]
+    end
+
+    ΣΛ = [
+        ΓΛjk        CΛjkJ
+        conj.(CΛjkJ) conj.(ΓΛjk)
+    ]
+
+    return ΓΛjk, CΛjkJ, ΣΛ
+end
+
+@sblock let ΣΛ, runit = jₒ == kₒ
+    !runit && return 
+    I, J, V = findnz(ΣΛ - adjoint(ΣΛ))
+    Vix, ix = findmax(abs.(V))
+    @test Vix < 1e-10
+    I[ix], J[ix], Vix
 end
 
 
+# Test that diag(Uᴴ,U) * ΣΛ * diag(U,Uᴴ) == Σ 
+# ( note that both operate on [P ; P̄] )
+# ... and in particular they have the same eigen values
+# ------------------------------------
 
+## TODO diag(Uᴴ,U) * ΣΛ * diag(U,Uᴴ) == Σ
+
+
+dsΣ′, = eigen(Hermitian(Matrix(ΣΛ)))
+@test all(dsΣ′ .>= 0)
+@test maximum(abs2.(dsΣ′ .- dsΣ)) < 1e-10
+
+
+
+
+
+# Reorganize ΣΛ, ΓΛjk, CΛjk by grouping by azimuth freq index ℓ
+# ------------------------------------
+
+
+# Λ_k = Matrix{ComplexF64}[[Λ11[k] Λ12[k];Λ21[k] Λ22[k]] for k=1:length(φ)]
+# Λ_k = Hermitian.(Λ_k)
+# dsΛ_k = map(Λ_k) do M
+#     d, = eigen(M)
+#     return d 
+# end
+# ds1 = map(x->x[1], dsΛ_k)
+# ds2 = map(x->x[2], dsΛ_k)
+
+# dsfull, = eigen(Hermitian(Σ))
+# plot(sort(vcat(ds1, ds2)))
+# plot(dsfull)
+
+
+# ####
+
+# covQ1Q2 = CMBrings.Q1Q2.(ΓΛ, CΛ)
+# covU1U2 = CMBrings.U1U2.(ΓΛ, CΛ)
+# covQ1U2 = CMBrings.Q1U2.(ΓΛ, CΛ)
+# covU1Q2 = CMBrings.U1Q2.(ΓΛ, CΛ)
+
+# Dkk = exp.(-im .* φ ./ 2)
+# λk  = FT.fft( Dkk .* covQ1U2[:,1])
+# γk  = FT.fft( covQ1U2[:,1])
+
+# fsim = randn(length(φ)) 
+# covQ1U2_fsim_test1 = conj.(Dkk) .* FT.ifft(λk .* FT.fft(Dkk .* fsim))
+# covQ1U2_fsim_test2 = FT.ifft(γk .* FT.fft(fsim))
+# covQ1U2_fsim      = covQ1U2 * fsim 
+
+# covQ1U2_fsim      .|> real |> plot
+# covQ1U2_fsim_test2 .|> real |> plot
+# covQ1U2_fsim_test1 .|> real |> plot
+
+######################
+
+
+
+
+## Test case: now construct ring Γ, C
+## =================================================
+
+nθ, nφ  = length(θ), length(φ)
+tmW  = FT.𝕎(Complex{Float64}, nφ, 2π) 
+ptmW = plan(tmW)
+
+Tb = ComplexF64
+ΓΛ = Vector{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
+CΛ = Vector{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
+
+@sblock let θ, φ, covPβ, ptmW, ΓΛ, CΛ 
+    @showprogress for r1 = 1:length(θ)
+        for r2 = 1:length(θ)
+            θ1 = θ[r1]
+            θ2 = θ[r2]
+            c1 = 1
+            φ1 = φ[c1]
+            β  =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)            
+            mul!(ΓΛ[r1,r2], ptmW, covPP̄)
+            mul!(CΛ[r1,r2], ptmW, covPP)
+        end
+    end
+
+end
+
+
+## Now we try to convert 
+
+
+
+
+
+
+
+
+
+
+
+Tb = Complex{Float64}
+azΛ11 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
+azΛ12 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
+azΛ21 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
+azΛ22 = Matrix{Tb}[zeros(Tb, length(θ), length(θ)) for k = 1:length(φ)]
+
+@sblock let θ, φ,  Λ11, Λ22, Λ12, Λ21, azΛ11, azΛ22, azΛ12, azΛ21 
+
+    @showprogress for k = 1:length(φ)
+        for r1 = 1:length(θ)
+            for r2 = 1:length(θ)
+                @inbounds azΛ11[k][r1,r2] = Λ11[r1,r2][k]
+                @inbounds azΛ22[k][r1,r2] = Λ22[r1,r2][k]
+                @inbounds azΛ12[k][r1,r2] = Λ12[r1,r2][k]
+                @inbounds azΛ21[k][r1,r2] = Λ21[r1,r2][k]
+            end
+        end
+    end
+
+end
+
+k = 3
 Σ = [
-    ΓΛ        CΛ
-    conj.(CΛ) conj.(ΓΛ)
+    azΛ11[k] azΛ12[k]
+    azΛ21[k] azΛ22[k]
 ]
 
+Σ .- Σ' .|> abs |> maximum
 
-covQ1Q2 = CMBrings.Q1Q2.(ΓΛ, CΛ)
-covU1U2 = CMBrings.U1U2.(ΓΛ, CΛ)
-covQ1U2 = CMBrings.Q1U2.(ΓΛ, CΛ)
-covU1Q2 = CMBrings.U1Q2.(ΓΛ, CΛ)
+ds, Us = eigen(Hermitian(Σ))
 
+ds |> semilogy
+Us[:,end-1] .|> real |> plot
+Us[:,end-2] .|> real |> plot
+Us[:,end-10] .|> real |> plot
 
-fk =   fft( exp.(-im .* φ ./ 2) .* covQ1U2[:,1])
-fk′, Uk′ = eigen(covQ1U2)
+# Note: for multiply you only need azΛ11[k] azΛ12[k]
+# Also do we need azΛ21[k] azΛ22[k]? can't we get them from azΛ11[k] azΛ12[k]?
 
-imag.(fk′)
-fk′ .|> abs |> sort |> plot
-fk  .|> real |> plot
-covQ1U2 |> matshow
-
-
-Σ .|> real |> matshow; colorbar()
-Σ .|> imag |> matshow; colorbar()
-Σ .- adjoint(Σ) .|> abs |> matshow; colorbar()
-
-
-CΛ[200,:] .|> real |> plot
-CΛ[200,:] .|> imag |> plot
-
-ΓΛ[end÷2,:] .|> real |> plot
-ΓΛ[end÷2,:] .|> imag |> plot
-
-##
-
-d,U =  eigen(Hermitian(Σ))
-d′ = FT.fft(Σ[:,1])
-g′ = FT.fft(ΓΛ[:,1])
-
-
-plot(d)
-sort(vcat(real.(d′[1:2:end]), imag.(d′[2:2:end]))) |> plot
-
-real.(d′[1:2:end]) |> plot
-imag.(d′[2:2:end]) |> plot
-
-imag.(d′[1:2:end]) |> plot
-real.(d′[2:2:end]) |> plot
-
-
-
-
-plot(sort(real.(d′[1:2:end])))
-
-# check Σ is Hermitian.
-
-# perhaps Σ is diagonalized by fourier transform ... so 
-
+################
 
 ## Test case: now construct ring Γ, C
 ## =================================================
@@ -320,6 +475,45 @@ lengthθ, nblks = size_out(tmW)
 Tb = Complex{Float64}
 azΓ = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
 azC = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
+
+Λ11[:,c1] = FT.fft(covPP̄)
+Λ12[:,c1] = FT.fft(covPP)
+
+Λ11 = Matrix{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
+Λ12 = Matrix{Tb}[zeros(Tb, length(φ)) for r1 = 1:length(θ), r2 = 1:length(θ)]
+
+ΓΛ, CΛ = @sblock let θ, φ, covPβ
+
+    nθ, nφ  = length(θ), length(φ)
+
+    ΓΛ = zeros(Complex{Float64}, nφ, nφ)
+    CΛ = zeros(Complex{Float64}, nφ, nφ)
+
+    θ1 = θ[100]
+    θ2 = θ[100]
+    @showprogress for r1 = 1:length(θ)
+        for r2 = 1:length(θ)
+            θ1 = θ[r1]
+            θ2 = θ[r2]
+            c1 = 1
+            φ1 = φ[c1]
+            β  =  CMBrings.geoβ.(θ1, θ2, φ1, φ) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= CMBrings.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= CMBrings.multPP.(θ1, θ2, φ1, φ)
+            
+            Λ11[:,c1] = FT.fft(covPP̄)
+            Λ12[:,c1] = FT.fft(covPP)
+        end
+    end
+
+    return ΓΛ, CΛ
+end
+
+
+
+
+
 
 
 @sblock let covPβ, azΓ, azC, ptmW, θ, φ      
@@ -927,3 +1121,4 @@ fig.tight_layout()
 
 
 
+=#
