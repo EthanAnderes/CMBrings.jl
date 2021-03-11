@@ -143,6 +143,166 @@ covTβ = Spectra.βcovSpin0(ℓ, ttℓ;
 
 
 
+# Test (under construction): now construct ring Γ, C 
+# .... be sure to use the CΛjkJ.
+# =================================================
+
+
+dΓΛjk, dCΛjk = @sblock let θ, φ, covPβ
+
+    nθ, nφ  = length(θ), length(φ)
+    ptmW    = plan(FT.𝕎(ComplexF64, nφ, 2π)) 
+
+    # dΓΛ, dCΛ with `d` for diagonal
+    dΓΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    dCΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+
+    # ℓ indexes within ring. ℓ = 1 since we just compute 
+    # first column of the ringj × ringk block
+    ℓ = 1  
+
+    @showprogress for j = 1:length(θ)
+        for k = 1:length(θ)
+            φ1 = φ[ℓ]
+            θ1 = θ[j]
+            θ2 = θ[k]
+            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
+            mul!(dΓΛjk[j,k], ptmW, covPP̄)
+            mul!(dCΛjk[j,k], ptmW, covPP)
+        end
+    end
+
+    return dΓΛjk, dCΛjk
+end;
+
+
+# Reorganize dΓΛ, dCΛ by grouping by azimuth freq index ℓ
+
+dΓRℓ, dCRℓ, J = @sblock let dΓΛjk, dCΛjk, nθ=length(θ), nφ=length(φ)
+
+    J = Spectra.Jop(nφ)
+
+    dΓRℓ  = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    dCRℓ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    ## with 𝒰P[ℓ] := 𝒰_{ℓ,⋅} * P(θ,⋅)
+    ## ΓΛ * 𝒰P       = sum(dΓRℓ[ℓ] * 𝒰P[ℓ] for ℓ=1:nφ)
+    ## CΛ * conj(𝒰P) = sum(dCRℓ[ℓ] * conj(𝒰P[J(ℓ)]) for ℓ=1:nφ)
+
+    @showprogress for ℓ = 1:nφ
+        for k = 1:nθ
+            for j = 1:nθ
+                @inbounds dΓRℓ[ℓ][j,k] = dΓΛjk[j,k][ℓ]
+                @inbounds dCRℓ[ℓ][j,k] = dCΛjk[j,k][ℓ]
+            end
+        end
+    end
+    
+    return dΓRℓ, dCRℓ, J
+end;
+
+
+
+# TODO: write a function that computes the inverse ΓR and CR
+# -----------------------------------
+
+
+function inv_ΓC_ΓJCJ!(invΓℓ, invCℓ, invΓJℓ, invCJℓ, Γℓ, Cℓ, ΓJℓ, CJℓ, J) 
+
+    Ωℓ  = [ 
+        Γℓ          Cℓ
+        conj.(CJℓ)  conj.(ΓJℓ)
+    ] ## Note: Ωℓ acts on [𝒰P[ℓ]; 𝒰P[J(ℓ)]]
+
+    ΩJℓ  = [ 
+        ΓJℓ        CJℓ
+        conj.(Cℓ)  conj.(Γℓ)
+    ] ## Note: ΩJℓ acts on [𝒰P[J(ℓ)]; 𝒰P[ℓ]]
+
+    Ωℓ⁻¹  = inv(Ωℓ)
+    ΩJℓ⁻¹ = inv(ΩJℓ)
+
+    invΓℓ  .=  Ωℓ⁻¹[  1:end÷2, 1:end÷2]
+    invΓJℓ .=  ΩJℓ⁻¹[ 1:end÷2, 1:end÷2]
+    invCℓ  .=  Ωℓ⁻¹[  1:end÷2, end÷2+1:end]
+    invCJℓ .=  ΩJℓ⁻¹[ 1:end÷2, end÷2+1:end]
+
+    invΓℓ, invCℓ, invΓJℓ, invCJℓ
+end
+
+
+function inv_ΓC_ΓJCJ(Γℓ, Cℓ, ΓJℓ, CJℓ, J) 
+
+    invΓℓ  = similar(Γℓ)
+    invCℓ  = similar(Cℓ)
+    invΓJℓ = similar(ΓJℓ)
+    invCJℓ = similar(CJℓ)
+
+    inv_ΓC_ΓJCJ!(invΓℓ, invCℓ, invΓJℓ, invCJℓ, Γℓ, Cℓ, ΓJℓ, CJℓ, J) 
+end
+
+
+
+ℓₒ = 3 
+𝕆 = zero(dΓRℓ[ℓₒ])
+
+ΣRℓₒJℓₒ = [
+    dΓRℓ[ℓₒ]            𝕆               𝕆               dCRℓ[ℓₒ]  
+    𝕆                   dΓRℓ[J(ℓₒ)]     dCRℓ[J(ℓₒ)]     𝕆
+    𝕆                   conj.(dCRℓ[ℓₒ]) conj.(dΓRℓ[ℓₒ]) 𝕆             
+    conj.(dCRℓ[J(ℓₒ)])  𝕆               𝕆               conj.(dΓRℓ[J(ℓₒ)])   
+]
+
+dΓ⁻¹Rℓₒ, dC⁻¹Rℓₒ, dΓ⁻¹RJℓₒ, dC⁻¹RJℓₒ = inv_ΓC_ΓJCJ(dΓRℓ[ℓₒ], dCRℓ[ℓₒ], dΓRℓ[J(ℓₒ)], dCRℓ[J(ℓₒ)], J)       
+ΣRℓₒJℓₒ⁻¹_test = [
+    dΓ⁻¹Rℓₒ          𝕆               𝕆              dC⁻¹Rℓₒ  
+    𝕆                dΓ⁻¹RJℓₒ        dC⁻¹RJℓₒ       𝕆
+    𝕆                conj.(dC⁻¹Rℓₒ)  conj.(dΓ⁻¹Rℓₒ) 𝕆             
+    conj.(dC⁻¹RJℓₒ)  𝕆               𝕆              conj.(dΓ⁻¹RJℓₒ)   
+]
+
+ΣRℓₒJℓₒ⁻¹_test * ΣRℓₒJℓₒ .|> abs |> matshow; colorbar()
+
+
+
+
+### Also test the intermediate matrices in inv_ΓC_ΓJCJ
+
+ΩRℓₒ  = [ 
+    dΓRℓ[ℓₒ]            dCRℓ[ℓₒ]
+    conj.(dCRℓ[J(ℓₒ)])  conj.(dΓRℓ[J(ℓₒ)])
+] 
+# inverse has first row [dΓ⁻¹Rℓₒ  dC⁻¹Rℓₒ]. why ??
+## Note: ΩRℓₒ acts on [𝒰P[ℓₒ]; 𝒰P[J(ℓₒ)]]
+
+ΩRJℓₒ = [ 
+    dΓRℓ[J(ℓₒ)]            dCRℓ[J(ℓₒ)]
+    conj.(dCRℓ[ℓₒ])  conj.(dΓRℓ[ℓₒ])
+]
+# inverse has first row [dΓ⁻¹Rℓₒ  dC⁻¹Rℓₒ]. 
+## Note: ΩRJℓₒ acts on [𝒰P[J(ℓₒ)]; 𝒰P[ℓₒ]]
+
+
+## these two are hermitian and positive definite
+@test ΩRℓₒ  .- adjoint( ΩRℓₒ) |> x-> maximum(abs2.(x)) < 1e-10
+@test ΩRJℓₒ .- adjoint( ΩRJℓₒ) |> x-> maximum(abs2.(x)) < 1e-10
+
+@test all(eigen(Hermitian(ΩRℓₒ)).values .> 0)
+@test all(eigen(Hermitian(ΩRJℓₒ)).values .> 0)
+
+
+ 
+
+
+
+
+
+
+
+
+
 
 # Test case: plot radial profile of isotropic version
 # =================================================
@@ -342,71 +502,4 @@ dsΣ′, = eigen(Hermitian(Matrix(ΣΛ)))
 
 
 
-# Test (under construction): now construct ring Γ, C 
-# .... be sure to use the CΛjkJ.
-# =================================================
-
-
-dΓΛjk, dCΛjk = @sblock let θ, φ, covPβ
-
-    nθ, nφ  = length(θ), length(φ)
-    ptmW    = plan(FT.𝕎(ComplexF64, nφ, 2π)) 
-
-    # dΓΛ, dCΛ with `d` for diagonal
-    dΓΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
-    dCΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
-
-    # ℓ indexes within ring. ℓ = 1 since we just compute 
-    # first column of the ringj × ringk block
-    ℓ = 1  
-
-    @showprogress for j = 1:length(θ)
-        for k = 1:length(θ)
-            φ1 = φ[ℓ]
-            θ1 = θ[j]
-            θ2 = θ[k]
-            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covPP̄, covPP = covPβ(β)  
-            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
-            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
-            mul!(dΓΛjk[j,k], ptmW, covPP̄)
-            mul!(dCΛjk[j,k], ptmW, covPP)
-        end
-    end
-
-    return dΓΛjk, dCΛjk
-end;
-
-
-# Reorganize dΓΛ, dCΛ by grouping by azimuth freq index ℓ
-
-dΓRℓ, dCRℓJ = @sblock let dΓΛjk, dCΛjk, nθ=length(θ), nφ=length(φ)
-
-    dΓRℓ  = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    dCRℓJ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    # Note: dCRℓJ already applys the J index flip so that
-    # ΓΛ * 𝒰P       = sum(dΓRℓ[ℓ]  * (𝒰 P(θ,⋅))[ℓ] for ℓ=1:nφ)
-    # CΛ * conj(𝒰P) = sum(dCRℓJ[ℓ] * conj(𝒰 P(θ,⋅))[ℓ] for ℓ=1:nφ)
-
-    @showprogress for ℓ = 1:nφ
-        for k = 1:nθ
-            for j = 1:nθ
-                @inbounds dΓRℓ[ℓ][j,k] = dΓΛjk[j,k][ℓ]
-                if ℓ == 1
-                    @inbounds dCRℓJ[ℓ][j,k] = dCΛjk[j,k][ℓ]
-                else 
-                    @inbounds dCRℓJ[ℓ][j,k] = dCΛjk[j,k][nφ - ℓ + 2]
-                end
-            end
-        end
-    end
-    
-    return dΓRℓ, dCRℓJ
-end;
-
-
-
-ΣRℓₒ = [ # acting on 𝒰P[ℓₒ], 𝒰P[ℓₒ]
-    dΓRℓ[ℓₒ]           dCRℓJ[ℓₒ]
-    conj.(dCRℓJ[ℓₒ])   conj.(dΓRℓ[ℓₒ])
 
