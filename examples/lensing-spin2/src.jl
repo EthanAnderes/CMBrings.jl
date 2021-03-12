@@ -1,10 +1,7 @@
 ## Spin 2 lensing example which uses CMBsphere transform to handle the QU cov operator
 
-
 # Modules
 # ==============================
-# using FFTW
-# FFTW.FFTW.set_num_threads(8)
 
 using XFields
 using CMBrings
@@ -40,14 +37,16 @@ else
 end
 
 
+
+
 # Set ring transforms
 # ==============================
 
 tmAzS0, tmAzS2 = @sblock let 
 
     ## size of the embedding full sphere
-    𝕊nθ, 𝕊nφ = (2048, 1536-1)
-    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
+    ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
+    𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2048-1)
 
     ## Spin ±2 transform
@@ -169,8 +168,7 @@ end
 # ==============================
 
 # ϕϕ, EB spectra
-
-eel, bbl, ẽel, b̃bl, ϕϕl = @sblock let
+eeℓ, bbℓ, ẽeℓ, b̃bℓ, ϕϕℓ, ℓ = @sblock let
     
     r  = 0.01
 
@@ -200,9 +198,144 @@ eel, bbl, ẽel, b̃bl, ϕϕl = @sblock let
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
     ϕϕl[1] =  0
 
-    return eel, bbl, ẽel, b̃bl, ϕϕl
+    return eel, bbl, ẽel, b̃bl, ϕϕl, l
 
 end;
+
+
+
+
+
+# EB ring operator 
+# ==============================
+
+function ΓCΓJCJ_2_ΩΩJ(Γ::M, C::M, ΓJ::M, CJ::M) where {N<:Number, M<:AbstractMatrix{N}} 
+    Ω  = [ Γ          C
+           conj.(CJ)  conj.(ΓJ) ] 
+    ΩJ = [ ΓJ        CJ
+           conj.(C)  conj.(Γ)  ] 
+    return Ω, ΩJ 
+end
+
+function ΩΩJ_2_ΓCΓJCJ(Ω::M, ΩJ::M) where {N<:Number, M<:AbstractMatrix{N}} 
+    Γ  =  Ω[  1:end÷2, 1:end÷2]
+    C  =  Ω[  1:end÷2, end÷2+1:end]
+    ΓJ =  ΩJ[ 1:end÷2, 1:end÷2]
+    CJ =  ΩJ[ 1:end÷2, end÷2+1:end]
+    return Γ, C, ΓJ, CJ
+end
+
+
+
+# Define the iso cov interpolators
+covPβ = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ;
+        ## n_grid::Int = 100_000, 
+        ## β_grid = range(0, π^(1/3), length=n_grid).^3,
+);
+
+
+dΓΛ, dCΛ = @sblock let covPβ, θ, φ
+
+    nθ=length(θ)
+    nφ=length(φ)
+
+    ## --------
+    ptmW    = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    # dΓΛ, dCΛ with `d` for diagonal
+    dΓΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    dCΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    # ℓ indexes within ring. ℓ = 1 since we just compute 
+    # first column of the ringj × ringk block
+    ℓ = 1  
+    @showprogress for j = 1:length(θ)
+        for k = 1:length(θ)
+            φ1 = φ[ℓ]
+            θ1 = θ[j]
+            θ2 = θ[k]
+            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
+            mul!(dΓΛjk[j,k], ptmW, covPP̄)
+            mul!(dCΛjk[j,k], ptmW, covPP)
+        end
+    end
+
+    ## --------
+    J = Spectra.Jop(nφ)
+    dΓRℓ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    dCRℓ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    ## with 𝒰P[ℓ] := 𝒰_{ℓ,⋅} * P(θ,⋅)
+    ## ΓΛ * 𝒰P       = sum(dΓRℓ[ℓ] * 𝒰P[ℓ] for ℓ=1:nφ)
+    ## CΛ * conj(𝒰P) = sum(dCRℓ[ℓ] * conj(𝒰P[J(ℓ)]) for ℓ=1:nφ)
+    @showprogress for ℓ = 1:nφ
+        for k = 1:nθ
+            for j = 1:nθ
+                @inbounds dΓRℓ[ℓ][j,k] = dΓΛjk[j,k][ℓ]
+                @inbounds dCRℓ[ℓ][j,k] = dCΛjk[j,k][ℓ]
+            end
+        end
+    end
+    
+    return dΓRℓ, dCRℓ, J
+end;
+
+
+
+dΓR½, dCR½ = @sblock let dΓR, dCR, J, nθ=length(θ), nφ=length(φ)
+
+    @assert nφ == length(dΓR) == length(dCR) == J.n
+    @assert nθ == size(dΓR[1],1) == size(dΓR[1],2)
+
+    dΓR½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    dCR½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+
+    @showprogress for ℓ = 1:nφ÷2+1
+        Ωℓ, ΩJℓ = ΓCΓJCJ_2_ΩΩJ(dΓR[ℓ], dCR[ℓ], dΓR[J(ℓ)], dCR[J(ℓ)])       
+        Ωℓ½  = sqrt(Hermitian(Ωℓ)) 
+        ΩJℓ½ = sqrt(Hermitian(ΩJℓ))
+        Γℓ½, Cℓ½, ΓJℓ½, CJℓ½ = ΩΩJ_2_ΓCΓJCJ(Ωℓ½, ΩJℓ½)
+        dΓR½[ℓ]    .= Γℓ½
+        dCR½[ℓ]    .= Cℓ½
+        dΓR½[J(ℓ)] .= ΓJℓ½
+        dCR½[J(ℓ)] .= CJℓ½
+    end 
+
+    return dΓR½, dCR½
+end
+
+# dΓΛ = 0
+# dCΛ = 0
+
+nθ, nφ = length(θ), length(φ)
+qu = randn(ComplexF64, nθ, nφ)
+tmU = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
+ptmU = plan(tmU)
+
+@time Mqu = @sblock let qu, ptmU, dΓR½, dCR½, J
+    Uqu   = ptmU * qu
+    MUqu  = similar(Uqu)
+    Uquℓ  = collect(eachcol(Uqu))
+    MUquℓ = collect(eachcol(MUqu))
+    for ℓ ∈ 1:length(Uquℓ)
+        MUquℓ[ℓ]  .= dΓR½[ℓ] * Uquℓ[ℓ] .+ dCR½[ℓ] * conj.(Uquℓ[J(ℓ)])
+    end
+    return ptmU \ MUqu
+end
+
+Mqu[:,1:1000] .|> real |> matshow; colorbar()
+Mqu[:,1:1000] .|> imag |> matshow; colorbar()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -232,264 +365,6 @@ EBcov, Lcut, Φcov = @sblock let tmAzS0, tmAzS2, eel, bbl, ϕϕl, lcut = 2000
 
 end
 
-
-
-
-# Can I parameterize q + i*u
-# ==========================================
-
-
-nθ, nφ  = size(tmAzS0.ringidx)
-tmW  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{Float64}, nφ, 2π)) #  |> x -> FT.unitary_scale(x)*x
-ptmW = plan(tmW)
-
-## Qθi  = Xmap(tmAzS2)
-## Qθi.fd[end - 60, 1, 1] = 1
-## Uθi  = Xmap(tmAzS2)
-## Uθi.fd[end - 60, 1, 2] = 1
-## 
-## Qθi′ = EBcov * Qθi;
-## Uθi′ = EBcov * Uθi;
-## 
-## ## Λqq = ptmW * complex.(Qθi′[:Qx], 0)
-## ## Λuu = ptmW * complex.(Uθi′[:Ux], 0)
-## ## Λqu = ptmW * complex.(Qθi′[:Ux], 0)
-## ## Λuq = ptmW * complex.(Uθi′[:Qx], 0)
-## ## ΓΛ = @. (Λqq + Λuu + im * (Λqu - Λuq)) / 2
-## ## CΛ = @. (Λqq - Λuu + im * (Λqu + Λuq)) / 2
-## 
-## ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
-## CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
-## 
-## ## ΓΛ .|> real |> matshow; colorbar()
-## ## ΓΛ .|> imag |> matshow; colorbar()
-## ## 
-## ## CΛ .|> real |> matshow; colorbar()
-## ## CΛ .|> imag |> matshow; colorbar()
-
-# ---------- template out a function to generate Γand C for az polarization
-
-lengthθ, nblks = size_out(tmW)
-Tb = Float64
-azΓ = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
-azC = Matrix{Tb}[zeros(Tb, lengthθ, lengthθ) for k = 1:nblks]
-
-Qθi  = Xmap(tmAzS2)
-Uθi  = Xmap(tmAzS2)
-
-@time begin 
-
-    @sblock let azΓ, azC, lengthθ, nblks, ptmW, EBcov, Qθi, Uθi, Ω
-
-        @showprogress for i = 1:lengthθ
-
-            Qθi.fd[i, 1, 1] = 1 / Ω[i]
-            Uθi.fd[i, 1, 2] = 1 / Ω[i]
-            ## TODO: make a version of the following that doesn't allocate memory
-            Qθi′ = EBcov * Qθi
-            Uθi′ = EBcov * Uθi
-        
-            Λqq = ptmW * complex.(Qθi′[:Qx], 0)
-            Λuq = ptmW * complex.(Qθi′[:Ux], 0)
-            Λuu = ptmW * complex.(Uθi′[:Ux], 0)
-            Λqu = ptmW * complex.(Uθi′[:Qx], 0)
-            ΓΛ = @. (Λqq + Λuu + im * (Λuq - Λqu)) / 2
-            CΛ = @. (Λqq - Λuu + im * (Λuq + Λqu)) / 2
-
-            ## ΓΛ = ptmW * (@. complex(Qθi′[:Qx] + Uθi′[:Ux], Qθi′[:Ux] - Uθi′[:Qx]) / 2)
-            ## CΛ = ptmW * (@. complex(Qθi′[:Qx] - Uθi′[:Ux], Qθi′[:Ux] + Uθi′[:Qx]) / 2)
-        
-            ## Threads.@threads for k = 1:nblks
-            for k = 1:nblks
-                azΓ[k][i,:] .= real.(ΓΛ[:,k])
-                azC[k][i,:] .= real.(CΛ[:,k])
-                ## azΓ[k][:,i] .= ΓΛ[:,k]
-                ## azC[k][:,i] .= CΛ[:,k]
-            end
-
-            Qθi.fd[i, 1, 1] = 0
-            Uθi.fd[i, 1, 2] = 0
-
-        end 
-
-    end
-
-end
-
-
-k = 4
-M = [
-     azΓ[k]        azC[k]
-     conj.(azC[k]) conj.(azΓ[k])
-]
-va, Ve = Symmetric( M, :U ) |> eigen
-## va, Ve = M |> eigen
-
-plot(va)
-
-plot(Ve[:,end-15])
-plot(Ve[:,end-5])
-plot(Ve[:,end])
-plot(Ve[:,1])
-
-# Base.summarysize(azΣ) * 1e-9 #-> gigabites
-
-k = 10
-azΓ[k] .- azΓ[k]' |> matshow; colorbar() 
-azΓ[k]  |> matshow; colorbar() 
-
-azC[k] .- azC[k]' |> matshow; colorbar() 
-azC[k] |> matshow; colorbar() 
-
-
-
-
-
-i = 100
-j = 300
-c = 100
-Qθi  = Xmap(tmAzS2)
-Qθj  = Xmap(tmAzS2)
-Qθi.fd[i, c, 1] = 1 / Ω[i] 
-Qθj.fd[j, c, 1] = 1 / Ω[j] 
-Qθi′ = EBcov * Qθi
-Qθj′ = EBcov * Qθj
-
-Qθi′[:Qx][i:i+50,c] |> plot
-Qθj′[:Qx][j:j+50,c] |> plot
-
-
-Qθi′[:Qx][i-50:i+50,c-50:c+50] |> matshow
-Qθj′[:Qx][j-50:j+50,c-50:c+50] |> matshow
-
-
-######
-
-QSθi  = Xmap(tmAzS2.tm𝕊)
-QSθj  = Xmap(tmAzS2.tm𝕊)
-
-QSθi.fd[tmAzS2.ringidx[i, c, 1]] = 1
-QSθj.fd[tmAzS2.ringidx[j, c, 1]] = 1
-
-Ωop = DiagOp(Xmap(tmAzS2.tm𝕊, ST.Ωpix(tmAzS2.tm𝕊) .+ zeros(size_in(tmAzS2.tm𝕊))))
-QSθi′′ = sqrt(EBcov) * inv(Ωop) * sqrt(EBcov) * QSθi
-QSθj′′ = sqrt(EBcov) * inv(Ωop) * sqrt(EBcov) * QSθj
-
-
-QSθi′ = EBcov * inv(Ωop) * QSθi
-QSθj′ = EBcov * inv(Ωop) * QSθj
-
-
-
-
-QSθi′[:][tmAzS2.ringidx][i:i+50,c,1] |> plot
-QSθj′[:][tmAzS2.ringidx][j:j+50,c,1] |> plot
-
-
-QSθi′[:][tmAzS2.ringidx][i-50:i+50,c-50:c+50,1] |> matshow
-QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,1] |> matshow
-
-
-###### 
-
-
-
-Qθi′[:Qx][i:i+50,c] |> plot
-QSθi′[:][tmAzS2.ringidx][i:i+50,c,1] |> plot
-
-
-Qθj′[:Qx][j:j+50,c] |> plot
-QSθj′[:][tmAzS2.ringidx][j:j+50,c,1] |> plot
-
-
-# these ↓ do not seem to match
-
-
-Qθi′[:Ux][i,c:c+50] |> plot
-QSθi′[:][tmAzS2.ringidx][i,c:c+50,2] |> plot
-
-
-Qθj′[:Ux][j,c:c+50] |> plot
-QSθj′[:][tmAzS2.ringidx][j,c:c+50,2] |> plot
-
-
-
-# 
-
-
-Qθi′[:Ux][i-50:i+50,c-50:c+50] |> matshow; colorbar()
-QSθi′[:][tmAzS2.ringidx][i-50:i+50,c-50:c+50,2] |> matshow; colorbar()
-
-
-Qθj′[:Ux][j-50:j+50,c-50:c+50] |> matshow; colorbar()
-QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,2] |> matshow; colorbar()
-QSθj′[:][tmAzS2.ringidx][j-50:j+50,c-50:c+50,2] .- Qθj′[:Ux][j-50:j+50,c-50:c+50] |> matshow; colorbar()
-
-
-
-
-
-
-#############
-
-
-
-
-Λqjqi = ptmW * complex.(Qθi′[:Qx], 0)
-Λqiqj = ptmW * complex.(Qθj′[:Qx], 0)
-
-Λqjqi[j,:] .|> real |> semilogy
-Λqiqj[i,:] .|> real |> semilogy
-
-abs.(real.(Λqjqi[j,:]) .- real.(Λqiqj[i,:])) |> semilogy
-
-
-
-
-
-QθjQθi = zeros(Float64, nblks, nblks)
-QθiQθj = zeros(Float64, nblks, nblks)
-i = 3
-j = 300
-Qθi  = Xmap(tmAzS2)
-Qθj  = Xmap(tmAzS2)
-@sblock let QθjQθi, QθiQθj, i, j, Qθi, Qθj, EBcov, Ω,nblks 
-    @showprogress for φp = 1:nblks
-        Qθi.fd[i, φp, 1] = 1 / Ω[i] #!!!!!! this is what I was missing ....
-        Qθj.fd[j, φp, 1] = 1 / Ω[j]
-        Qθi′ = EBcov * Qθi
-        Qθj′ = EBcov * Qθj
-        QθjQθi[:,φp] .= Qθi′.fd[j, :, 1]
-        QθiQθj[:,φp] .= Qθj′.fd[i, :, 1]
-        Qθi.fd[i, φp, 1] = 0
-        Qθj.fd[j, φp, 1] = 0
-    end
-end
-
-
-
-
-[diag(QθjQθi)[1:20]  diag(QθiQθj)[1:20]]
-
-
-QθjQθi[1000:1050,1:20] |> matshow; colorbar()
-QθiQθj[1000:1050,1:20] |> matshow; colorbar()
-
-
-QθjQθi[:,1] |> plot
-QθiQθj[:,1] |> plot
-
-[QθjQθi[:,1]  QθiQθj[:,1]]
-
-i    = 3
-j    = 300
-φp   = 1
-Qθi  = Xmap(tmAzS2)
-Qθj  = Xmap(tmAzS2)
-Qθi.fd[i, φp, 1] = Ω[i]
-Qθj.fd[j, φp, 1] = Ω[j]
-Qθi′ = EBcov * Qθi
-Qθj′ = EBcov * Qθj
 
 
 
@@ -536,7 +411,6 @@ Nei[:][end - 50,100]
 deg2rad(2.5 / 60)^2 / Ω[end - 50]
 
 =#
-
 
 # beam/transfer
 
