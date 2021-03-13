@@ -44,11 +44,13 @@ end
 # Make AzBlock an iterator
 # =======================================
 
-function Base.iterate(az::AzBlock, state=1) 
+Base.iterate(az::AzBlock) = (az.Σ[1], 1) 
+
+function Base.iterate(az::AzBlock, state) 
     if state > az.nblks
         return nothing
     else 
-        return (az.Σ[state], state+1)
+        return (az.Σ[state+1], state+1)
     end
 end
 

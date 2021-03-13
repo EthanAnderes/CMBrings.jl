@@ -45,8 +45,9 @@ end
 tmAzS0, tmAzS2 = @sblock let 
 
     ## size of the embedding full sphere
+    𝕊nθ, 𝕊nφ = (1536, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
-    𝕊nθ, 𝕊nφ = (2560, 2560-1)
+    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2048-1)
 
     ## Spin ±2 transform
@@ -209,23 +210,6 @@ end;
 # EB ring operator 
 # ==============================
 
-function ΓCΓJCJ_2_ΩΩJ(Γ::M, C::M, ΓJ::M, CJ::M) where {N<:Number, M<:AbstractMatrix{N}} 
-    Ω  = [ Γ          C
-           conj.(CJ)  conj.(ΓJ) ] 
-    ΩJ = [ ΓJ        CJ
-           conj.(C)  conj.(Γ)  ] 
-    return Ω, ΩJ 
-end
-
-function ΩΩJ_2_ΓCΓJCJ(Ω::M, ΩJ::M) where {N<:Number, M<:AbstractMatrix{N}} 
-    Γ  =  Ω[  1:end÷2, 1:end÷2]
-    C  =  Ω[  1:end÷2, end÷2+1:end]
-    ΓJ =  ΩJ[ 1:end÷2, 1:end÷2]
-    CJ =  ΩJ[ 1:end÷2, end÷2+1:end]
-    return Γ, C, ΓJ, CJ
-end
-
-
 
 # Define the iso cov interpolators
 covPβ = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ;
@@ -234,7 +218,7 @@ covPβ = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ;
 );
 
 
-dΓΛ, dCΛ = @sblock let covPβ, θ, φ
+Γdb, Cdb = @sblock let covPβ, θ, φ
 
     nθ=length(θ)
     nφ=length(φ)
@@ -242,8 +226,8 @@ dΓΛ, dCΛ = @sblock let covPβ, θ, φ
     ## --------
     ptmW    = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
     # dΓΛ, dCΛ with `d` for diagonal
-    dΓΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
-    dCΛjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    Γdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+    Cdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
     # ℓ indexes within ring. ℓ = 1 since we just compute 
     # first column of the ringj × ringk block
     ℓ = 1  
@@ -256,69 +240,94 @@ dΓΛ, dCΛ = @sblock let covPβ, θ, φ
             covPP̄, covPP = covPβ(β)  
             covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
             covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
-            mul!(dΓΛjk[j,k], ptmW, covPP̄)
-            mul!(dCΛjk[j,k], ptmW, covPP)
+            mul!(Γdjk[j,k], ptmW, covPP̄)
+            mul!(Cdjk[j,k], ptmW, covPP)
         end
     end
 
     ## --------
     J = Spectra.Jop(nφ)
-    dΓRℓ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    dCRℓ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    Γdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    Cdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
     ## with 𝒰P[ℓ] := 𝒰_{ℓ,⋅} * P(θ,⋅)
-    ## ΓΛ * 𝒰P       = sum(dΓRℓ[ℓ] * 𝒰P[ℓ] for ℓ=1:nφ)
-    ## CΛ * conj(𝒰P) = sum(dCRℓ[ℓ] * conj(𝒰P[J(ℓ)]) for ℓ=1:nφ)
-    @showprogress for ℓ = 1:nφ
+    ## ΓΛ * 𝒰P       = sum(Γdb[ℓ] * 𝒰P[ℓ] for ℓ=1:nφ)
+    ## CΛ * conj(𝒰P) = sum(Cdb[ℓ] * conj(𝒰P[J(ℓ)]) for ℓ=1:nφ)
+    @showprogress for ℓ = 1:J.n
         for k = 1:nθ
             for j = 1:nθ
-                @inbounds dΓRℓ[ℓ][j,k] = dΓΛjk[j,k][ℓ]
-                @inbounds dCRℓ[ℓ][j,k] = dCΛjk[j,k][ℓ]
+                @inbounds Γdb[ℓ][j,k] = Γdjk[j,k][ℓ]
+                @inbounds Cdb[ℓ][j,k] = Cdjk[j,k][ℓ]
             end
         end
     end
     
-    return dΓRℓ, dCRℓ, J
+    return Γdb, Cdb
 end;
 
 
+Γdb½, Cdb½ = @sblock let Γdb, Cdb, nθ=length(θ), nφ=length(φ)
 
-dΓR½, dCR½ = @sblock let dΓR, dCR, J, nθ=length(θ), nφ=length(φ)
+    J = Spectra.Jop(nφ)
 
-    @assert nφ == length(dΓR) == length(dCR) == J.n
-    @assert nθ == size(dΓR[1],1) == size(dΓR[1],2)
+    @assert nφ == length(Γdb) == length(Cdb) == J.n
+    @assert nθ == size(Γdb[1],1) == size(Γdb[1],2)
 
-    dΓR½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    dCR½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    Γdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+    Cdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
 
-    @showprogress for ℓ = 1:nφ÷2+1
-        Ωℓ, ΩJℓ = ΓCΓJCJ_2_ΩΩJ(dΓR[ℓ], dCR[ℓ], dΓR[J(ℓ)], dCR[J(ℓ)])       
-        Ωℓ½  = sqrt(Hermitian(Ωℓ)) 
-        ΩJℓ½ = sqrt(Hermitian(ΩJℓ))
-        Γℓ½, Cℓ½, ΓJℓ½, CJℓ½ = ΩΩJ_2_ΓCΓJCJ(Ωℓ½, ΩJℓ½)
-        dΓR½[ℓ]    .= Γℓ½
-        dCR½[ℓ]    .= Cℓ½
-        dΓR½[J(ℓ)] .= ΓJℓ½
-        dCR½[J(ℓ)] .= CJℓ½
+    T  = promote_type(eltype(Γdb[1]), eltype(Γdb[1]))
+    Ωℓ = Array{T}(undef, 2nθ, 2nθ)
+    Ωℓindices = CartesianIndices((1:2nθ, 1:2nθ))
+    upper_left   = Ωℓindices[1:nθ, 1:nθ]
+    upper_right  = Ωℓindices[1:nθ, nθ+1:end]
+    lower_left   = Ωℓindices[nθ+1:end, 1:nθ]
+    lower_right  = Ωℓindices[nθ+1:end, nθ+1:end]
+
+    ## @showprogress for ℓ ∈ 1:J.n
+    ##     Ωℓ[upper_left]  .= Γdb[ℓ]
+    ##     Ωℓ[upper_right] .= Cdb[ℓ]
+    ##     Ωℓ[lower_left]  .= conj.(Cdb[J(ℓ)])
+    ##     Ωℓ[lower_right] .= conj.(Γdb[J(ℓ)])
+    ##     Ωℓ½  = sqrt(Hermitian(Ωℓ)) 
+    ##     Γdb½[ℓ] .= Ωℓ½[upper_left] 
+    ##     Cdb½[ℓ] .= Ωℓ½[upper_right]
+    ## end 
+
+    @showprogress for ℓ ∈ 1:J.n÷2+1
+        Jℓ = J(ℓ)
+        ## Ωℓ[upper_left]  .= Γdb[ℓ]
+        ## Ωℓ[upper_right] .= Cdb[ℓ]
+        ## Ωℓ[lower_left]  .= conj.(Cdb[Jℓ])
+        ## Ωℓ[lower_right] .= conj.(Γdb[Jℓ])
+
+        Ωℓ  = [  Γdb[ℓ]          Cdb[ℓ]
+                conj.(Cdb[Jℓ])   conj.(Γdb[Jℓ]) ]
+        Ωℓ½ = sqrt(Hermitian(Ωℓ)) 
+        Γdb½[ℓ]  .= Ωℓ½[upper_left] 
+        Cdb½[ℓ]  .= Ωℓ½[upper_right]
+        Cdb½[Jℓ] .= conj.(Ωℓ½[lower_left])
+        Γdb½[Jℓ] .= conj.(Ωℓ½[lower_right]) 
     end 
 
-    return dΓR½, dCR½
+
+    return Γdb½, Cdb½
 end
 
-# dΓΛ = 0
-# dCΛ = 0
 
 nθ, nφ = length(θ), length(φ)
 qu = randn(ComplexF64, nθ, nφ)
 tmU = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
 ptmU = plan(tmU)
 
-@time Mqu = @sblock let qu, ptmU, dΓR½, dCR½, J
+@time Mqu = @sblock let qu, ptmU, Γdb½, Cdb½, 
+
+    J = Spectra.Jop(length(Γdb½))
     Uqu   = ptmU * qu
     MUqu  = similar(Uqu)
     Uquℓ  = collect(eachcol(Uqu))
     MUquℓ = collect(eachcol(MUqu))
-    for ℓ ∈ 1:length(Uquℓ)
-        MUquℓ[ℓ]  .= dΓR½[ℓ] * Uquℓ[ℓ] .+ dCR½[ℓ] * conj.(Uquℓ[J(ℓ)])
+    Threads.@threads for ℓ ∈ 1:J.n
+        MUquℓ[ℓ]  .= Γdb½[ℓ] * Uquℓ[ℓ] .+ Cdb½[ℓ] * conj.(Uquℓ[J(ℓ)])
     end
     return ptmU \ MUqu
 end
@@ -327,7 +336,8 @@ Mqu[:,1:1000] .|> real |> matshow; colorbar()
 Mqu[:,1:1000] .|> imag |> matshow; colorbar()
 
 
-
+Mqu[1:200,end-200:end] .|> real |> matshow; colorbar()
+Mqu[1:200,end-200:end] .|> imag |> matshow; colorbar()
 
 
 
