@@ -42,13 +42,14 @@ end
 # Set ring transforms
 # ==============================
 
-tmAzS0, tmAzS2 = @sblock let 
+tmAzS0, tmAzS2, tmUS0, tmUS2 = @sblock let 
 
     ## size of the embedding full sphere
-    𝕊nθ, 𝕊nφ = (1536, 1536-1)
+    ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
+    𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (3584, 2048-1)
+    ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
     ## Spin ±2 transform
     tmS2 = ST.𝕊2(𝕊nθ, 𝕊nφ)
@@ -74,9 +75,12 @@ tmAzS0, tmAzS2 = @sblock let
     tmAzS0 = CMBrings.Az𝕊0(tmW0, tmS0, ringidxS0)
     tmAzS2 = CMBrings.Az𝕊2(tmW2, tmS2, ringidxS2)
 
-    return tmAzS0, tmAzS2
-end
+    ## TODO: eventually replace things with this
+    tmUS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Float64, nφ, 2π))    |> x -> FT.unitary_scale(x)*x
+    tmUS2 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
 
+    return tmAzS0, tmAzS2, tmUS0, tmUS2
+end
 
 
 # Mask and CMBring observation region
@@ -218,136 +222,252 @@ covPβ = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ;
 );
 
 
-Γdb, Cdb = @sblock let covPβ, θ, φ
+
+# This version is less memory intensive. 
+EBring = @sblock let covPβ, θ, φ, T = ComplexF64
 
     nθ=length(θ)
     nφ=length(φ)
 
     ## --------
-    ptmW    = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
-    # dΓΛ, dCΛ with `d` for diagonal
-    Γdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
-    Cdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
-    # ℓ indexes within ring. ℓ = 1 since we just compute 
-    # first column of the ringj × ringk block
-    ℓ = 1  
-    @showprogress for j = 1:length(θ)
-        for k = 1:length(θ)
-            φ1 = φ[ℓ]
-            θ1 = θ[j]
-            θ2 = θ[k]
+    ptmW = FT.FFTW.plan_fft(Vector{T}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    Γdjk = zeros(T, nφ)
+    Cdjk = zeros(T, nφ)
+    Γdb = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    Cdb = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    J = Spectra.Jop(nφ)
+
+    @showprogress for k = 1:nθ
+        for j = 1:nθ
+            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
             β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
             covPP̄, covPP = covPβ(β)  
             covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
             covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
-            mul!(Γdjk[j,k], ptmW, covPP̄)
-            mul!(Cdjk[j,k], ptmW, covPP)
-        end
-    end
-
-    ## --------
-    J = Spectra.Jop(nφ)
-    Γdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    Cdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    ## with 𝒰P[ℓ] := 𝒰_{ℓ,⋅} * P(θ,⋅)
-    ## ΓΛ * 𝒰P       = sum(Γdb[ℓ] * 𝒰P[ℓ] for ℓ=1:nφ)
-    ## CΛ * conj(𝒰P) = sum(Cdb[ℓ] * conj(𝒰P[J(ℓ)]) for ℓ=1:nφ)
-    @showprogress for ℓ = 1:J.n
-        for k = 1:nθ
-            for j = 1:nθ
-                @inbounds Γdb[ℓ][j,k] = Γdjk[j,k][ℓ]
-                @inbounds Cdb[ℓ][j,k] = Cdjk[j,k][ℓ]
+            mul!(Γdjk, ptmW, covPP̄)
+            mul!(Cdjk, ptmW, covPP)
+            for ℓ = 1:J.n
+                @inbounds Γdb[ℓ][j,k] = Γdjk[ℓ]
+                @inbounds Cdb[ℓ][j,k] = Cdjk[ℓ]
             end
         end
     end
-    
-    return Γdb, Cdb
+
+    return CMBrings.ComplexCircRings(Γdb, Cdb)
 end;
 
 
-Γdb½, Cdb½ = @sblock let Γdb, Cdb, nθ=length(θ), nφ=length(φ)
-
-    J = Spectra.Jop(nφ)
-
-    @assert nφ == length(Γdb) == length(Cdb) == J.n
-    @assert nθ == size(Γdb[1],1) == size(Γdb[1],2)
-
-    Γdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-    Cdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
-
-    T  = promote_type(eltype(Γdb[1]), eltype(Γdb[1]))
-    Ωℓ = Array{T}(undef, 2nθ, 2nθ)
-    Ωℓindices = CartesianIndices((1:2nθ, 1:2nθ))
-    upper_left   = Ωℓindices[1:nθ, 1:nθ]
-    upper_right  = Ωℓindices[1:nθ, nθ+1:end]
-    lower_left   = Ωℓindices[nθ+1:end, 1:nθ]
-    lower_right  = Ωℓindices[nθ+1:end, nθ+1:end]
-
-    ## @showprogress for ℓ ∈ 1:J.n
-    ##     Ωℓ[upper_left]  .= Γdb[ℓ]
-    ##     Ωℓ[upper_right] .= Cdb[ℓ]
-    ##     Ωℓ[lower_left]  .= conj.(Cdb[J(ℓ)])
-    ##     Ωℓ[lower_right] .= conj.(Γdb[J(ℓ)])
-    ##     Ωℓ½  = sqrt(Hermitian(Ωℓ)) 
-    ##     Γdb½[ℓ] .= Ωℓ½[upper_left] 
-    ##     Cdb½[ℓ] .= Ωℓ½[upper_right]
-    ## end 
-
-    @showprogress for ℓ ∈ 1:J.n÷2+1
-        Jℓ = J(ℓ)
-        ## Ωℓ[upper_left]  .= Γdb[ℓ]
-        ## Ωℓ[upper_right] .= Cdb[ℓ]
-        ## Ωℓ[lower_left]  .= conj.(Cdb[Jℓ])
-        ## Ωℓ[lower_right] .= conj.(Γdb[Jℓ])
-
-        Ωℓ  = [  Γdb[ℓ]          Cdb[ℓ]
-                conj.(Cdb[Jℓ])   conj.(Γdb[Jℓ]) ]
-        Ωℓ½ = sqrt(Hermitian(Ωℓ)) 
-        Γdb½[ℓ]  .= Ωℓ½[upper_left] 
-        Cdb½[ℓ]  .= Ωℓ½[upper_right]
-        Cdb½[Jℓ] .= conj.(Ωℓ½[lower_left])
-        Γdb½[Jℓ] .= conj.(Ωℓ½[lower_right]) 
-    end 
 
 
-    return Γdb½, Cdb½
+# memory intensive one
+## EBring = @sblock let covPβ, θ, φ
+## 
+##     nθ=length(θ)
+##     nφ=length(φ)
+## 
+##     ## --------
+##     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+##     Γdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+##     Cdjk = Vector{ComplexF64}[zeros(ComplexF64, nφ) for j = 1:nθ, k = 1:nθ]
+##     # ℓ indexes within ring. ℓ = 1 since we just compute 
+##     # first column of the ringj × ringk block
+##     ℓ = 1  
+##     @showprogress for j = 1:nθ
+##         for k = 1:nθ
+##             φ1 = φ[ℓ]
+##             θ1 = θ[j]
+##             θ2 = θ[k]
+##             β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+##             covPP̄, covPP = covPβ(β)  
+##             covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+##             covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
+##             mul!(Γdjk[j,k], ptmW, covPP̄)
+##             mul!(Cdjk[j,k], ptmW, covPP)
+##         end
+##     end
+## 
+##     ## --------
+##     J = Spectra.Jop(nφ)
+##     Γdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+##     Cdb = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+##     @showprogress for ℓ = 1:J.n
+##         for k = 1:nθ
+##             for j = 1:nθ
+##                 @inbounds Γdb[ℓ][j,k] = Γdjk[j,k][ℓ]
+##                 @inbounds Cdb[ℓ][j,k] = Cdjk[j,k][ℓ]
+##             end
+##         end
+##     end
+##     
+##     return CMBrings.ComplexCircRings(Γdb, Cdb)
+## end;
+
+
+
+
+
+
+## d,V = EBring[1000] |> Hermitian |> eigen
+
+
+
+# EB ring operator 
+# ==============================
+
+
+
+## Noise:
+    μKᵒn = μK′n / 60
+    σ²   = deg2rad(μKᵒn)^2
+    Vector_M = [Diagonal(σ²./Ω) for k in 1:size_out(tmAzS0)[2]]
+
+
+bl = @sblock let 
+
+    beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
+
+    lmax = 11000 
+    l = 0:lmax
+    σ² = beamfwhm^2 / 8 / log(2)
+    bl = @. exp( - σ²*l*(l+1) / 2)
+    return bl
+
+end;
+
+
+
+Naz = @sblock let tmAzS0, Ω, μK′n = 2.5
+    μKᵒn = μK′n / 60
+    σ²   = deg2rad(μKᵒn)^2
+    Vector_M = [Diagonal(σ²./Ω) for k in 1:size_out(tmAzS0)[2]]
+    CMBrings.AzBlock(Vector_M)
 end
+
+
+
+
+
+
+
+# EB simulation
+# ==============================
 
 
 nθ, nφ = length(θ), length(φ)
-qu = randn(ComplexF64, nθ, nφ)
-tmU = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
-ptmU = plan(tmU)
+wn  = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
 
-@time Mqu = @sblock let qu, ptmU, Γdb½, Cdb½, 
+## 
+BLAS.set_num_threads(1) ## not sure if this makes threading better?
 
-    J = Spectra.Jop(length(Γdb½))
-    Uqu   = ptmU * qu
-    MUqu  = similar(Uqu)
-    Uquℓ  = collect(eachcol(Uqu))
-    MUquℓ = collect(eachcol(MUqu))
-    Threads.@threads for ℓ ∈ 1:J.n
-        MUquℓ[ℓ]  .= Γdb½[ℓ] * Uquℓ[ℓ] .+ Cdb½[ℓ] * conj.(Uquℓ[J(ℓ)])
-    end
-    return ptmU \ MUqu
-end
+@time qu =  @sblock let EBring, wn
+    wnk  = fielddata(FourierField(wn))
+    quk = similar(wnk)
+    wnℓ = collect(eachcol(wnk))
+    quℓ = collect(eachcol(quk))
+    J   = Spectra.Jop(EBring.nblks)
+    Threads.@threads for ℓ = 1:J.n
+    ## @showprogress for ℓ = 1:J.n
+        Ωℓ = sqrt(Hermitian(EBring[ℓ])) 
+        ## quℓ[ℓ] .= Ωℓ[1:end÷2,:] * vcat(wnℓ[ℓ], conj.(wnℓ[J(ℓ)]))
+        quℓ[ℓ] .= @view(Ωℓ[1:end÷2,:]) * vcat(wnℓ[ℓ], conj.(wnℓ[J(ℓ)]))
+    end 
+    Xfourier(fieldtransform(wn), quk)
+end;
 
-Mqu[:,1:1000] .|> real |> matshow; colorbar()
-Mqu[:,1:1000] .|> imag |> matshow; colorbar()
-
-
-Mqu[1:200,end-200:end] .|> real |> matshow; colorbar()
-Mqu[1:200,end-200:end] .|> imag |> matshow; colorbar()
-
+## 542 sec, single-threaded loop but multi-threaded BLAS
+## 274 sec,  multi-threaded loop but single-threaded BLAS
 
 
+qu[:][:,1:1000] .|> real |> matshow; colorbar()
+qu[:][:,1:1000]  .|> imag |> matshow; colorbar()
 
-
-
-
+qu[:][:,:] .|> real |> matshow; colorbar()
 
 
 
+# # lets try to get around having to compute and store these ....
+# Γdb½, Cdb½ = @sblock let Γdb, Cdb, nθ=length(θ), nφ=length(φ)
+
+#     J = Spectra.Jop(nφ)
+
+#     @assert nφ == length(Γdb) == length(Cdb) == J.n
+#     @assert nθ == size(Γdb[1],1) == size(Γdb[1],2)
+
+#     Γdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+#     Cdb½ = Matrix{ComplexF64}[zeros(ComplexF64, nθ, nθ) for ℓ = 1:nφ]
+
+#     ## T  = promote_type(eltype(Γdb[1]), eltype(Γdb[1]))
+#     ## Ωℓ = Array{T}(undef, 2nθ, 2nθ)
+#     Ωℓindices = CartesianIndices((1:2nθ, 1:2nθ))
+#     upper_left   = Ωℓindices[1:nθ, 1:nθ]
+#     upper_right  = Ωℓindices[1:nθ, nθ+1:end]
+#     lower_left   = Ωℓindices[nθ+1:end, 1:nθ]
+#     lower_right  = Ωℓindices[nθ+1:end, nθ+1:end]
+
+#     ## @showprogress for ℓ ∈ 1:J.n
+#     ##     Ωℓ[upper_left]  .= Γdb[ℓ]
+#     ##     Ωℓ[upper_right] .= Cdb[ℓ]
+#     ##     Ωℓ[lower_left]  .= conj.(Cdb[J(ℓ)])
+#     ##     Ωℓ[lower_right] .= conj.(Γdb[J(ℓ)])
+#     ##     Ωℓ½  = sqrt(Hermitian(Ωℓ)) 
+#     ##     Γdb½[ℓ] .= Ωℓ½[upper_left] 
+#     ##     Cdb½[ℓ] .= Ωℓ½[upper_right]
+#     ## end 
+
+#     @showprogress for ℓ ∈ 1:J.n÷2+1
+#         Jℓ = J(ℓ)
+#         Ωℓ  = [  Γdb[ℓ]          Cdb[ℓ]
+#                 conj.(Cdb[Jℓ])   conj.(Γdb[Jℓ]) ]
+#         Ωℓ½ = sqrt(Hermitian(Ωℓ)) 
+#         Γdb½[ℓ]  .= Ωℓ½[upper_left] 
+#         Cdb½[ℓ]  .= Ωℓ½[upper_right]
+#         Cdb½[Jℓ] .= conj.(Ωℓ½[lower_left])
+#         Γdb½[Jℓ] .= conj.(Ωℓ½[lower_right]) 
+#     end 
+
+
+#     return Γdb½, Cdb½
+# end
+
+
+# nθ, nφ = length(θ), length(φ)
+# qu = randn(ComplexF64, nθ, nφ)
+# tmU = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
+# ptmU = plan(tmU)
+
+# @time Mqu = @sblock let qu, ptmU, Γdb½, Cdb½, 
+
+#     J = Spectra.Jop(length(Γdb½))
+#     Uqu   = ptmU * qu
+#     MUqu  = similar(Uqu)
+#     Uquℓ  = collect(eachcol(Uqu))
+#     MUquℓ = collect(eachcol(MUqu))
+#     Threads.@threads for ℓ ∈ 1:J.n
+#         MUquℓ[ℓ]  .= Γdb½[ℓ] * Uquℓ[ℓ] .+ Cdb½[ℓ] * conj.(Uquℓ[J(ℓ)])
+#     end
+#     return ptmU \ MUqu
+# end
+
+# Mqu[:,1:1000] .|> real |> matshow; colorbar()
+# Mqu[:,1:1000] .|> imag |> matshow; colorbar()
+
+
+# Mqu[1:200,end-200:end] .|> real |> matshow; colorbar()
+# Mqu[1:200,end-200:end] .|> imag |> matshow; colorbar()
+
+
+
+# # ==============================
+
+# EBring = ComplexCircRings(Γdb½, Cdb½)
+# qu  = randn(ComplexF64, nθ, nφ)
+# xqu = Xmap(tmU, qu)
+
+
+# f = XFields._lmult(EBring, xqu)
+
+# real.(f[:]) |> matshow; colorbar()
+# imag.(f[:]) |> matshow; colorbar()
 
 # Full sphere signal operators
 # ==============================

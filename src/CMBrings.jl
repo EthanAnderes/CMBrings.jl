@@ -21,6 +21,8 @@ const module_dir  = joinpath(@__DIR__, "..") |> normpath
 # Extras on SphereTransforms like simulation, getindex etc. 
 include("transformations.jl")
 
+include("complex_circ_rings.jl")
+
 # the latest prototype for covariance type, spin0 only
 include("az_blocks.jl")
 

@@ -1,42 +1,56 @@
 
 
 
-struct ComplexCircRings{TΓ <: AbstractMatrix, TC <: AbstractMatrix} <: XFields.AbstractLinearOp
+struct ComplexCircRings{M <: AbstractMatrix} <: XFields.AbstractLinearOp
     nblks::Int  # corresponds to nφ
     nside::Int  # corresponds to nθ
-    Γdb::Vector{TΓ}
-    Cdb::Vector{TC}
+    Γdb::Vector{M}
+    Cdb::Vector{M}
 end
 
-function ComplexCircRings(Γdb::Vector{TΓ}, Cdb::Vector{TC}) where {TΓ <: AbstractMatrix, TC <: AbstractMatrix}
+function ComplexCircRings(Γdb::Vector{M}, Cdb::Vector{M}) where {M <: AbstractMatrix}
     @assert length(Γdb) == length(Cdb)
     @assert size(Γdb[1],1) == size(Γdb[1],2) == size(Cdb[1],1) == size(Cdb[1],2)
-    ComplexCircRings{TΓ,TC}(length(Γdb), size(Γdb[1],1), Γdb, Cdb)
+    ComplexCircRings{M}(length(Γdb), size(Γdb[1],1), Γdb, Cdb)
 end 
 
 
 # Make ComplexCircRings an iterator
-# 
 # =======================================
 
-function Base.getindex(az::ComplexCircRings, ℓ::Int) 
-    1 <= ℓ <= az.nblks || throw(BoundsError(az, ℓ))
-    Jℓ = ℓ==1 ? 1 : az.nblks - ℓ + 2
-    Ωℓ = [ az.Γdb[ℓ]          az.Cdb[ℓ]
-           conj.(az.Cdb[Jℓ])  conj.(az.Γdb[Jℓ]) ]
-    return Ωℓ
+# ------- the following work with ((Γdb[ℓ], Cdb[ℓ]): ℓ=1:nblks)
+
+Base.iterate(az::ComplexCircRings) = ((az.Γdb[1], az.Cdb[1]), 1)
+
+function Base.iterate(az::ComplexCircRings, state) 
+    if state < az.nblks
+        return ((az.Γdb[state+1], az.Cdb[state+1]), state+1)
+    else
+        return nothing
+    end
 end
 
-# note that this sets at only the ℓ indicies ...
-function Base.setindex!(az::ComplexCircRings{TΓ,TC}, ΓdbℓCdbℓ::Tuple{TΓ, TC}, ℓ::Int) where {TΓ,TC}
+Base.length(az::ComplexCircRings) = az.nblks
+
+Base.eltype(::Type{ComplexCircRings{M}}) where {M} = Tuple{M,M} 
+
+Base.firstindex(az::ComplexCircRings) = 1
+
+Base.lastindex(az::ComplexCircRings)  = az.nblks
+
+function Base.setindex!(az::ComplexCircRings{M}, ΓdbℓCdbℓ::Tuple{M,M}, ℓ::Int) where {M}
     1 <= ℓ <= az.nblks || throw(BoundsError(az, ℓ))  
     az.Γdb[ℓ] .= ΓdbℓCdbℓ[1]
     az.Cdb[ℓ] .= ΓdbℓCdbℓ[2]
     return nothing
 end
 
+# ------- these on the other hand work with  
+# Ωℓ = [ Γdb[ℓ]     Cdb[ℓ]
+#        Cdb[Jℓ]^*  Γdb[Jℓ]^*  ]
+
 # note that this sets at indices ℓ *and* Jℓ
-function Base.setindex!(az::ComplexCircRings{TΓ,TC}, Ωℓ::AbstractMatrix, ℓ::Int)
+function Base.setindex!(az::ComplexCircRings{M}, Ωℓ::AbstractMatrix, ℓ::Int) where {M}
     1 <= ℓ <= az.nblks || throw(BoundsError(az, ℓ))
     @assert size(Ωℓ,1) == size(Ωℓ,2) == 2az.nside
     Jℓ = ℓ==1 ? 1 : az.nblks - ℓ + 2
@@ -48,41 +62,28 @@ function Base.setindex!(az::ComplexCircRings{TΓ,TC}, Ωℓ::AbstractMatrix, ℓ
     return nothing
 end
 
-# Note, this returns (Γdbℓ, Cdbℓ)
-
-Base.iterate(az::ComplexCircRings) = ((az.Γdb[1], az.Cdb[1]), 1)
-
-function Base.iterate(az::ComplexCircRings, state) 
-    if state > az.nblks
-        return nothing
-    else
-        return ((az.Γdb[state+1], az.Cdb[state+1]), state+1)
-    end
+function Base.getindex(az::ComplexCircRings, ℓ::Int) 
+    1 <= ℓ <= az.nblks || throw(BoundsError(az, ℓ))
+    Jℓ = ℓ==1 ? 1 : az.nblks - ℓ + 2
+    Ωℓ = [ az.Γdb[ℓ]          az.Cdb[ℓ]
+           conj.(az.Cdb[Jℓ])  conj.(az.Γdb[Jℓ]) ]
+    return Ωℓ
 end
-
-Base.length(az::ComplexCircRings) = az.nblks
-
-Base.eltype(::Type{ComplexCircRings{TΓ,TC}}) where {TΓ,TC} = Tuple{TΓ, TC} 
-
-Base.firstindex(az::ComplexCircRings) = 1
-
-Base.lastindex(az::ComplexCircRings)  = az.nblks
-
 
 
 # Interface methods for Abstract linear ops
 # Matrix operations which propigate to the blocks 
 # =======================================
 
-# actually anyfunction 
-for op ∈ (:adjoint, :inv, :sqrt)
-    quote
-        function LinearAlgebra.$op(az::ComplexCircRings{TΓ,TC}) where {TΓ,TC}
-            Σ′ = $op.(az.Σ)
-            ComplexCircRings{eltype(Σ′)}(az.nblks, Σ′)
-        end
-    end |> eval
-end
+##  actually anyfunction 
+##  for op ∈ (:adjoint, :inv, :sqrt)
+##      quote
+##          function LinearAlgebra.$op(az::ComplexCircRings{M}) where {M}
+##              Σ′ = $op.(az.Σ)
+##              ComplexCircRings{eltype(Σ′)}(az.nblks, Σ′)
+##          end
+##      end |> eval
+##  end
 
 
 # Interface methods for Abstract linear ops
@@ -99,91 +100,28 @@ end
 
 ## _lmult for ComplexCircRings on data storage 2 dim
 
-function XFields._lmult(az::ComplexCircRings{TΓ,TC}, f::XF) where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+function XFields._lmult(az::ComplexCircRings{M}, f::XF) where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
     v  = fielddata(FourierField(f))
     w  = similar(v)
+    wc = collect(eachcol(w))
+    vc = collect(eachcol(v))
+    J  = Spectra.Jop(length(az))
     Threads.@threads for i ∈ axes(v, 2)
-        mul!(view(w,:, i), az[i], view(v,:, i))
+        ## mul!(wc[i], az.Γdb[i], vc[i])
+        ## mul!(wc[i], az.Cdb[i], conj.(vc[J(i)]), true, true)
+        wc[i]  .= az.Γdb[i] * vc[i] .+ az.Cdb[i] * conj.(vc[J(i)])
     end
     Xfourier(fieldtransform(f),w)
 end
 
 ## div for ComplexCircRings on data storage 2 dim
 
-function Base.:\(az::ComplexCircRings{TΓ,TC}, f::XF)  where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
-    v  = fielddata(FourierField(f))
-    w  = similar(v)
-    Threads.@threads for i ∈ axes(v, 2)
-        ldiv!(view(w,:, i), factorize(az[i]), view(v,:, i))
-    end
-    Xfourier(fieldtransform(f),w)
-end
-
-
-# misc
-# =======================================
-
-function LinearAlgebra.pinv(M::Eigen)
-    invM = deepcopy(M)
-    invM.values .= pinv.(M.values)
-    invM
-end
-
-check_factorization(az::ComplexCircRings) = all(map(issuccess, az))
-
-function az_sim(tmU::Transform, az::ComplexCircRings{TΓ,TC}) where {M<:Eigen}
-    vx  = randn(eltype_in(tmU), size_in(tmU))
-    v   = Xmap(tmU, vx)[!]
-    w   = similar(v)
-    wk = collect(eachcol(w))
-    vk = collect(eachcol(v))
-    Threads.@threads for i ∈ eachindex(wk)
-        vk[i] .*= sqrt.(az[i].values)
-        mul!(wk[i], az[i].vectors, vk[i])
-    end
-    Xfourier(tmU, w) 
-end
-
-
-function az_sim(tmU::Transform, az::ComplexCircRings{TΓ,TC}) where {M<:Cholesky}
-    wx  = randn(eltype_in(tmU), size_in(tmU))
-    wk  = Xmap(tmU, wx)[!]
-    wkc = collect(eachcol(wk))
-    Threads.@threads for i ∈ eachindex(wkc)
-        lmul!(az[i].L, wkc[i])
-    end
-    Xfourier(tmU, wk) 
-end
-
-
-function az_sim(tmU::Transform, az::ComplexCircRings{TΓ,TC}) where {M<:AbstractMatrix}
-    wx  = randn(eltype_in(tmU), size_in(tmU))
-    wk  = Xmap(tmU, wx)[!]
-    wkc = collect(eachcol(wk))
-    Threads.@threads for i ∈ eachindex(wkc)
-        lmul!(cholesky(az[i], Val(false)).L, wkc[i])
-    end
-    Xfourier(tmU, wk) 
-end
-
-
-
-# function az_sim(tmU::Transform, az::ComplexCircRings{TΓ,TC}) where {M<:Cholesky}
-#     wx = randn(eltype_in(tmU), size_in(tmU))
-#     wk = Xmap(tmU, wx)[!]
-#     for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
-#         lmul!(Σ.L, wkc)
-#     end
-#     Xfourier(tmU, wk) 
-# end
-
-
-# function az_sim(tmU::Transform, az::ComplexCircRings{TΓ,TC}) where {M<:AbstractMatrix}
-#     wx = randn(eltype_in(tmU), size_in(tmU))
-#     wk = Xmap(tmU, wx)[!]
-#     for (Σ, wkc) ∈ zip(az, eachcol(wk)) 
-#         lmul!(cholesky(Σ, Val(false)).L, wkc)
-#     end
-#     Xfourier(tmU, wk) 
-# end
+## function Base.:\(az::ComplexCircRings{M}, f::XF)  where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+##     v  = fielddata(FourierField(f))
+##     w  = similar(v)
+##     Threads.@threads for i ∈ axes(v, 2)
+##         ldiv!(view(w,:, i), factorize(az[i]), view(v,:, i))
+##     end
+##     Xfourier(fieldtransform(f),w)
+## end
 
