@@ -4,6 +4,7 @@ using XFields
 using FFTransforms
 using FieldLensing
 using SphereTransforms  
+using Spectra # needed for complex_circ_rings
 
 using LinearAlgebra
 using Statistics 
