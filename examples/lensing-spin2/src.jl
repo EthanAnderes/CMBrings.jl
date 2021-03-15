@@ -245,8 +245,10 @@ end;
 
 beamℓ = @sblock let ℓvec
 
+    ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
+
     σ² = beamfwhm^2 / 8 / log(2)
     bℓ = @. exp( - σ²*ℓvec*(ℓvec+1) / 2)
     return bℓ
@@ -256,7 +258,7 @@ end;
 ## TODO: I'm pretty sure the beam needs to be fixed 
 ## to account for the pixel area.
 ## needs Σ * LinearAlgebra.Diagonal(Ω)
-Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, T = Float64
+Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω, T = Float64
 
     covBeamβ = Spectra.βcovSpin0(ℓvec, beamℓ)
 
@@ -271,11 +273,12 @@ Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, T = Float64
     @showprogress for k = 1:nθ
         for j = 1:nθ
             θ1, θ2, φ1 = θ[j], θ[k], φ[1]
+            Ωk    = Ω[k] 
             β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
             covIĪ = complex.(covBeamβ(β))  
             mul!(Γdjk, ptmW, covIĪ)
             for ℓ = 1:nφ
-                @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ])
+                @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ]) * Ωk
             end
         end
     end
@@ -285,14 +288,33 @@ Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, T = Float64
 end;
 
 
+#= Beam Test 
+
+ei  = Xmap(tmUS2)
+eo  = Xmap(tmUS2)
+ei.fd[150,400] = im
+eo.fd[150,400] = 1
+
+@time ei′ = Beam_ring * ei;  # 10 times faster than EBcov * ei 
+@time eo′ = Beam_ring * eo;  # 10 times faster than EBcov * ei 
+
+ei′[:] .|> real |> matshow; colorbar()
+ei′[:] .|> imag |> matshow; colorbar()
+
+eo′[:] .|> real |> matshow; colorbar()
+eo′[:] .|> imag |> matshow; colorbar()
 
 
+sum(eo′[:]) # ≈ 1
+sum(ei′[:]) # ≈ im*1
+
+=# 
 
 # Noise
 # ==============================
 
 
-Noise_ring = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float64
+Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float64
 
     nθ=length(θ)
     nφ=length(φ)
@@ -303,9 +325,20 @@ Noise_ring = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float64
     Γdb  = typeof(Diagonal(σ²./Ω))[Diagonal(σ²./Ω) for ℓ = 1:nφ]
     Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
 
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
+    return CMBrings.ComplexCircRings(Γdb, Cdb), μK′n
 
 end
+
+
+#= Noise Test 
+
+ei  = Xmap(tmUS2)
+ei.fd[end - 50,100] = 1
+Nei = Noise_ring * ei
+Nei[:][end - 50,100] # should be approx ...
+deg2rad(μK′n / 60)^2 / Ω[end - 50]
+
+=# 
 
 
 # Preconditioner
@@ -319,13 +352,18 @@ end
         Bm = Beam_ring[ℓ] 
         EB = EB_ring[ℓ] 
         No = Noise_ring[ℓ]
-        Ωℓ = inv(factorize(Hermitian(Bm * EB * Bm + No)))
+        Ωℓ = inv(factorize(Hermitian(Bm * EB * Bm' + No)))
         newCCR[ℓ] = Ωℓ  
     end 
 
     return newCCR
 
 end;
+
+
+#= Preconditioner Test: perhaps as part of a WF 
+
+=# 
 
 
 ## d,V = Precon⁻¹_ring[2] |> Hermitian |> eigen
@@ -374,8 +412,8 @@ qu_test[:][:,1:1000]  .|> imag |> matshow; colorbar()
 
 
 ei  = Xmap(tmUS2)
-## ei.fd[150,400] = 1
-ei.fd[150,400] = im * 1
+ei.fd[150,400] = 1
+## ei.fd[150,400] = im * 1
 
 # @time ei′ = Lcut * ei;
 # @time ei′ = EB_ring * ei;
@@ -383,12 +421,27 @@ ei.fd[150,400] = im * 1
 @time ei′ = Beam_ring * ei;  # 10 times faster than EBcov * ei 
 # @time ei′ = Pr * Beam_ring * EBcov * ei; 
 
-ei′[:] .|> real |> matshow
-ei′[:] .|> imag |> matshow
+ei′[:] .|> real |> matshow; colorbar()
+ei′[:] .|> imag |> matshow; colorbar()
 
 # Test to make sure the beam has the right size....
-(Beam_ring * qu)[:] .|> real |> matshow
-(Beam_ring * qu)[:] .|> imag |> matshow
+(Beam_ring * qu)[:] .|> real |> matshow; colorbar()
+(Beam_ring * qu)[:] .|> imag |> matshow; colorbar()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Full sphere signal operators

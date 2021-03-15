@@ -44,6 +44,7 @@ end
 # ------- these on the other hand work with  
 # Ωℓ = [ Γdb[ℓ]     Cdb[ℓ]
 #        Cdb[Jℓ]^*  Γdb[Jℓ]^*  ]
+# which multiplies  on the left var(z[ℓ], conj.(z[Jℓ]))
 
 # note that this sets at indices ℓ *and* Jℓ
 function Base.setindex!(az::ComplexCircRings{M,N}, Ωℓ::AbstractMatrix, ℓ::Int) where {M,N}
