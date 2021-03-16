@@ -47,10 +47,10 @@ end
 # Set ring transforms
 # ==============================
 
-tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let 
+tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let T = Float32
 
     ## size of the embedding full sphere
-    ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
+    𝕊nθ, 𝕊nφ = (1536, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
@@ -72,8 +72,8 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let
     Ω     = ST.Ωpix(𝕊nθ, 𝕊nφ)[ringidx[:,1]]
 
     ## Unitary transforms for spin0 and spin2 
-    tmUS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Float64, nφ, 2π))    |> x -> FT.unitary_scale(x)*x
-    tmUS2 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(ComplexF64, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
+    tmUS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π))    |> x -> FT.unitary_scale(x)*x
+    tmUS2 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
 
     return tmUS0, tmUS2, θ, φ, Ω, ringidx
 end
@@ -105,7 +105,7 @@ Pr, Qr = @sblock let tmUS2, θ, φ, data_mask_init, QP_bdry=1e-5, fwhm′=150
     ## nθ, nφ = length(θ), length(φ)
     ## ptmW = FT.FFTW.plan_rfft(Matrix{Float64}(undef, nθ, nφ), flags=FT.FFTW.PATIENT) 
     
-    tmFlat = FT.𝕎(Float64, size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
+    tmFlat = FT.𝕎(real(eltype_in(tmUS2)), size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
     pr0x, qr0x = PrQr(tmFlat, data_mask_init, fwhm′, fwhm′, QP_bdry)
     pr0 = Xmap(tmUS2, pr0x)
     qr0 = Xmap(tmUS2, qr0x)
@@ -117,7 +117,7 @@ end;
 
 Mϕ = @sblock let tmUS0, θ, φ, data_mask_init, QP_bdry=1e-5, fwhm′=75
 
-    tmFlat = FT.𝕎(Float64, size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
+    tmFlat = FT.𝕎(real(eltype_in(tmUS0)), size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
     pr0x, qr0x = PrQr(tmFlat, data_mask_init, fwhm′, fwhm′, QP_bdry)
 
     ## mϕx = pr0x .+ qr0x
@@ -202,7 +202,7 @@ end;
 # EB ring operator 
 # ==============================
 
-EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF64
+EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF32
 
     covPβ = Spectra.βcovSpin2(ℓvec, eeℓ, bbℓ;
         ## n_grid::Int = 100_000, 
@@ -212,11 +212,11 @@ EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF64
     nθ=length(θ)
     nφ=length(φ)
 
-    ptmW = FT.FFTW.plan_fft(Vector{T}(undef, nφ), flags=FT.FFTW.PATIENT) 
-    Γdjk = zeros(T, nφ)
-    Cdjk = zeros(T, nφ)
-    Γdb = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    Cdb = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    Γdjk = zeros(ComplexF64, nφ)
+    Cdjk = zeros(ComplexF64, nφ)
+    Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
 
     @showprogress for k = 1:nθ
         for j = 1:nθ
@@ -256,22 +256,22 @@ beamℓ = @sblock let ℓvec
     bℓ = @. exp( - σ²*ℓvec*(ℓvec+1) / 2)
 
 
-    ℓcut = 3500
+    ℓcut = 2500
     bℓ .*= ℓvec .< ℓcut
 
     return bℓ
 
 end;
 
-Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω, T = Float64
+Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω, T = Float32
 
     covBeamβ = Spectra.βcovSpin0(ℓvec, beamℓ)
 
     nθ=length(θ)
     nφ=length(φ)
 
-    ptmW = FT.FFTW.plan_fft(Vector{Complex{T}}(undef, nφ), flags=FT.FFTW.PATIENT) 
-    Γdjk = zeros(Complex{T}, nφ)
+    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    Γdjk = zeros(ComplexF64, nφ)
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
 
@@ -353,12 +353,12 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
 # Preconditioner
 # ==============================
 
-@time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10]
+@time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10], T=ComplexF32
 
     ΩPrℓ = Diagonal(vcat(pr_col, conj.(pr_col)))
     ΩQrℓ = Diagonal(vcat(qr_col, conj.(qr_col)))
 
-    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{ComplexF64}, Matrix{ComplexF64})
+    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{T}, Matrix{T})
 
     Threads.@threads for ℓ = 1:Precon⁻¹.nblks÷2+1
         Bm = Beam_ring[ℓ] 
@@ -488,8 +488,8 @@ fwf[!] .|> imag |> matshow; colorbar()
 # TODO: 
 # ===================================
 
-* Lcut
-* az strip masking 
+* make Precon⁻¹ and Precon both Float32 so some of the conj grad calculations don't take as much storage.
+* clean up the consistance of how we handle the types of the fields and the operators
 * lensing 
 * likelihoods
 
