@@ -51,8 +51,9 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let
 
     ## size of the embedding full sphere
     ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
-    𝕊nθ, 𝕊nφ = (1536, 2560-1)
+    ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
+    𝕊nθ, 𝕊nφ = (2048, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
@@ -246,8 +247,8 @@ end;
 beamℓ = @sblock let ℓvec
 
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
-    beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    ## beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
+    ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
     bℓ = @. exp( - σ²*ℓvec*(ℓvec+1) / 2)
@@ -344,40 +345,94 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
 # Preconditioner
 # ==============================
 
+## TODO: try an azmuthally symmetric mask as part of the preconditioner.
+
 @time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring
 
-    newCCR = similar(EB_ring)
+    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{ComplexF32}, Matrix{ComplexF32})
 
-    Threads.@threads for ℓ = 1:newCCR.nblks÷2+1
+    Threads.@threads for ℓ = 1:Precon⁻¹.nblks÷2+1
         Bm = Beam_ring[ℓ] 
         EB = EB_ring[ℓ] 
         No = Noise_ring[ℓ]
-        Ωℓ = inv(factorize(Hermitian(Bm * EB * Bm' + No)))
-        newCCR[ℓ] = Ωℓ  
+        Ωℓ = Bm * EB * Bm' + No
+        Precon⁻¹[ℓ] = inv(factorize(Hermitian(Ωℓ)))
     end 
 
-    return newCCR
+
+    return Precon⁻¹
 
 end;
 
-
 #= Preconditioner Test: perhaps as part of a WF 
-
 =# 
-
 
 ## d,V = Precon⁻¹_ring[2] |> Hermitian |> eigen
 
 # EB simulation
 # ==============================
 
-## TODO: add a simulation methods ....
-wn  = Xmap(
-    tmUS2, 
-    randn(eltype_in(tmUS2), size_in(tmUS2)),
+
+@time qu = CMBrings.map_ring(
+    Ωℓ -> sqrt(Hermitian(Ωℓ)), 
+    EB_ring, 
+    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
 )
 
-@time qu = CMBrings.map_ring(Ωℓ -> sqrt(Hermitian(Ωℓ)), EB_ring, wn)
+@time no = CMBrings.map_ring(
+    Ωℓ -> sqrt(Symmetric(Matrix(Ωℓ))), 
+    Noise_ring, 
+    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+)
+
+d = Pr * (Beam_ring * qu + no)
+
+## d[:] .|> real |> matshow; colorbar()
+## d[:] .|> imag |> matshow; colorbar()
+
+# WF pcg
+# =====================================
+
+# TODO: make an adjoint ring op ... that wraps ...
+
+@time fwf, gwf, hst =  @sblock let pcg_nsteps=50, pcg_rel_tol=1e-10, data=d, ginit=0*d, Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
+
+    C1a = Pr * Bm * EB * Bm'
+    # C1a = Pr * Bm * Ln * EB * Lnᴴ * Bm'
+    C1b = Pr * No
+    C2a = Qr * Bm * EB * Bm'
+    C2b = Qr * No
+
+    A = function (g)
+        Prᴴ_g = Pr' * g
+        Qrᴴ_g = Qr' * g
+        tmp1a = C1a * Prᴴ_g
+        tmp1b = C1b * Prᴴ_g
+        tmp2a = C2a * Qrᴴ_g
+        tmp2b = C2b * Qrᴴ_g
+        return tmp1a + tmp1b + tmp2a + tmp2b
+    end 
+
+    gwf, hst = CMBrings.pcg(
+        g -> Pc⁻¹ * g, A, 
+        data, ginit,
+        nsteps=pcg_nsteps, rel_tol=pcg_rel_tol,
+    )
+
+    ## fwf   = EB *  Lnᴴ * Bm' * Pr' * gwf
+    fwf     = EB * Bm' * Pr' * gwf
+
+    return  fwf, gwf, hst
+end
+
+
+
+
+## fwf[:] .|> real |> matshow; colorbar()
+## fwf[:] .|> imag |> matshow; colorbar()
+## (d - fwf)[:] .|> imag |> matshow; colorbar()
+
+
 
 #=
 @time qu_test =  @sblock let EB_ring, wn
@@ -405,6 +460,13 @@ qu_test[:][:,1:1000]  .|> imag |> matshow; colorbar()
 =#
 
 
+# Test to make sure the beam has the right size....
+(Beam_ring * qu)[:] .|> real |> matshow; colorbar()
+(Beam_ring * qu)[:] .|> imag |> matshow; colorbar()
+
+
+@time Beam_ring * qu # beam takes .1 seconds
+
 # Test 
 # ========================
 
@@ -412,22 +474,17 @@ qu_test[:][:,1:1000]  .|> imag |> matshow; colorbar()
 
 
 ei  = Xmap(tmUS2)
-ei.fd[150,400] = 1
+ei.fd[end-50,400] = 1
 ## ei.fd[150,400] = im * 1
 
 # @time ei′ = Lcut * ei;
-# @time ei′ = EB_ring * ei;
+@time ei′ = EB_ring * ei;
 # @time ei′ = Noise_ring * ei;
-@time ei′ = Beam_ring * ei;  # 10 times faster than EBcov * ei 
+# @time ei′ = Beam_ring * ei;  # 10 times faster than EBcov * ei 
 # @time ei′ = Pr * Beam_ring * EBcov * ei; 
 
 ei′[:] .|> real |> matshow; colorbar()
 ei′[:] .|> imag |> matshow; colorbar()
-
-# Test to make sure the beam has the right size....
-(Beam_ring * qu)[:] .|> real |> matshow; colorbar()
-(Beam_ring * qu)[:] .|> imag |> matshow; colorbar()
-
 
 
 

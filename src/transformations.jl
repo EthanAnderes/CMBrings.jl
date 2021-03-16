@@ -4,8 +4,8 @@
 # =====================================
 
 
-function LinearAlgebra.dot(f::Xfield{FT},g::Xfield{FT}) where FT<:𝕎 
-    FFTransforms.sum_kbn(f[:].*g[:])
+function LinearAlgebra.dot(f::Xfield{T},g::Xfield{T}) where T<:𝕎 
+    real.(FFTransforms.sum_kbn(f[:] .* conj.(g[:])))
 end
 
 
