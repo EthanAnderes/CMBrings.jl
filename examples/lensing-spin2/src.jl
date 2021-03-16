@@ -53,8 +53,9 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let
     ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
-    𝕊nθ, 𝕊nφ = (2048, 2048-1)
+    ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
+    𝕊nθ, 𝕊nφ = (3584, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
     ## grid coords on full sphere
@@ -248,17 +249,20 @@ beamℓ = @sblock let ℓvec
 
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    beamfwhm  = 5.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm  = 7.0 |> arcmin -> deg2rad(arcmin/60)
+    ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
     bℓ = @. exp( - σ²*ℓvec*(ℓvec+1) / 2)
+
+
+    ℓcut = 3500
+    bℓ .*= ℓvec .< ℓcut
+
     return bℓ
 
 end;
 
-## TODO: I'm pretty sure the beam needs to be fixed 
-## to account for the pixel area.
-## needs Σ * LinearAlgebra.Diagonal(Ω)
 Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω, T = Float64
 
     covBeamβ = Spectra.βcovSpin0(ℓvec, beamℓ)
@@ -311,19 +315,23 @@ sum(ei′[:]) # ≈ im*1
 
 =# 
 
+
+
+
 # Noise
 # ==============================
 
 
-Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float64
+Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float32
 
     nθ=length(θ)
     nφ=length(φ)
 
     μKᵒn = μK′n / 60
     σ²   = deg2rad(μKᵒn)^2
+    σ²_Ω = T.(σ²./Ω)
 
-    Γdb  = typeof(Diagonal(σ²./Ω))[Diagonal(σ²./Ω) for ℓ = 1:nφ]
+    Γdb  = typeof(Diagonal(σ²_Ω))[Diagonal(σ²_Ω) for ℓ = 1:nφ]
     Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
 
     return CMBrings.ComplexCircRings(Γdb, Cdb), μK′n
@@ -345,20 +353,22 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
 # Preconditioner
 # ==============================
 
-## TODO: try an azmuthally symmetric mask as part of the preconditioner.
+@time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10]
 
-@time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring
+    ΩPrℓ = Diagonal(vcat(pr_col, conj.(pr_col)))
+    ΩQrℓ = Diagonal(vcat(qr_col, conj.(qr_col)))
 
-    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{ComplexF32}, Matrix{ComplexF32})
+    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{ComplexF64}, Matrix{ComplexF64})
 
     Threads.@threads for ℓ = 1:Precon⁻¹.nblks÷2+1
         Bm = Beam_ring[ℓ] 
         EB = EB_ring[ℓ] 
         No = Noise_ring[ℓ]
-        Ωℓ = Bm * EB * Bm' + No
-        Precon⁻¹[ℓ] = inv(factorize(Hermitian(Ωℓ)))
+        ## Ωℓ = Bm * EB * Bm' + No
+        Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
+        Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
+        Precon⁻¹[ℓ] = inv(factorize(Hermitian(Ωℓ))) ## pinv(Ωℓ)
     end 
-
 
     return Precon⁻¹
 
@@ -368,6 +378,40 @@ end;
 =# 
 
 ## d,V = Precon⁻¹_ring[2] |> Hermitian |> eigen
+
+
+## Tests an azmuthally symmetric mask as part of the preconditioner.
+#= Mask Test 
+Mask_ring = @sblock let pr_col=Pr[:][:,2*end÷10], θ, φ, T = Float64
+    
+    nθ=length(θ)
+    nφ=length(φ)
+
+    Tpr_col = T.(pr_col)
+    Γdb  = typeof(Diagonal(Tpr_col))[Diagonal(Tpr_col) for ℓ = 1:nφ]
+    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
+
+    return CMBrings.ComplexCircRings(Γdb, Cdb)
+
+end;
+
+ei  = Xmap(tmUS2)
+eo  = Xmap(tmUS2)
+ei.fd[:] .= im
+eo.fd[:] .= 1
+
+@time ei′ = Mask_ring * ei;  
+@time eo′ = Mask_ring * eo;  
+
+ei′[:] .|> real |> matshow; colorbar()
+ei′[:] .|> imag |> matshow; colorbar()
+
+eo′[:] .|> real |> matshow; colorbar()
+eo′[:] .|> imag |> matshow; colorbar()
+
+=# 
+
+
 
 # EB simulation
 # ==============================
@@ -393,15 +437,16 @@ d = Pr * (Beam_ring * qu + no)
 # WF pcg
 # =====================================
 
-# TODO: make an adjoint ring op ... that wraps ...
 
-@time fwf, gwf, hst =  @sblock let pcg_nsteps=50, pcg_rel_tol=1e-10, data=d, ginit=0*d, Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
+@time fwf, gwf, hst =  @sblock let pcg_nsteps=300, pcg_rel_tol=1e-10, data=d, ginit=0*d, Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
 
     C1a = Pr * Bm * EB * Bm'
     # C1a = Pr * Bm * Ln * EB * Lnᴴ * Bm'
     C1b = Pr * No
     C2a = Qr * Bm * EB * Bm'
     C2b = Qr * No
+
+    ## C2a and C2b can be combine into one op.
 
     A = function (g)
         Prᴴ_g = Pr' * g
@@ -428,11 +473,25 @@ end
 
 
 
-## fwf[:] .|> real |> matshow; colorbar()
-## fwf[:] .|> imag |> matshow; colorbar()
-## (d - fwf)[:] .|> imag |> matshow; colorbar()
+fwf[:] .|> real |> matshow; colorbar()
+fwf[:] .|> imag |> matshow; colorbar()
+
+fwf[!] .|> real |> matshow; colorbar()
+fwf[!] .|> imag |> matshow; colorbar()
 
 
+(d - fwf)[:] .|> real |> matshow; colorbar()
+(d - fwf)[:] .|> imag |> matshow; colorbar()
+
+
+
+# TODO: 
+# ===================================
+
+* Lcut
+* az strip masking 
+* lensing 
+* likelihoods
 
 #=
 @time qu_test =  @sblock let EB_ring, wn
