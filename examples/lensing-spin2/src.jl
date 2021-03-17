@@ -50,19 +50,19 @@ end
 tmUS0, tmUS2, θ, φ, Ω, ringidx = @sblock let T = Float32
 
     ## size of the embedding full sphere
-    𝕊nθ, 𝕊nφ = (1536, 1536-1)
+    ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
-    𝕊nθ, 𝕊nφ = (3584, 2048-1)
+    𝕊nθ, 𝕊nφ = (3584, 4096-1)
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
     ## grid coords on full sphere
     θ𝕊, φ𝕊  = ST.pix(𝕊nθ, 𝕊nφ) 
 
     ## north and southern boundaries and the corresponding indices
-    θnorth∂ = 2.2 # 2.12
+    θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
     θsouth∂ = 2.85
     θrng    = findall(θnorth∂ .<= θ𝕊 .<= θsouth∂)
     ringidx = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
@@ -239,8 +239,11 @@ end;
 
 
 
-## d,V = EB_ring[1000] |> Hermitian |> eigen
+## d,V = EB_ring[3] |> Hermitian |> eigen
+## d,V = EB_ring[100] |> Hermitian |> eigen
 
+## @time EB_ring[100] |> Hermitian |> sqrt
+## @time EB_ring[100] |> Hermitian |> cholesky
 
 # Beam
 # ==============================
@@ -249,7 +252,7 @@ beamℓ = @sblock let ℓvec
 
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    beamfwhm  = 7.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm  = 3.0 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
@@ -349,6 +352,26 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
 
 =# 
 
+# EB simulation
+# ==============================
+
+
+@time qu = CMBrings.map_ring(
+    Ωℓ -> sqrt(Hermitian(Ωℓ)), 
+    EB_ring, 
+    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+)
+
+@time no = CMBrings.map_ring(
+    Ωℓ -> sqrt(Symmetric(Matrix(Ωℓ))), 
+    Noise_ring, 
+    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+)
+
+d = Pr * (Beam_ring * qu + no)
+
+## d[:] .|> real |> matshow; colorbar()
+## d[:] .|> imag |> matshow; colorbar()
 
 # Preconditioner
 # ==============================
@@ -364,15 +387,18 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
         Bm = Beam_ring[ℓ] 
         EB = EB_ring[ℓ] 
         No = Noise_ring[ℓ]
-        ## Ωℓ = Bm * EB * Bm' + No
-        Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
-        Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
+        Ωℓ = Bm * EB * Bm' + No
+        ## Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
+        ## Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
         Precon⁻¹[ℓ] = inv(factorize(Hermitian(Ωℓ))) ## pinv(Ωℓ)
     end 
 
     return Precon⁻¹
 
 end;
+
+Base.summarysize(Precon⁻¹_ring) * 1e-9
+Base.summarysize(EB_ring) * 1e-9
 
 #= Preconditioner Test: perhaps as part of a WF 
 =# 
@@ -413,32 +439,11 @@ eo′[:] .|> imag |> matshow; colorbar()
 
 
 
-# EB simulation
-# ==============================
-
-
-@time qu = CMBrings.map_ring(
-    Ωℓ -> sqrt(Hermitian(Ωℓ)), 
-    EB_ring, 
-    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
-)
-
-@time no = CMBrings.map_ring(
-    Ωℓ -> sqrt(Symmetric(Matrix(Ωℓ))), 
-    Noise_ring, 
-    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
-)
-
-d = Pr * (Beam_ring * qu + no)
-
-## d[:] .|> real |> matshow; colorbar()
-## d[:] .|> imag |> matshow; colorbar()
-
 # WF pcg
 # =====================================
 
 
-@time fwf, gwf, hst =  @sblock let pcg_nsteps=300, pcg_rel_tol=1e-10, data=d, ginit=0*d, Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
+@time fwf, gwf, hst =  @sblock let pcg_nsteps=200, pcg_rel_tol=1e-10, data=d, ginit=0*d, Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
 
     C1a = Pr * Bm * EB * Bm'
     # C1a = Pr * Bm * Ln * EB * Lnᴴ * Bm'
@@ -471,17 +476,17 @@ d = Pr * (Beam_ring * qu + no)
 end
 
 
-
+semilogy(hst)
 
 fwf[:] .|> real |> matshow; colorbar()
 fwf[:] .|> imag |> matshow; colorbar()
 
-fwf[!] .|> real |> matshow; colorbar()
-fwf[!] .|> imag |> matshow; colorbar()
+fwf[!] .|> real .|> abs |> matshow; colorbar()
+fwf[!] .|> imag .|> abs |> matshow; colorbar()
 
 
-(d - fwf)[:] .|> real |> matshow; colorbar()
-(d - fwf)[:] .|> imag |> matshow; colorbar()
+(d - fwf)[:] .|> real .|> abs |> matshow; colorbar()
+(d - fwf)[:] .|> imag .|> abs |> matshow; colorbar()
 
 
 
