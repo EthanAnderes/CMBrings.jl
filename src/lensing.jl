@@ -22,6 +22,18 @@ function FieldLensing.flow_data(L::AbstractArrayLense, ff::Xmap{<:Az𝕊2})
 end
 
 
+## for polarization fields stored as a complex field
+
+function FieldLensing.flow_data(L::CMBrings.AbstractArrayLense, ff::Xmap{TM, TI, TO, d}) where {TM, TI<:Complex, TO, d}
+    fd = fielddata(ff)
+    (real.(fd), imag.(fd))
+end
+
+
+function FieldLensing.flow_reconstruct(L::AbstractFlow, ff::MF, ln_ffd::NTuple{2,<:AbstractArray}) where {n, TM, TI<:Complex, TO, d, MF<:Xfield{TM, TI, TO, d}}
+    MF(fieldtransform(ff), complex.(ln_ffd[1], ln_ffd[2]))
+end
+
 
 # 2. Define some gradient methods
 # ===============================================
@@ -73,15 +85,15 @@ function LinearAlgebra.adjoint(∇!::Pix1dFFTNabla!{Tθ,TW,Tik,Tx}) where {Tθ,T
     )
 end
 
-function Pix1dFFTNabla!(∂θ, w::𝕎{Tf}) where Tf
-    wφ = 𝕀(w.sz[1]) ⊗ 𝕎(Tf, w.sz[2:2], w.period[2:2])
+function Pix1dFFTNabla!(∂θ, ::Type{Tf}, nφ, periodφ) where Tf
+    wφ = FFTransforms.:⊗(FFTransforms.𝕀(size(∂θ,1)), FFTransforms.𝕎(Tf, nφ, periodφ))
     planW = plan(wφ)
     c_forFFTNabla = Tf(planW.scale_forward * planW.scale_inverse)
 
     ∇! = Pix1dFFTNabla!(
         ∂θ,
         planW, 
-        im .* fullfreq(wφ)[2] .* c_forFFTNabla,
+        im .* FFTransforms.fullfreq(wφ)[2] .* c_forFFTNabla,
         Array{eltype_out(wφ)}(undef,size_out(wφ)),
         Array{eltype_in(wφ)}(undef,size_in(wφ)),
     )
