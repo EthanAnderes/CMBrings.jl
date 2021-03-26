@@ -187,32 +187,52 @@ function Base.similar(az::ComplexCircRings)
 end
 
 
-function map_ring(fun::Function, az::ComplexCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+# function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+#     fk  = fielddata(FourierField(f))
+#     gk  = similar(fk)
+#     fℓ  = collect(eachcol(fk))
+#     gℓ  = collect(eachcol(gk))
+#     J   = Spectra.Jop(azs[1].nblks)
+#     Threads.@threads for ℓ = 1:J.n
+#         fℓf̄Jℓ  = vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
+#         gℓḡJℓ  = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
+#         gℓ[ℓ] .= gℓḡJℓ[1:end÷2]
+#     end 
+#     XF(Xfourier(fieldtransform(f), gk))
+# end
+
+
+function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
     fk  = fielddata(FourierField(f))
     gk  = similar(fk)
     fℓ  = collect(eachcol(fk))
     gℓ  = collect(eachcol(gk))
-    J   = Spectra.Jop(az.nblks)
-    Threads.@threads for ℓ = 1:J.n
-        Ωℓ     = fun(az[ℓ]) 
-        gℓ[ℓ] .= @view(Ωℓ[1:end÷2,:]) * vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
+    J   = Spectra.Jop(azs[1].nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        fℓf̄Jℓ     = vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
+        gℓḡJℓ     = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
+        gℓ[ℓ]    .= gℓḡJℓ[1:end÷2]
+        gℓ[J(ℓ)] .= conj.(gℓḡJℓ[end÷2+1:end])
     end 
-    Xfourier(fieldtransform(f), gk)
-end;
+    XF(Xfourier(fieldtransform(f), gk))
+end
 
 
-function mod_ring!(az_new::ComplexCircRings, fun::Function, az::ComplexCircRings)
 
-    Threads.@threads for ℓ = 1:az.blks÷2+1
-        Ωℓ      = fun(az[ℓ])
+function map_ring(fun::Function, azs::ComplexCircRings...) 
+    az_new = Base.similar(azs[1])
+    map_ring!(az_new, fun, azs...)
+end
+
+function map_ring!(az_new::ComplexCircRings, fun::Function, azs::ComplexCircRings...)
+
+    Threads.@threads for ℓ = 1:az_new.nblks÷2+1
+        Ωℓ      = fun(map(az->az[ℓ], azs)...)
         az_new[ℓ] = Ωℓ  
     end 
 
     return az_new
 end
-
-mod_ring!(fun::Function, az::ComplexCircRings) = mod_ring!(az, fun, az)
-
 
 ## function LinearAlgebra.mul!(C::CCR, A::CCR, B::CCR, α::Number, β::Number) where {CCR<:CMBrings.ComplexCircRings}
 ## 

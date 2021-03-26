@@ -5,9 +5,9 @@
 using LinearAlgebra
 BLAS.set_num_threads(1)
 
-## using FFTW 
+using FFTW 
 ## FFTW.set_num_threads(Threads.nthreads())
-## FFTW.set_num_threads(1)
+FFTW.set_num_threads(1)
 
 using XFields
 using CMBrings
@@ -42,19 +42,16 @@ else
     hide_plots = true
 end
 
-
-
-
 # Set ring transforms
 # ==============================
 
-tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let T = Float32
+tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let T = Float64
 
     ## size of the embedding full sphere
     ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
-    𝕊nθ, 𝕊nφ = (2048, 2048-1)
+    𝕊nθ, 𝕊nφ = (2048, 1536-1)
+    ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2560-1)
@@ -70,8 +67,8 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let T = Float32
     ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
     ## θsouth∂ = 2.85
     ## Further south
-    θnorth∂ = 2.7
-    θsouth∂ = 3.07
+    θnorth∂ = 2.6
+    θsouth∂ = 3.0
 
     θrng    = findall(θnorth∂ .<= θ𝕊 .<= θsouth∂)
     ringidx = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
@@ -88,10 +85,8 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let T = Float32
     return tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0
 end
 
-
 # Mask and CMBring observation region
 # ==============================
-
 
 data_mask_init = @sblock let θ, φ
     
@@ -210,14 +205,19 @@ eeℓ, bbℓ, ẽeℓ, b̃bℓ, ϕϕℓ, ℓvec = @sblock let
 end;
 
 
+#= ##################################################### 
+nℓₒ = exp(mean(log.(eeℓ[4:5000])))
+loglog(ℓvec, eeℓ)
+loglog(ℓvec, bbℓ)
+loglog(ℓvec, fill(nℓₒ, length(ℓvec)) )
+=# ##################################################### 
 
 
 
 # EB ring operator 
 # ==============================
 
-## EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF32
-EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF64
+EB_ring = @sblock let T = ComplexF64, eeℓ, bbℓ, ℓvec, θ, φ, 
 
     covPβ = Spectra.βcovSpin2(ℓvec, eeℓ, bbℓ;
         ## n_grid::Int = 100_000, 
@@ -256,61 +256,12 @@ EB_ring = @sblock let eeℓ, bbℓ, ℓvec, θ, φ, T = ComplexF64
 end;
 
 
-
-## d,V = EB_ring[3] |> Hermitian |> eigen
-## d,V = EB_ring[100] |> Hermitian |> eigen
-
-## @time EB_ring[100] |> Hermitian |> sqrt
-## @time EB_ring[100] |> Hermitian |> cholesky
-
-
-# Φ operator 
-# ==============================
-
-
-
-Φ_ring = @sblock let ϕϕℓ, ℓvec, θ, φ, Ω
-
-    covΦβ = Spectra.βcovSpin0(ℓvec, ϕϕℓ)
-
-    nθ=length(θ)
-    nφ=length(φ)
-
-    ## ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
-    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
-    Γdjk = zeros(ComplexF64, nφ)
-    Γdb  = Matrix{Float64}[zeros(Float64, nθ, nθ) for ℓ = 1:nφ]
-    Cdb  = Matrix{Float64}[zeros(Float64, nθ, nθ) for ℓ = 1:nφ]
-
-    prgss = Progress(nθ, 1, "Computing the Φ operator ...")
-    for k = 1:nθ
-        for j = 1:nθ
-            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
-            Ωk    = Ω[k] 
-            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covIĪ = complex.(covΦβ(β))  
-            mul!(Γdjk, ptmW, covIĪ)
-            for ℓ = 1:nφ
-                ## TODO: double check this is real ....
-                @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-                @inbounds Cdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-            end
-        end
-        next!(prgss)
-    end
-
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
-
-end;
-
-
-## d,V = Φ_ring[3] |> Symmetric |> eigen
-## d,V = Φ_ring[100] |> Symmetric |> eigen
-
-## @time Φ_ring[100] |> Symmetric |> sqrt
-## @time Φ_ring[100] |> Symmetric |> cholesky
-
-
+#=  ##################################################### 
+d,V = EB_ring[3] |> Hermitian |> eigen
+d,V = EB_ring[100] |> Hermitian |> eigen
+@time EB_ring[100] |> Hermitian |> sqrt
+@time EB_ring[100] |> Hermitian |> cholesky
+=#  ##################################################### 
 
 # Beam
 # ==============================
@@ -319,7 +270,7 @@ beamℓ = @sblock let ℓvec
 
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    beamfwhm  = 2.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm  = 3.5 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
@@ -365,7 +316,8 @@ Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω, T = Float32
 
 end;
 
-#= Beam Test 
+#= ##################################################### 
+## Beam Test 
 
 ei  = Xmap(tmUS2)
 eo  = Xmap(tmUS2)
@@ -381,23 +333,16 @@ ei′[:] .|> imag |> matshow; colorbar()
 eo′[:] .|> real |> matshow; colorbar()
 eo′[:] .|> imag |> matshow; colorbar()
 
-
 ei′[!] .|> abs |> matshow; colorbar()
-
 eo′[!] .|> abs |> matshow; colorbar()
-
 
 sum(eo′[:]) # ≈ 1
 sum(ei′[:]) # ≈ im*1
-
-=# 
-
-
+=# ##################################################### 
 
 
 # Noise
 # ==============================
-
 
 Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float32
 
@@ -415,99 +360,65 @@ Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω, T = Float32
 
 end
 
-
-#= Noise Test 
+#=  #####################################################
+## Noise Test 
 
 ei  = Xmap(tmUS2)
 ei.fd[end - 50,100] = 1
 Nei = Noise_ring * ei
 Nei[:][end - 50,100] # should be approx ...
 deg2rad(μK′n / 60)^2 / Ω[end - 50]
+=# ##################################################### 
 
-=# 
 
 
-# Preconditioner
+
+# Φ operator 
 # ==============================
 
-@time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10], T=ComplexF32
+Φ_ring = @sblock let ϕϕℓ, ℓvec, θ, φ, Ω
 
-    ## ΩPrℓ = Diagonal(vcat(pr_col, conj.(pr_col)))
-    ## ΩQrℓ = Diagonal(vcat(qr_col, conj.(qr_col)))
+    covΦβ = Spectra.βcovSpin0(ℓvec, ϕϕℓ)
 
-    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{T}, Matrix{T})
-
-    prgss = Progress(Precon⁻¹.nblks÷2+1, 1, "Computing the inverse preconditioner ...")
-    Threads.@threads for ℓ = 1:Precon⁻¹.nblks÷2+1
-        Bm = Beam_ring[ℓ] 
-        EB = EB_ring[ℓ] 
-        No = Noise_ring[ℓ]
-        Ωℓ = Bm * EB * Bm' + No
-        ## Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
-        ## Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
-        ## Precon⁻¹[ℓ] = pinv(factorize(Hermitian(Ωℓ))) ## pinv(Ωℓ)
-        Precon⁻¹[ℓ] = pinv(Ωℓ) ## pinv(Ωℓ)
-        next!(prgss)
-    end 
-
-    return Precon⁻¹
-
-end;
-
-Base.summarysize(Precon⁻¹_ring) * 1e-9
-Base.summarysize(EB_ring) * 1e-9
-
-#= Preconditioner Test: perhaps as part of a WF 
-=# 
-
-## d,V = Precon⁻¹_ring[2] |> Hermitian |> eigen
-
-
-## Tests an azmuthally symmetric mask as part of the preconditioner.
-#= Mask Test 
-Mask_ring = @sblock let pr_col=Pr[:][:,2*end÷10], θ, φ, T = Float64
-    
     nθ=length(θ)
     nφ=length(φ)
 
-    Tpr_col = T.(pr_col)
-    Γdb  = typeof(Diagonal(Tpr_col))[Diagonal(Tpr_col) for ℓ = 1:nφ]
-    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
+    ## ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
+    Γdjk = zeros(ComplexF64, nφ)
+    Γdb  = Matrix{Float64}[zeros(Float64, nθ, nθ) for ℓ = 1:nφ]
+    Cdb  = Matrix{Float64}[zeros(Float64, nθ, nθ) for ℓ = 1:nφ]
+
+    prgss = Progress(nθ, 1, "Computing the Φ operator ...")
+    for k = 1:nθ
+        for j = 1:nθ
+            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
+            Ωk    = Ω[k] 
+            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covIĪ = complex.(covΦβ(β))  
+            mul!(Γdjk, ptmW, covIĪ)
+            for ℓ = 1:nφ
+                ## TODO: double check this is real ....
+                @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
+                @inbounds Cdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
+            end
+        end
+        next!(prgss)
+    end
 
     return CMBrings.ComplexCircRings(Γdb, Cdb)
 
 end;
 
-ei  = Xmap(tmUS2)
-eo  = Xmap(tmUS2)
-ei.fd[:] .= im
-eo.fd[:] .= 1
-
-@time ei′ = Mask_ring * ei;  
-@time eo′ = Mask_ring * eo;  
-
-ei′[:] .|> real |> matshow; colorbar()
-ei′[:] .|> imag |> matshow; colorbar()
-
-eo′[:] .|> real |> matshow; colorbar()
-eo′[:] .|> imag |> matshow; colorbar()
-
-=# 
-
-
-
-
-
-
-
-
-
-
-
+#= #####################################################
+d,V = Φ_ring[3] |> Symmetric |> eigen
+d,V = Φ_ring[100] |> Symmetric |> eigen
+@time Φ_ring[100] |> Symmetric |> sqrt
+@time Φ_ring[100] |> Symmetric |> cholesky
+=# #####################################################
 
 # Gradients Set sparse increment matrices for non-FFT lensing
 # ==================================================
-
 
 function generate_∇!_∇!ϕ_1storder(tmS0, θℝ::Vector{T_fld}, φℝ::Vector{T_fld}) where T_fld
     Δθℝ, Δφℝ = θℝ[2] - θℝ[1], φℝ[2] - φℝ[1]
@@ -519,15 +430,15 @@ function generate_∇!_∇!ϕ_1storder(tmS0, θℝ::Vector{T_fld}, φℝ::Vector
     ∂θ′[end,1] =  1
     ∂θ = T_fld(1 / (Δθℝ)) * ∂θ′
 
-    # ∂φ  = spdiagm(
-    #         0 => fill(-1,length(φℝ)), 
-    #         1 => fill(1,length(φℝ)-1)
-    #     )
-    # ∂φ[end,1] =  1
-    # ∂φᵀ = transpose(T_fld(1 / (Δφℝ)) * ∂φ)
+    ## ∂φ  = spdiagm(
+    ##         0 => fill(-1,length(φℝ)), 
+    ##         1 => fill(1,length(φℝ)-1)
+    ##     )
+    ## ∂φ[end,1] =  1
+    ## ∂φᵀ = transpose(T_fld(1 / (Δφℝ)) * ∂φ)
 
-    # ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
-    # ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
+    ## ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
+    ## ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
 
     T = eltype_in(tmS0)
     ∇!   = CMBrings.Pix1dFFTNabla!((∂θ - ∂θ')/2, T, length(φℝ), T(2π))
@@ -641,30 +552,36 @@ end
 
 
 @time qu = CMBrings.map_ring(
-    Ωℓ -> sqrt(Hermitian(Ωℓ)), 
-    EB_ring, 
+    (fℓ, Σℓ) -> sqrt(Hermitian(Σℓ)) * fℓ,
     Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+    EB_ring, 
 )
 
 @time no = CMBrings.map_ring(
-    Ωℓ -> sqrt(Symmetric(Matrix(Ωℓ))), 
-    Noise_ring, 
+    (fℓ, Σℓ) -> sqrt(Hermitian(Matrix(Σℓ))) * fℓ,
     Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+    Noise_ring, 
 )
 
 
 @time ϕ = CMBrings.map_ring(
-    Ωℓ -> sqrt(Symmetric(Matrix(Ωℓ))), 
-    Φ_ring, 
+    (fℓ, Σℓ) -> sqrt(Symmetric(Σℓ)) * fℓ,
     Xmap(tmUS0, randn(eltype_in(tmUS0), size_in(tmUS0))),
+    Φ_ring, 
 )
 ϕ = Xmap(tmS0, real.(ϕ[:]))
-
 
 
 d = Pr * (Beam_ring * Ł(ϕ) * qu + no)
 
 #=
+
+
+Ðqu = Ð_ring * qu
+Ðqu[:] .|> real |> matshow; colorbar()
+Ðqu[:] .|> imag |> matshow; colorbar()
+
+
 qu[:] .|> real |> matshow; colorbar()
 qu[:] .|> imag |> matshow; colorbar()
 
@@ -690,6 +607,175 @@ d[:] .|> imag |> matshow; colorbar()
 =#
 
 
+# MixFlow
+# ==============================
+
+EB̃_ring = @sblock let T = ComplexF32, eeℓ, bbℓ, ẽeℓ, b̃bℓ, ℓvec, θ, φ
+
+    nℓₒ   = exp(mean(log.(eeℓ[4:end])))
+    covPβ = Spectra.βcovSpin2(ℓvec, ẽeℓ, b̃bℓ)
+
+    nθ = length(θ)
+    nφ = length(φ)
+
+    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
+    Γdjk = zeros(ComplexF64, nφ)
+    Cdjk = zeros(ComplexF64, nφ)
+    Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+
+    prgss = Progress(nθ, 1, "Computing EB̃_ring operator ...")
+    for k = 1:nθ
+        for j = 1:nθ
+            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
+            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
+            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
+            mul!(Γdjk, ptmW, covPP̄)
+            mul!(Cdjk, ptmW, covPP)
+            for ℓ = 1:nφ
+                @inbounds Γdb[ℓ][j,k] = Γdjk[ℓ]
+                @inbounds Cdb[ℓ][j,k] = Cdjk[ℓ]
+            end
+        end
+        next!(prgss)
+    end
+
+    return CMBrings.ComplexCircRings(Γdb, Cdb)
+end;
+
+
+# @time Ð = CMBrings.map_ring(
+#     (EBℓ, EB̃ℓ, Nℓ) -> sqrt(Hermitian(EB̃ℓ + Nℓ)) / sqrt(Hermitian(EBℓ)),
+#     EB_ring, EB̃_ring, Noise_ring,
+# )
+
+
+# @time Ðqu    = Ð * qu
+
+# @time Ð⁻¹Ðqu = CMBrings.map_ring(
+#     (fℓ, Dℓ) ->  Dℓ \ fℓ,
+#     qu, Ð,
+# )
+
+
+@time Ðqu = CMBrings.map_ring(
+    (fℓ, EBℓ, EB̃ℓ, Nℓ) -> sqrt(Hermitian(EB̃ℓ + Nℓ)) * (sqrt(Hermitian(EBℓ)) \ fℓ),
+    qu, EB_ring, EB̃_ring, Noise_ring,
+)
+
+
+@time Ð⁻¹Ðqu = CMBrings.map_ring(
+    (fℓ, EBℓ, EB̃ℓ, Nℓ) ->  sqrt(Hermitian(EBℓ)) * (sqrt(Hermitian(EB̃ℓ + Nℓ)) \ fℓ),
+    Ðqu, EB_ring, EB̃_ring, Noise_ring,
+)
+
+
+qu[:] |> real |> matshow; colorbar()
+Ð⁻¹Ðqu[:]|> real |> matshow; colorbar()
+Ð⁻¹Ðqu[:] .- qu[:] |> real |> matshow; colorbar()
+Ðqu[:] .- qu[:] |> real |> matshow; colorbar()
+
+qu[!] .|> abs |> matshow; colorbar()
+Ð⁻¹Ðqu[!] .|> abs |> matshow; colorbar()
+Ð⁻¹Ðqu[!] .- qu[!] .|> abs |> matshow; colorbar()
+Ðqu[!] .- qu[!] .|> abs |> matshow; colorbar()
+
+
+#= #####################################################
+## cholesky doesn't appear to work here.
+
+@time qu = CMBrings.map_ring(
+    Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2))),
+    EB_ring, 
+) do fℓ, EBℓ
+    sqrt(Hermitian(EBℓ)) * fℓ
+    ## cholesky(Hermitian(EBℓ)).L * fℓ 
+end
+
+@time wqu = CMBrings.map_ring(qu, EB_ring) do fℓ, EBℓ
+    sqrt(Hermitian(EBℓ)) \ fℓ
+    ## cholesky(Hermitian(EBℓ)).L \ fℓ
+end
+
+@time Ðqu = CMBrings.map_ring(qu, EB_ring, EB̃_ring, Noise_ring) do fℓ, EBℓ, EB̃ℓ, Nℓ
+    sqrt(Hermitian(EB̃ℓ + Nℓ)) * (sqrt(Hermitian(EBℓ)) \ fℓ)
+    ## cholesky(Hermitian(EB̃ℓ + Nℓ)).L * (cholesky(Hermitian(EBℓ)).L \ fℓ)
+end
+
+Ðqu[:] |> real |> matshow
+Ðqu[:] |> imag |> matshow
+
+=# #####################################################
+
+
+# Preconditioner
+# ==============================
+
+@time Precon⁻¹_ring = @sblock let T=ComplexF32, EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10]
+
+    ## ΩPrℓ = Diagonal(vcat(pr_col, conj.(pr_col)))
+    ## ΩQrℓ = Diagonal(vcat(qr_col, conj.(qr_col)))
+
+    Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{T}, Matrix{T})
+
+    prgss = Progress(Precon⁻¹.nblks÷2+1, 1, "Computing the inverse preconditioner ...")
+    Threads.@threads for ℓ = 1:Precon⁻¹.nblks÷2+1
+        Bm = Beam_ring[ℓ] 
+        EB = EB_ring[ℓ] 
+        No = Noise_ring[ℓ]
+        Ωℓ = Bm * EB * Bm' + No
+        ## Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
+        ## Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
+        ## Precon⁻¹[ℓ] = pinv(factorize(Hermitian(Ωℓ))) ## pinv(Ωℓ)
+        Precon⁻¹[ℓ] = pinv(Ωℓ) ## pinv(Ωℓ)
+        next!(prgss)
+    end 
+
+    return Precon⁻¹
+
+end;
+
+Base.summarysize(Precon⁻¹_ring) * 1e-9
+Base.summarysize(EB_ring) * 1e-9
+
+## d,V = Precon⁻¹_ring[2] |> Hermitian |> eigen
+
+#= ##################################################### 
+## Tests an azmuthally symmetric mask as part of the preconditioner
+
+Mask_ring = @sblock let pr_col=Pr[:][:,2*end÷10], θ, φ, T = Float64
+    
+    nθ=length(θ)
+    nφ=length(φ)
+
+    Tpr_col = T.(pr_col)
+    Γdb  = typeof(Diagonal(Tpr_col))[Diagonal(Tpr_col) for ℓ = 1:nφ]
+    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
+
+    return CMBrings.ComplexCircRings(Γdb, Cdb)
+
+end;
+
+ei  = Xmap(tmUS2)
+eo  = Xmap(tmUS2)
+ei.fd[:] .= im
+eo.fd[:] .= 1
+
+@time ei′ = Mask_ring * ei;  
+@time eo′ = Mask_ring * eo;  
+
+ei′[:] .|> real |> matshow; colorbar()
+ei′[:] .|> imag |> matshow; colorbar()
+
+eo′[:] .|> real |> matshow; colorbar()
+eo′[:] .|> imag |> matshow; colorbar()
+
+=# ##################################################### 
+
+
+
 
 
 # WF pcg
@@ -699,8 +785,8 @@ d[:] .|> imag |> matshow; colorbar()
 gwf = 0*d 
 
 
-## @time fwf, gwf, hst =  @sblock let Łϕ=Ł(ϕ), ginit=Xmap(gwf), data=Xmap(d), pcg_nsteps=300, pcg_rel_tol=1e-10,  Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
-@time fwf, gwf, hst =  @sblock let Łϕ=DiagOp(Xmap(tmUS2,1)), ginit=Xmap(gwf), data=Xmap(d), pcg_nsteps=300, pcg_rel_tol=1e-10,  Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
+@time fwf, gwf, hst =  @sblock let pcg_nsteps=300, Łϕ=Ł(ϕ), ginit=Xmap(gwf), data=Xmap(d),  pcg_rel_tol=1e-10,  Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
+## @time fwf, gwf, hst =  @sblock let Łϕ=DiagOp(Xmap(tmUS2,1)), ginit=Xmap(gwf), data=Xmap(d), pcg_nsteps=300, pcg_rel_tol=1e-10,  Pr, Qr, EB=EB_ring, Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring
 
     Łϕᴴ = Łϕ'
     C1a = Pr * Bm * Łϕ * EB * Łϕᴴ * Bm'
@@ -740,6 +826,8 @@ end
 
 semilogy(hst)
 
+
+
 fwf[:][:,1:1000] .|> real |> matshow; colorbar()
 fwf[:][:,1:1000] .|> imag |> matshow; colorbar()
 
@@ -759,6 +847,13 @@ qu[!] .|> imag .|> abs |> matshow; colorbar()
 
 
 
+@sblock let fwf, φ, θ, hide_plots
+    hide_plots && return
+    imgs = Dict(1=>real.(fwf[:]), 2=>imag.(fwf[:]))
+    txt  = Dict(1=>"E(Q|d)", 2=>"E(U|d)")
+    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+    return fig
+end
 
 
 
