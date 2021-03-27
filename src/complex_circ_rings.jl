@@ -80,8 +80,8 @@ function XFields._lmult(az::AdjointCircRings, f::XF) where {TM, Ti<:Complex, To,
     Threads.@threads for ℓ = 1:J.n÷2+1
         Jℓ = J(ℓ)
         vcℓ, vcJℓ  = vc[ℓ], vc[Jℓ]
-        wc[ℓ]     .= az.Γdb[ℓ]' * vcℓ        .+ az.Cdb[Jℓ]' * conj.(vcJℓ)
-        wc[Jℓ]    .= az.Cdb[ℓ]' * conj.(vcℓ) .+ az.Γdb[Jℓ]' * vcJℓ
+        wc[ℓ]     .= az.az.Γdb[ℓ]' * vcℓ        .+ az.az.Cdb[Jℓ]' * conj.(vcJℓ)
+        wc[Jℓ]    .= az.az.Cdb[ℓ]' * conj.(vcℓ) .+ az.az.Γdb[Jℓ]' * vcJℓ
     end
     Xfourier(fieldtransform(f),w)
 end
@@ -96,7 +96,7 @@ function XFields._lmult(az::AdjointCircRings, f::XF) where {TM, Ti<:Real, To, XF
     Threads.@threads for ℓ = 1:J.n÷2+1
         Jℓ     = J(ℓ)
         vcℓ    = vc[ℓ]
-        wc[ℓ] .= az.Γdb[ℓ]' * vcℓ .+ az.Cdb[Jℓ]' * vcℓ
+        wc[ℓ] .= az.az.Γdb[ℓ]' * vcℓ .+ az.az.Cdb[Jℓ]' * vcℓ
     end
     Xfourier(fieldtransform(f),w)
 end
@@ -125,17 +125,37 @@ function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Complex, To, XF<:Xfie
     wc = collect(eachcol(w))
     vc = collect(eachcol(v))
     J  = Spectra.Jop(az.nblks)
+    rtol = sqrt(eps(real(float(one(eltype(az.Γdb[1]))))))
     Threads.@threads for ℓ = 1:J.n÷2+1
         Jℓ = J(ℓ)
         vcℓ, v̄cJℓ = vc[ℓ], conj.(vc[Jℓ])
         Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
-        Γℓ⁻¹vcℓ = Γℓ \ vcℓ
-        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ / Γℓ * Cℓ) \ (v̄cJℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
-        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
+        Γℓ⁻¹ = pinv(Γℓ; rtol)
+        Γℓ⁻¹vcℓ = Γℓ⁻¹ * vcℓ
+        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ * Γℓ⁻¹ * Cℓ) \ (v̄cJℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ⁻¹ * Cℓ * w̄cJℓ 
         wc[Jℓ] .= conj.(w̄cJℓ)
     end
     Xfourier(fieldtransform(f),w)
 end
+# function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
+#     v  = fielddata(FourierField(f))
+#     w  = similar(v)
+#     wc = collect(eachcol(w))
+#     vc = collect(eachcol(v))
+#     J  = Spectra.Jop(az.nblks)
+#     Threads.@threads for ℓ = 1:J.n÷2+1
+#         Jℓ = J(ℓ)
+#         vcℓ, v̄cJℓ = vc[ℓ], conj.(vc[Jℓ])
+#         Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
+#         Γℓ⁻¹vcℓ = Γℓ \ vcℓ
+#         w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ / Γℓ * Cℓ) \ (v̄cJℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+#         wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
+#         wc[Jℓ] .= conj.(w̄cJℓ)
+#     end
+#     Xfourier(fieldtransform(f),w)
+# end
+
 
 # ComplexCircRings,  Real in map space
 function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
@@ -144,18 +164,36 @@ function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{
     wc = collect(eachcol(w))
     vc = collect(eachcol(v))
     J  = Spectra.Jop(az.nblks)
+    rtol = sqrt(eps(real(float(one(eltype(az.Γdb[1]))))))
     Threads.@threads for ℓ = 1:J.n÷2+1
         Jℓ = J(ℓ)
         # note conj.(vcJℓ) = vcℓ
         vcℓ = vc[ℓ]
         Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
-        Γℓ⁻¹vcℓ = Γℓ \ vcℓ
-        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ / Γℓ * Cℓ) \ (vcℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
-        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
+        Γℓ⁻¹ = pinv(Γℓ; rtol)
+        Γℓ⁻¹vcℓ = Γℓ⁻¹ * vcℓ
+        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ * Γℓ⁻¹ * Cℓ) \ (vcℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ⁻¹ * Cℓ * w̄cJℓ 
     end
     Xfourier(fieldtransform(f),w)
 end
-
+# function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
+#     v  = fielddata(FourierField(f))
+#     w  = similar(v)
+#     wc = collect(eachcol(w))
+#     vc = collect(eachcol(v))
+#     J  = Spectra.Jop(az.nblks)
+#     Threads.@threads for ℓ = 1:J.n÷2+1
+#         Jℓ = J(ℓ)
+#         # note conj.(vcJℓ) = vcℓ
+#         vcℓ = vc[ℓ]
+#         Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
+#         Γℓ⁻¹vcℓ = Γℓ \ vcℓ
+#         w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ * (Γℓ \ Cℓ)) \ (vcℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+#         wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
+#     end
+#     Xfourier(fieldtransform(f),w)
+# end
 
 
 function Base.:\(az::CMBrings.ComplexCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
