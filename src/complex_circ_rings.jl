@@ -32,8 +32,77 @@ function Base.adjoint(az::ComplexCircRings{M,N}) where {M,N}
     return AdjointCircRings{M,N}(az)
 end
 
-# Define left operation 
+
+
+# Define left mult 
 # ==================================
+
+# ComplexCircRings,  Complex in map space
+function XFields._lmult(az::ComplexCircRings, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    wc = collect(eachcol(w))
+    vc = collect(eachcol(v))
+    J  = Spectra.Jop(az.nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ = J(ℓ)
+        vcℓ, vcJℓ = vc[ℓ], vc[Jℓ]
+        wc[ℓ]    .= az.Γdb[ℓ]  * vcℓ        .+ az.Cdb[ℓ]  * conj.(vcJℓ)
+        wc[Jℓ]   .= az.Cdb[Jℓ] * conj.(vcℓ) .+ az.Γdb[Jℓ] * vcJℓ
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+# ComplexCircRings, Real in map space
+function XFields._lmult(az::ComplexCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    wc = collect(eachcol(w))
+    vc = collect(eachcol(v))
+    J  = Spectra.Jop(az.nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ     = J(ℓ)
+        vcℓ    = vc[ℓ] # note conj.(vcJℓ) = vcℓ
+        wc[ℓ] .= az.Γdb[ℓ]  * vcℓ .+ az.Cdb[ℓ]  * conj.(vcℓ)
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+# ----------------------------
+
+# AdjointCircRings, Complex in pixel space
+function XFields._lmult(az::AdjointCircRings, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    wc = collect(eachcol(w))
+    vc = collect(eachcol(v))
+    J  = Spectra.Jop(az.az.nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ = J(ℓ)
+        vcℓ, vcJℓ  = vc[ℓ], vc[Jℓ]
+        wc[ℓ]     .= az.Γdb[ℓ]' * vcℓ        .+ az.Cdb[Jℓ]' * conj.(vcJℓ)
+        wc[Jℓ]    .= az.Cdb[ℓ]' * conj.(vcℓ) .+ az.Γdb[Jℓ]' * vcJℓ
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+# AdjointCircRings, Real in pixel space
+function XFields._lmult(az::AdjointCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
+    v  = fielddata(FourierField(f))
+    w  = similar(v)
+    wc = collect(eachcol(w))
+    vc = collect(eachcol(v))
+    J  = Spectra.Jop(az.az.nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ     = J(ℓ)
+        vcℓ    = vc[ℓ]
+        wc[ℓ] .= az.Γdb[ℓ]' * vcℓ .+ az.Cdb[Jℓ]' * vcℓ
+    end
+    Xfourier(fieldtransform(f),w)
+end
+
+# * calls out to _lmult
+# ----------------------------
 
 function Base.:*(az::ComplexCircRings, f::XF) where {XF<:Xfield}
     XF(XFields._lmult(az, f))
@@ -43,45 +112,124 @@ function Base.:*(az::AdjointCircRings, f::XF) where {XF<:Xfield}
     XF(XFields._lmult(az, f))
 end
 
-function XFields._lmult(az::ComplexCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+
+
+
+# Define left divide
+# ==================================
+
+# ComplexCircRings,  Complex in map space
+function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
     v  = fielddata(FourierField(f))
     w  = similar(v)
     wc = collect(eachcol(w))
     vc = collect(eachcol(v))
     J  = Spectra.Jop(az.nblks)
-    Threads.@threads for ℓ ∈ axes(v, 2)
-        ## mul!(wc[ℓ], az.Γdb[ℓ], vc[ℓ])
-        ## mul!(wc[ℓ], az.Cdb[ℓ], conj.(vc[J(ℓ)]), true, true)
-        wc[ℓ]  .= az.Γdb[ℓ] * vc[ℓ] .+ az.Cdb[ℓ] * conj.(vc[J(ℓ)])
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ = J(ℓ)
+        vcℓ, v̄cJℓ = vc[ℓ], conj.(vc[Jℓ])
+        Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
+        Γℓ⁻¹vcℓ = Γℓ \ vcℓ
+        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ / Γℓ * Cℓ) \ (v̄cJℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
+        wc[Jℓ] .= conj.(w̄cJℓ)
     end
     Xfourier(fieldtransform(f),w)
 end
 
-function XFields._lmult(az::AdjointCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+# ComplexCircRings,  Real in map space
+function _ldiv(az::ComplexCircRings, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
     v  = fielddata(FourierField(f))
     w  = similar(v)
     wc = collect(eachcol(w))
     vc = collect(eachcol(v))
-    J  = Spectra.Jop(az.az.nblks)
-    Threads.@threads for ℓ ∈ axes(v, 2)
-        wc[ℓ]  .= az.az.Γdb[ℓ]' * vc[ℓ] .+ az.az.Cdb[J(ℓ)]' * conj.(vc[J(ℓ)])
+    J  = Spectra.Jop(az.nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        Jℓ = J(ℓ)
+        # note conj.(vcJℓ) = vcℓ
+        vcℓ = vc[ℓ]
+        Γℓ, Γ̄Jℓ, Cℓ, C̄Jℓ = az.Γdb[ℓ], conj.(az.Γdb[Jℓ]), az.Cdb[ℓ], conj.(az.Cdb[Jℓ]) 
+        Γℓ⁻¹vcℓ = Γℓ \ vcℓ
+        w̄cJℓ    = (Γ̄Jℓ - C̄Jℓ / Γℓ * Cℓ) \ (vcℓ - C̄Jℓ * Γℓ⁻¹vcℓ)
+        wc[ℓ]  .= Γℓ⁻¹vcℓ - Γℓ \ (Cℓ * w̄cJℓ) 
     end
     Xfourier(fieldtransform(f),w)
 end
 
 
-## div for ComplexCircRings on data storage 2 dim
-## ----------------------------------------------
-## function Base.:\(az::ComplexCircRings{M}, f::XF)  where {M<:AbstractMatrix, TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
-##     v  = fielddata(FourierField(f))
-##     w  = similar(v)
-##     Threads.@threads for i ∈ axes(v, 2)
-##         ldiv!(view(w,:, i), factorize(az[i]), view(v,:, i))
-##     end
-##     Xfourier(fieldtransform(f),w)
-## end
+
+function Base.:\(az::CMBrings.ComplexCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+    ## CMBrings.map_ring((fℓ, Σℓ) -> factorize(Hermitian(Σℓ)) \ fℓ, f, az)
+    XF(_ldiv(az, f))
+end
+
+## TODO: need to add adjoint ldiv direct eval at some point
+function Base.:\(az::CMBrings.AdjointCircRings, f::XF) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
+    @warn "at the moment div(azᴴ,f0 assumes az is symmetric"
+    CMBrings.map_ring((fℓ, Σℓ) -> factorize(Hermitian(Σℓ)) \ fℓ, f, az.az)
+end
 
 
+
+# Test these methods 
+# ===============================
+# Note, the idea is that for CCR::ComplexCircRings
+# CCR[ℓ] gives Ωℓ and to access the Γdb or Cdb one 
+# does CCR.Γdb[ℓ] or CCR.Cdb[ℓ].
+
+
+# map_ring for Complex pixel fields
+function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
+    fk  = fielddata(FourierField(f))
+    gk  = similar(fk)
+    fℓ  = collect(eachcol(fk))
+    gℓ  = collect(eachcol(gk))
+    J   = Spectra.Jop(azs[1].nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        fℓf̄Jℓ     = vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
+        gℓḡJℓ     = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
+        gℓ[ℓ]    .= gℓḡJℓ[1:end÷2]
+        gℓ[J(ℓ)] .= conj.(gℓḡJℓ[end÷2+1:end])
+    end 
+    XF(Xfourier(fieldtransform(f), gk))
+end
+
+# map_ring for Real pixel fields
+function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
+    fk  = fielddata(FourierField(f))
+    gk  = similar(fk)
+    fℓ  = collect(eachcol(fk))
+    gℓ  = collect(eachcol(gk))
+    J   = Spectra.Jop(azs[1].nblks)
+    Threads.@threads for ℓ = 1:J.n÷2+1
+        # note conj.(vcJℓ) = vcℓ
+        fℓf̄Jℓ  = vcat(fℓ[ℓ], fℓ[ℓ])
+        gℓḡJℓ  = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
+        gℓ[ℓ] .= gℓḡJℓ[1:end÷2]
+    end 
+    XF(Xfourier(fieldtransform(f), gk))
+end
+
+
+function map_ring(fun::Function, azs::ComplexCircRings...) 
+    az_new = Base.similar(azs[1])
+    map_ring!(az_new, fun, azs...)
+end
+
+function map_ring!(az_new::ComplexCircRings, fun::Function, azs::ComplexCircRings...)
+    Threads.@threads for ℓ = 1:az_new.nblks÷2+1
+        Ωℓ      = fun(map(az->az[ℓ], azs)...)
+        az_new[ℓ] = Ωℓ  
+    end 
+    return az_new
+end
+
+
+function Base.similar(az::ComplexCircRings)
+    Γdb  = map(similar, az.Γdb)
+    Cdb  = map(similar, az.Cdb)
+    return ComplexCircRings(Γdb, Cdb)
+end
 
 # Make ComplexCircRings an iterator
 # =======================================
@@ -155,90 +303,3 @@ function Base.setindex!(az::ComplexCircRings{M,N}, ΓdbℓCdbℓ::Tuple{M,N}, �
     return nothing
 end
 
-
-
-# Interface methods for Abstract linear ops
-# Matrix operations which propigate to the blocks 
-# =======================================
-
-##  actually anyfunction 
-##  for op ∈ (:adjoint, :inv, :sqrt)
-##      quote
-##          function LinearAlgebra.$op(az::ComplexCircRings{M}) where {M}
-##              Σ′ = $op.(az.Σ)
-##              ComplexCircRings{eltype(Σ′)}(az.nblks, Σ′)
-##          end
-##      end |> eval
-##  end
-
-
-
-# Test these methods 
-# ===============================
-# Note, the idea is that for CCR::ComplexCircRings
-# CCR[ℓ] gives Ωℓ and to access the Γdb or Cdb one 
-# does CCR.Γdb[ℓ] or CCR.Cdb[ℓ].
-
-
-function Base.similar(az::ComplexCircRings)
-    Γdb  = map(similar, az.Γdb)
-    Cdb  = map(similar, az.Cdb)
-    return ComplexCircRings(Γdb, Cdb)
-end
-
-
-# function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
-#     fk  = fielddata(FourierField(f))
-#     gk  = similar(fk)
-#     fℓ  = collect(eachcol(fk))
-#     gℓ  = collect(eachcol(gk))
-#     J   = Spectra.Jop(azs[1].nblks)
-#     Threads.@threads for ℓ = 1:J.n
-#         fℓf̄Jℓ  = vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
-#         gℓḡJℓ  = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
-#         gℓ[ℓ] .= gℓḡJℓ[1:end÷2]
-#     end 
-#     XF(Xfourier(fieldtransform(f), gk))
-# end
-
-
-function map_ring(fun::Function, f::XF, azs::ComplexCircRings...) where {TM, Ti, To, XF<:Xfield{TM,Ti,To,2}}
-    fk  = fielddata(FourierField(f))
-    gk  = similar(fk)
-    fℓ  = collect(eachcol(fk))
-    gℓ  = collect(eachcol(gk))
-    J   = Spectra.Jop(azs[1].nblks)
-    Threads.@threads for ℓ = 1:J.n÷2+1
-        fℓf̄Jℓ     = vcat(fℓ[ℓ], conj.(fℓ[J(ℓ)]))
-        gℓḡJℓ     = fun(fℓf̄Jℓ, map(az->az[ℓ], azs)...)
-        gℓ[ℓ]    .= gℓḡJℓ[1:end÷2]
-        gℓ[J(ℓ)] .= conj.(gℓḡJℓ[end÷2+1:end])
-    end 
-    XF(Xfourier(fieldtransform(f), gk))
-end
-
-
-
-function map_ring(fun::Function, azs::ComplexCircRings...) 
-    az_new = Base.similar(azs[1])
-    map_ring!(az_new, fun, azs...)
-end
-
-function map_ring!(az_new::ComplexCircRings, fun::Function, azs::ComplexCircRings...)
-
-    Threads.@threads for ℓ = 1:az_new.nblks÷2+1
-        Ωℓ      = fun(map(az->az[ℓ], azs)...)
-        az_new[ℓ] = Ωℓ  
-    end 
-
-    return az_new
-end
-
-## function LinearAlgebra.mul!(C::CCR, A::CCR, B::CCR, α::Number, β::Number) where {CCR<:CMBrings.ComplexCircRings}
-## 
-##     Threads.@threads for ℓ = 1:C.nblks÷2+1
-##         C[ℓ] = A[ℓ] * B[ℓ] * α + β * C[ℓ]
-##     end 
-## 
-##     return C
-## end
