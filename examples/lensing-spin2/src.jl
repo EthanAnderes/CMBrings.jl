@@ -617,9 +617,8 @@ d[:] .|> imag |> matshow; colorbar()
 # MixFlow
 # ==============================
 
-EB̃_ring = @sblock let eeℓ, bbℓ, ẽeℓ, b̃bℓ, ℓvec, θ, φ
+Ð⁻¹ = @sblock let ẽeℓ, b̃bℓ, ℓvec, θ, φ, EB_ring, Noise_ring
 
-    nℓₒ   = exp(mean(log.(eeℓ[4:end])))
     covPβ = Spectra.βcovSpin2(ℓvec, ẽeℓ, b̃bℓ)
 
     nθ = length(θ)
@@ -650,15 +649,15 @@ EB̃_ring = @sblock let eeℓ, bbℓ, ẽeℓ, b̃bℓ, ℓvec, θ, φ
         next!(prgss)
     end
 
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
+    EB̃_ring = CMBrings.ComplexCircRings(Γdb, Cdb)
+
+    Ð⁻¹ =  CMBrings.map_ring(
+        (EBℓ, EB̃ℓ, Nℓ) -> sqrt(Hermitian(EBℓ)) / sqrt(Hermitian(EB̃ℓ + Nℓ)),
+        EB_ring, EB̃_ring, Noise_ring,
+    );
+
+    return Ð⁻¹
 end;
-
-@time Ð⁻¹ =  CMBrings.map_ring(
-    (EBℓ, EB̃ℓ, Nℓ) -> sqrt(Hermitian(EBℓ)) / sqrt(Hermitian(EB̃ℓ + Nℓ)),
-    EB_ring, EB̃_ring, Noise_ring,
-);
-
-EB̃_ring = 0
 
 #= #####################################################
 
@@ -677,6 +676,120 @@ qu[!] .|> abs |> matshow; colorbar()
 Ðqu[!] .|> abs |> matshow; colorbar()
 
 =# #####################################################
+
+
+
+# Uncertainty for ϕ based on iterative quadratic estimate
+# ==============================
+## TODO: needs fixing up ...
+
+import CMBflat
+
+N0ℓ, NΦNℓ =  @sblock let eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ = deg2rad(μK′n / 60)^2 .+ zero(ℓvec), ℓvec
+
+    T_fld = Float32
+    nθ, nφ  = 2048, 2048   
+    periodθ = T_fld(nθ * deg2rad(2.5 / 60))
+    periodφ = T_fld(nφ * deg2rad(2.5 / 60))
+    tm    = FT.𝕎(T_fld, (nθ, nφ), (periodθ, periodφ))
+    tmΦ   = FT.ordinary_scale(tm) * tm
+    tmEB  = CMBflat.QU2EB(T_fld, (nθ, nφ), (periodθ, periodφ))
+
+    Idx  = round.(Int,FT.wavenum(tmΦ)) .+ 1
+    ecl  = map(i -> getindex(eeℓ, i), Idx)
+    bcl  = map(i -> getindex(bbℓ, i), Idx)
+    ϕcl  = map(i -> getindex(ϕϕℓ, i), Idx)
+    ncl  = map(i -> getindex(nnℓ, i), Idx)
+    bmcl = map(i -> getindex(beamℓ, i), Idx)
+
+    EBcov = DiagOp(Xfourier(tmEB, cat(ecl,bcl;dims=3))) 
+    Ncov  = DiagOp(Xfourier(tmEB, cat(ncl,ncl;dims=3))) 
+    Bm    = DiagOp(Xfourier(tmEB, cat(bmcl,bmcl;dims=3)))
+    Φcov  = DiagOp(Xfourier(tmΦ, ϕcl))
+
+    lcut_prpn = [0.75, 0.95]    
+    kf  =  [abs.(FT.fullfreq(FT.𝕎(tmEB))[i]) .<= lcut_prpn[i]*FT.nyq(FT.𝕎(tmEB))[i] for i = 1:2]
+    Bm *= DiagOp(Xfourier(tmEB, kf[1] ))
+    Bm *= DiagOp(Xfourier(tmEB, kf[2] ))
+
+    ## ----- 
+    Ncov_local = Ncov / Bm^2
+    Ncov_local.f.fd[real.(Bm.f.fd) .<= 0] .= Inf
+    Ncov_local.f.fd[1,1,1] = Inf
+    Ncov_local.f.fd[1,1,2] = Inf
+
+    ## ----- EBcov_local: unlensed signal
+    ## Not sure if we want zero B power here??
+    ## EBcov_local = Xfourier(tmEB, EBcov[:El], 0) |> DiagOp
+    ## -- alternative 
+    EBcov_local = deepcopy(EBcov)
+    
+    ## ----- Nϕ with tot power == EBcov_local + B̃fromE + Ncov_local
+    ## In the iterations B̃fromE will get reduced. 
+    B̃fromE  = CMBflat.lnB_matpwr(tmΦ, EBcov_local[:El], Φcov[!]) |> 
+                    x-> Xfourier(tmEB, 0, x) |> 
+                    DiagOp    
+    Nϕ  = CMBflat.N0ℓ_EB(
+        tmΦ, 
+        EBcov_local, 
+        inv(EBcov_local + B̃fromE + Ncov_local), # inv total power: signal + effective noise
+    )
+    Nϕ.f.fd[real.(Nϕ.f.fd) .<= 0] .= Inf 
+    Nϕ.f.fd[1,1] = Inf 
+    
+    k      = FT.wavenum(tmΦ)[:,1]
+    k4n0ck = k.^4 .* real.(Nϕ[!][:,1])
+
+    spline_k4n0ck = Dierckx.Spline1D(
+        vcat(2,k[3:end]), vcat(k4n0ck[3], k4n0ck[3:end])
+        ; k=1, bc="zero",
+    )
+
+    N0ℓ = spline_k4n0ck.(ℓvec) ./ ℓvec.^4
+    N0ℓ[real.(N0ℓ) .<= 0] .= Inf 
+    N0ℓ[isnan.(N0ℓ)]      .= Inf 
+    NΦNℓ = @. inv(inv(N0ℓ) + inv(ϕϕℓ))
+
+    N0ℓ, NΦNℓ
+end;
+
+#=
+loglog(ℓvec, ℓvec.^4 .* NΦNℓ)
+loglog(ℓvec, ℓvec.^4 .* ϕϕℓ)
+=#
+
+
+NΦN_ring = @sblock let NΦNℓ, ℓvec, θ, φ, Ω
+
+    covΦβ = Spectra.βcovSpin0(ℓvec, NΦNℓ)
+    nθ=length(θ)
+    nφ=length(φ)
+
+    ## ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
+    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
+    Γdjk = zeros(ComplexF64, nφ)
+    T    = Float32
+    Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
+
+    prgss = Progress(nθ, 1, "Computing the NΦN operator ...")
+    for k = 1:nθ
+        for j = 1:nθ
+            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
+            Ωk    = Ω[k] 
+            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covIĪ = complex.(covΦβ(β))  
+            mul!(Γdjk, ptmW, covIĪ)
+            for ℓ = 1:nφ
+                @inbounds Γdb[ℓ][j,k] = real.(Γdjk[ℓ])
+            end
+        end
+        next!(prgss)
+    end
+    return CMBrings.ComplexCircRings(Γdb, Cdb)
+end;
+
 
 
 
@@ -739,7 +852,7 @@ f′_cr =  Ł(ϕ_cr) * (Ð⁻¹ \ fwf)
 
 # ------ ϕ gradient
 @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
-@time ∇ϕ_cr = Φ_ring * gradϕ # NΦNcov * gradϕ
+@time ∇ϕ_cr = NΦN_ring * gradϕ # NΦNcov * gradϕ
 ## push!(gradϕ_array, gradϕ)
 ## push!(∇ϕ_cr_array, ∇ϕ_cr)
     
