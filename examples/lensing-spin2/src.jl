@@ -49,9 +49,13 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
-    𝕊nθ, 𝕊nφ = (2560, 2048-1)
+    ## 𝕊nθ, 𝕊nφ = (2560, 2048-1)
+    ## 𝕊nθ, 𝕊nφ = (2560, 2048-1) # test for near-pole
+    𝕊nθ, 𝕊nφ = (2560, 1536-1) 
+    ## 𝕊nθ, 𝕊nφ = (2048, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2560-1)
+    ## 𝕊nθ, 𝕊nφ = (3584, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 3584-1) # good one here 
     ## 𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
@@ -61,9 +65,12 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
 
     ## north and southern boundaries and the corresponding indices
     ## Default, SPT:
-    θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
-    θsouth∂ = 2.85
-    ## Further south
+    ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
+    ## θsouth∂ = 2.85
+    ## Almost to south pole 
+    θnorth∂ = 2.8 
+    θsouth∂ = 3.075
+    ## Over the south pole
     ## θnorth∂ = 2.7
     ## θsouth∂ = 3.05
 
@@ -89,7 +96,9 @@ end
 data_mask_init = @sblock let θ, φ
     
     ## Default:
-    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
+    ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
+    ## Near-south pole mask:
+    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
     ## South pole mask:
     ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
     
@@ -138,7 +147,11 @@ end;
     txt  = Dict(1=>"Mask")
     ctxt = Dict(1=>"w")
     ## fig, ax = CMBrings.brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
-    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; 
+        txt=txt, 
+        figsize=(8,8), nrows=1, fontsize=14
+    )
     return fig
 end
 
@@ -728,7 +741,9 @@ gwf = 0*d
 ## special for this noise
 Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
 
-@showprogress for otr = 1:20 ## 1:30
+
+@showprogress for otr = 1:15 ## 1:30
+## @showprogress for otr = 1:30
 ## @showprogress for otr = 2:15
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
@@ -741,7 +756,7 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
         Pr, Qr, 
         Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring,
         ginit=Xmap(gwf),
-        pcg_nsteps = (otr==1) ? 300 : 200, 
+        pcg_nsteps = (otr==1) ? 300 : 175, ## 200, 
         pcg_rel_tol=1e-10
     );
     @show hst[end]
@@ -786,12 +801,26 @@ end
     end
 
     ## imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
-    ## imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
-    imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
-    txt  = Dict(1=>"true", 2=>"est")
-    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+    imgs = Dict(1=>viz(ϕtru)[1], 3=>viz(ϕest)[1],
+                2=>viz(ϕtru)[2], 4=>viz(ϕest)[2])
+    txt  = Dict(1=>"true", 3=>"est")
+    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=2, fontsize=14)
     return fig
 end
+
+#-
+
+@sblock let f_cr, φ, θ, hide_plots
+    hide_plots && return
+
+    imgs = Dict(1=>real(f_cr[:]), 2=>imag(f_cr[:]))
+    ## imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
+    ## imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
+    txt  = Dict(1=>"Q", 2=>"U")
+    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+
+end
+
 
 #-
 

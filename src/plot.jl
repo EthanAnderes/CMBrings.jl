@@ -42,8 +42,9 @@ end
 
 function diskplot(imgs::Dict{Int,T}, φ, θ;
             txt  = Dict{Int,String}(), # overlay text
-            nrows = 1, 
-            sz    = 1,   
+            figsize = (),
+            nrows   = 1, 
+            sz      = 1,   
             fontsize=14,
             vcenter=nothing,
             vmin_quantile=1e-5, # when this is zero extends to max
@@ -57,7 +58,7 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
 
     fig, ax = subplots(
         nrows, ncols, 
-        figsize=(sz*(6.5*ncols), sz*(5*nrows)),
+        figsize= length(figsize)==0 ? (sz*(4.5*ncols), sz*(5*nrows)) : figsize,
         subplot_kw=Dict(:projection=>"polar")
     )
 
