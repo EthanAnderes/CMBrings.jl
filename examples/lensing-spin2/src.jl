@@ -51,13 +51,13 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2048-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2048-1) # test for near-pole
-    𝕊nθ, 𝕊nφ = (2560, 1536-1) 
+    ## 𝕊nθ, 𝕊nφ = (2560, 1536-1) 
     ## 𝕊nθ, 𝕊nφ = (2048, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 3584-1) # good one here 
-    ## 𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
+    𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
     ## grid coords on full sphere
@@ -67,9 +67,12 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## Default, SPT:
     ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
     ## θsouth∂ = 2.85
+    ## Small strip at full resolution
+    θnorth∂ = 2.5 # 
+    θsouth∂ = 2.7 # 2.7
     ## Almost to south pole 
-    θnorth∂ = 2.8 
-    θsouth∂ = 3.075
+    ## θnorth∂ = 2.8 
+    ## θsouth∂ = 3.075
     ## Over the south pole
     ## θnorth∂ = 2.7
     ## θsouth∂ = 3.05
@@ -83,12 +86,13 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
 
     ## Unitary transforms for spin0 and spin2 
     T = Float64
+    ## T = Float32
     tmS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
     tmUS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
     tmUS2 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
 
     return tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0
-end
+end;
 
 # Mask and CMBring observation region
 # ==============================
@@ -96,9 +100,9 @@ end
 data_mask_init = @sblock let θ, φ
     
     ## Default:
-    ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
+    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
     ## Near-south pole mask:
-    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
+    ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
     ## South pole mask:
     ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
     
@@ -141,18 +145,16 @@ end;
 
 # Azimuthal ring mask
 
-@sblock let ma=real.(Pr[:]), φ, θ, hide_plots
+@sblock let ma=real.(Pr[:]), dma=data_mask_init, φ, θ, hide_plots
     hide_plots && return
-    imgs = Dict(1=>ma)
-    txt  = Dict(1=>"Mask")
-    ctxt = Dict(1=>"w")
-    ## fig, ax = CMBrings.brickplot(imgs; txt=txt, ctxt=ctxt, fφ=1)
+    imgs = Dict(1=>dma, 2=>ma)
+    txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
     fig, ax = CMBrings.diskplot(
         imgs, φ', π.-θ; 
         txt=txt, 
-        figsize=(8,8), nrows=1, fontsize=14
+        figsize=(10,8), nrows=1, fontsize=14
     )
-    return fig
+    return nothing
 end
 
 # Plot √Ωpix over ring θ's 
@@ -165,7 +167,7 @@ end
     ## ax.plot(θ, zero(θ) .+ rad2deg.(φ[2] - φ[1]).*60, label="Δφ (arcmin)")
     ax.set_xlabel(L"polar coordinate $\theta$")
     ax.legend()
-    return fig
+    return nothing
 end
 
 
@@ -224,6 +226,8 @@ EB_ring = @sblock let  eeℓ, bbℓ, ℓvec, θ, φ,
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
     Cdjk = zeros(ComplexF64, nφ)
+
+    ## T = ComplexF32
     T = ComplexF64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
@@ -256,7 +260,7 @@ end;
 beamℓ = @sblock let ℓvec
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    beamfwhm  = 3.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm     = 3.0 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
@@ -277,6 +281,8 @@ Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω
 
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
+
+    ## T    = Float32
     T    = Float64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
@@ -305,7 +311,8 @@ end;
 
 Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω
 
-    T = Float32
+    ## T = Float32
+    T = Float64
     nθ=length(θ)
     nφ=length(φ)
 
@@ -317,7 +324,7 @@ Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω
     Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
 
     return CMBrings.ComplexCircRings(Γdb, Cdb), μK′n
-end
+end;
 
 
 
@@ -333,6 +340,8 @@ end
 
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
+
+    ## T    = Float32
     T    = Float64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
@@ -366,48 +375,46 @@ end;
 function generate_∇!_∇!ϕ_1storder(tmS0::Transform{Tf,d}, θℝ, φℝ) where {Tf,d}
     Δθℝ, Δφℝ = θℝ[2] - θℝ[1], φℝ[2] - φℝ[1]
 
-    ## ∂θ′ = spdiagm(
-    ##         0 => fill(-1,length(θℝ)), 
-    ##         1 => fill(1,length(θℝ)-1),
-    ##     )
-    ## ∂θ′[end,1] =  1
-    ## ∂θ = Tf(1 / (Δθℝ)) * ∂θ′
-
-    ## ∂φ  = spdiagm(
-    ##         0 => fill(-1,length(φℝ)), 
-    ##         1 => fill(1,length(φℝ)-1)
-    ##     )
-    ## ∂φ[end,1] =  1
-    ## ∂φᵀ = transpose(Tf(1 / (Δφℝ)) * ∂φ)
-
     ∂θ′ = spdiagm(
-            -2 => fill( 1,length(θℝ)-2),
-            -1 => fill(-8,length(θℝ)-1),
-             1 => fill( 8,length(θℝ)-1),
-             2 => fill(-1,length(θℝ)-2),
-            )
-    ∂θ′[1,end]   =  -8
-    ∂θ′[1,end-1] =  1
-    ∂θ′[2,end]   =  1
-    ∂θ′[end,1]   =  8
-    ∂θ′[end,2]   = -1
-    ∂θ′[end-1,1] = -1
-    ∂θ = Tf(1 / (12Δθℝ)) * ∂θ′
+            0 => fill(-1,length(θℝ)), 
+            1 => fill(1,length(θℝ)-1),
+        )
+    ∂θ′[end,1] =  1
+    ∂θ = Tf(1 / (Δθℝ)) * ∂θ′
+    ## ∂θ′ = spdiagm(
+    ##         -2 => fill( 1,length(θℝ)-2),
+    ##         -1 => fill(-8,length(θℝ)-1),
+    ##          1 => fill( 8,length(θℝ)-1),
+    ##          2 => fill(-1,length(θℝ)-2),
+    ##         )
+    ## ∂θ′[1,end]   =  -8
+    ## ∂θ′[1,end-1] =  1
+    ## ∂θ′[2,end]   =  1
+    ## ∂θ′[end,1]   =  8
+    ## ∂θ′[end,2]   = -1
+    ## ∂θ′[end-1,1] = -1
+    ## ∂θ = Tf(1 / (12Δθℝ)) * ∂θ′
+
 
     ∂φ  = spdiagm(
-            -2 => fill( 1,length(φℝ)-2),
-            -1 => fill(-8,length(φℝ)-1),
-             1 => fill( 8,length(φℝ)-1),
-             2 => fill(-1,length(φℝ)-2),
-            )
-    ∂φ[1,end]   =  -8
-    ∂φ[1,end-1] =  1
-    ∂φ[2,end]   =  1
-    ∂φ[end,1]   =  8
-    ∂φ[end,2]   =  -1
-    ∂φ[end-1,1] =  -1
-    ∂φᵀ = transpose(Tf(1 / (12Δφℝ)) * ∂φ)
-
+        0 => fill(-1,length(φℝ)), 
+        1 => fill(1,length(φℝ)-1)
+    )
+    ∂φ[end,1] =  1
+    ∂φᵀ = transpose(Tf(1 / (Δφℝ)) * ∂φ)
+    ## ∂φ  = spdiagm(
+    ##         -2 => fill( 1,length(φℝ)-2),
+    ##         -1 => fill(-8,length(φℝ)-1),
+    ##          1 => fill( 8,length(φℝ)-1),
+    ##          2 => fill(-1,length(φℝ)-2),
+    ##         )
+    ## ∂φ[1,end]   =  -8
+    ## ∂φ[1,end-1] =  1
+    ## ∂φ[2,end]   =  1
+    ## ∂φ[end,1]   =  8
+    ## ∂φ[end,2]   =  -1
+    ## ∂φ[end-1,1] =  -1
+    ## ∂φᵀ = transpose(Tf(1 / (12Δφℝ)) * ∂φ)
 
     ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
     ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
@@ -546,6 +553,7 @@ d = Pr * (Beam_ring * Ł(ϕ) * qu + no)
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
     Cdjk = zeros(ComplexF64, nφ)
+    ## T    = ComplexF32
     T    = ComplexF64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
@@ -587,7 +595,9 @@ import CMBflat
 
 N0ℓ, NΦNℓ =  @sblock let n_iter = 5, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ = deg2rad(μK′n / 60)^2 .+ zero(ℓvec), ℓvec
 
+    ## T_fld = Float32
     T_fld = Float64
+    
     nθ, nφ  = 512, 512   
     periodθ = T_fld(nθ * deg2rad(3.5 / 60))
     periodφ = T_fld(nφ * deg2rad(3.5 / 60))
@@ -682,6 +692,8 @@ NΦN_ring = @sblock let NΦNℓ, ℓvec, θ, φ, Ω
     ## ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.PATIENT) 
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
+    
+    ## T    = Float32
     T    = Float64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
     ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
@@ -710,9 +722,7 @@ end;
 
 @time Precon⁻¹_ring = @sblock let EB_ring, Beam_ring, Noise_ring, pr_col=Pr[:][:,2*end÷10], qr_col=Qr[:][:,2*end÷10]
 
-    ## ΩPrℓ = Diagonal(vcat(pr_col, conj.(pr_col)))
-    ## ΩQrℓ = Diagonal(vcat(qr_col, conj.(qr_col)))
-
+    ## T = ComplexF32
     T = ComplexF64
     Precon⁻¹ = CMBrings.ComplexCircRings(EB_ring.nblks, EB_ring.nside, Matrix{T}, Matrix{T})
 
@@ -722,9 +732,6 @@ end;
         EB = EB_ring[ℓ] 
         No = Noise_ring[ℓ]
         Ωℓ = Bm * EB * Bm' + No
-        ## Ωℓ   = ΩPrℓ * (Bm * EB * Bm' + No) * ΩPrℓ' 
-        ## Ωℓ .+= ΩQrℓ * (Bm * EB * Bm' + No) * ΩQrℓ' 
-        ## Precon⁻¹[ℓ] = pinv(factorize(Hermitian(Ωℓ))) ## pinv(Ωℓ)
         Precon⁻¹[ℓ] = pinv(Ωℓ) ## pinv(Ωℓ)
         next!(prgss)
     end 
@@ -735,16 +742,15 @@ end;
 # Now do some iterations ...
 # ==============================
 
-# ------ initalize 
+## ------ initalize 
 gwf = 0*d 
 ϕ_cr  = 0*ϕ
 ## special for this noise
 Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
 
 
-@showprogress for otr = 1:15 ## 1:30
-## @showprogress for otr = 1:30
-## @showprogress for otr = 2:15
+@showprogress for otr = 1:5
+## @showprogress for otr = 2:20
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
 
@@ -756,7 +762,7 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
         Pr, Qr, 
         Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring,
         ginit=Xmap(gwf),
-        pcg_nsteps = (otr==1) ? 300 : 175, ## 200, 
+        pcg_nsteps = (otr==1) ? 300 : 225, # 175, ## 200, 
         pcg_rel_tol=1e-10
     );
     @show hst[end]
@@ -772,7 +778,8 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
     @time β = CMBrings.linesearch_ϕf′(
         ∇ϕ_cr, ϕ_cr, f′_cr, Φ_ring, EB_ring; 
         data = d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹,
-        eval_max = 200, startval = 0.001, ftol_abs = 10, solver = :LN_COBYLA,  
+        eval_max = 150, startval = 0.001, ftol_abs = 50, solver = :LN_COBYLA,  
+        ## eval_max = 250, startval = 0.001, ftol_abs = 1, solver = :LN_COBYLA,  
     )
     @show β
 
@@ -782,44 +789,68 @@ end
 
 #-
 
-
+#=
 ϕ_cr[:] |> matshow; colorbar()
-
-#-
-
 ϕ[:] |> matshow; colorbar()
+=#
 
 #-
 
 @sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
     hide_plots && return
-
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
         ϕ2v!(v, ϕ0[:])
         v 
     end
-
-    ## imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
     imgs = Dict(1=>viz(ϕtru)[1], 3=>viz(ϕest)[1],
                 2=>viz(ϕtru)[2], 4=>viz(ϕest)[2])
     txt  = Dict(1=>"true", 3=>"est")
-    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=2, fontsize=14)
-    return fig
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, 
+        figsize=(10,16), nrows=2, fontsize=14
+    )
+    return nothing
 end
+
+#- 
+
+
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+    hide_plots && return
+    imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
+    txt  = Dict(1=>"true", 2=>"est")
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, 
+        figsize=(10,8), nrows=1, fontsize=14
+    )
+    return nothing
+end
+
 
 #-
 
-@sblock let f_cr, φ, θ, hide_plots
+@sblock let f_cr, qu, φ, θ, hide_plots
     hide_plots && return
 
     imgs = Dict(1=>real(f_cr[:]), 2=>imag(f_cr[:]))
-    ## imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
-    ## imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
-    txt  = Dict(1=>"Q", 2=>"U")
-    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
-
+    imgs = Dict(
+        1=>real(f_cr[:]), 2=>imag(f_cr[:]),
+        3=>real(qu[:]),   4=>imag(qu[:])
+        )
+    txt  = Dict(
+        1=>"Q wf",     2=>"U wf",
+        3=>"Q true",   4=>"U true",
+    )
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, 
+        figsize=(10,16), nrows=2, fontsize=14
+    )
+    return nothing
 end
+
+
+
 
 
 #-
@@ -986,7 +1017,7 @@ qu[!] .|> imag .|> abs |> matshow; colorbar()
     imgs = Dict(1=>real.(fwf[:]), 2=>imag.(fwf[:]))
     txt  = Dict(1=>"E(Q|d)", 2=>"E(U|d)")
     fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
-    return fig
+    return nothing
 end
 =# ############################################
 
