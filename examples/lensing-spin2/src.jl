@@ -1,10 +1,15 @@
 # Modules
 # ==============================
 using LinearAlgebra
-BLAS.set_num_threads(1)
+# using MKL
+# BLAS.get_config() 
+# BLAS.set_num_threads(4)
 
 using FFTW 
-FFTW.set_num_threads(1)
+# FFTW.set_provider!("mkl")
+FFTW.set_num_threads(8)
+
+## using GLMakie
 
 using XFields
 using CMBrings
@@ -53,11 +58,11 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## 𝕊nθ, 𝕊nφ = (2560, 2048-1) # test for near-pole
     ## 𝕊nθ, 𝕊nφ = (2560, 1536-1) 
     ## 𝕊nθ, 𝕊nφ = (2048, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (3584, 2560-1)
+    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1) # 6/19
+    𝕊nθ, 𝕊nφ = (3584, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 3584-1) # good one here 
-    𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
+    ## 𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
     ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
     ## grid coords on full sphere
@@ -68,14 +73,14 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
     ## θsouth∂ = 2.85
     ## Small strip at full resolution
-    θnorth∂ = 2.5 # 
-    θsouth∂ = 2.7 # 2.7
+    θnorth∂ = 2.6 # 2.3784761904657956 # 2.5 # 
+    θsouth∂ = 2.769474354549005 # 2.7
     ## Almost to south pole 
-    ## θnorth∂ = 2.8 
-    ## θsouth∂ = 3.075
+    ## θnorth∂ = 2.6 
+    ## θsouth∂ = 3.0
     ## Over the south pole
-    ## θnorth∂ = 2.7
-    ## θsouth∂ = 3.05
+    ## θnorth∂ = 2.6
+    ## θsouth∂ = 3.135
 
     θrng    = findall(θnorth∂ .<= θ𝕊 .<= θsouth∂)
     ringidx = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
@@ -110,8 +115,9 @@ data_mask_init = @sblock let θ, φ
     spline_mask = Dierckx.Spline2D(θ_mat_init, φ_mat_init, pr_mat_init, kx=1, ky=1, s=0.0)
 
     data_mask_init = spline_mask.(θ, φ') .> 0
-    data_mask_init[1:20,:] .= 0
-    data_mask_init[end - 20 + 1:end,:] .= 0
+    data_mask_init[1:15,:] .= 0
+    data_mask_init[end - 15 + 1:end,:] .= 0
+
 
     return data_mask_init
 
@@ -260,7 +266,7 @@ end;
 beamℓ = @sblock let ℓvec
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
-    beamfwhm     = 3.0 |> arcmin -> deg2rad(arcmin/60)
+    beamfwhm     = 3.5 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
@@ -309,7 +315,7 @@ end;
 # Noise
 # ==============================
 
-Noise_ring, μK′n = @sblock let μK′n = 2.5, θ, φ, Ω
+Noise_ring, μK′n = @sblock let μK′n = 1.5, θ, φ, Ω
 
     ## T = Float32
     T = Float64
@@ -375,46 +381,46 @@ end;
 function generate_∇!_∇!ϕ_1storder(tmS0::Transform{Tf,d}, θℝ, φℝ) where {Tf,d}
     Δθℝ, Δφℝ = θℝ[2] - θℝ[1], φℝ[2] - φℝ[1]
 
-    ∂θ′ = spdiagm(
-            0 => fill(-1,length(θℝ)), 
-            1 => fill(1,length(θℝ)-1),
-        )
-    ∂θ′[end,1] =  1
-    ∂θ = Tf(1 / (Δθℝ)) * ∂θ′
     ## ∂θ′ = spdiagm(
-    ##         -2 => fill( 1,length(θℝ)-2),
-    ##         -1 => fill(-8,length(θℝ)-1),
-    ##          1 => fill( 8,length(θℝ)-1),
-    ##          2 => fill(-1,length(θℝ)-2),
-    ##         )
-    ## ∂θ′[1,end]   =  -8
-    ## ∂θ′[1,end-1] =  1
-    ## ∂θ′[2,end]   =  1
-    ## ∂θ′[end,1]   =  8
-    ## ∂θ′[end,2]   = -1
-    ## ∂θ′[end-1,1] = -1
-    ## ∂θ = Tf(1 / (12Δθℝ)) * ∂θ′
+    ##         0 => fill(-1,length(θℝ)), 
+    ##         1 => fill(1,length(θℝ)-1),
+    ##     )
+    ## ∂θ′[end,1] =  1
+    ## ∂θ = Tf(1 / (Δθℝ)) * ∂θ′
+    ∂θ′ = spdiagm(
+            -2 => fill( 1,length(θℝ)-2),
+            -1 => fill(-8,length(θℝ)-1),
+             1 => fill( 8,length(θℝ)-1),
+             2 => fill(-1,length(θℝ)-2),
+            )
+    ∂θ′[1,end]   =  -8
+    ∂θ′[1,end-1] =  1
+    ∂θ′[2,end]   =  1
+    ∂θ′[end,1]   =  8
+    ∂θ′[end,2]   = -1
+    ∂θ′[end-1,1] = -1
+    ∂θ = Tf(1 / (12Δθℝ)) * ∂θ′
 
 
-    ∂φ  = spdiagm(
-        0 => fill(-1,length(φℝ)), 
-        1 => fill(1,length(φℝ)-1)
-    )
-    ∂φ[end,1] =  1
-    ∂φᵀ = transpose(Tf(1 / (Δφℝ)) * ∂φ)
     ## ∂φ  = spdiagm(
-    ##         -2 => fill( 1,length(φℝ)-2),
-    ##         -1 => fill(-8,length(φℝ)-1),
-    ##          1 => fill( 8,length(φℝ)-1),
-    ##          2 => fill(-1,length(φℝ)-2),
-    ##         )
-    ## ∂φ[1,end]   =  -8
-    ## ∂φ[1,end-1] =  1
-    ## ∂φ[2,end]   =  1
-    ## ∂φ[end,1]   =  8
-    ## ∂φ[end,2]   =  -1
-    ## ∂φ[end-1,1] =  -1
-    ## ∂φᵀ = transpose(Tf(1 / (12Δφℝ)) * ∂φ)
+    ##     0 => fill(-1,length(φℝ)), 
+    ##     1 => fill(1,length(φℝ)-1)
+    ## )
+    ## ∂φ[end,1] =  1
+    ## ∂φᵀ = transpose(Tf(1 / (Δφℝ)) * ∂φ)
+    ∂φ  = spdiagm(
+            -2 => fill( 1,length(φℝ)-2),
+            -1 => fill(-8,length(φℝ)-1),
+             1 => fill( 8,length(φℝ)-1),
+             2 => fill(-1,length(φℝ)-2),
+            )
+    ∂φ[1,end]   =  -8
+    ∂φ[1,end-1] =  1
+    ∂φ[2,end]   =  1
+    ∂φ[end,1]   =  8
+    ∂φ[end,2]   =  -1
+    ∂φ[end-1,1] =  -1
+    ∂φᵀ = transpose(Tf(1 / (12Δφℝ)) * ∂φ)
 
     ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
     ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
@@ -749,8 +755,8 @@ gwf = 0*d
 Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
 
 
-@showprogress for otr = 1:5
-## @showprogress for otr = 2:20
+@showprogress for otr = 1:15
+## @showprogress for otr = 1:3
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
 
@@ -762,7 +768,7 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
         Pr, Qr, 
         Bm=Beam_ring, No=Noise_ring, Pc⁻¹=Precon⁻¹_ring,
         ginit=Xmap(gwf),
-        pcg_nsteps = (otr==1) ? 300 : 225, # 175, ## 200, 
+        pcg_nsteps = (otr==1) ? 300 : 175, # 175, ## 200, 
         pcg_rel_tol=1e-10
     );
     @show hst[end]
@@ -778,7 +784,7 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
     @time β = CMBrings.linesearch_ϕf′(
         ∇ϕ_cr, ϕ_cr, f′_cr, Φ_ring, EB_ring; 
         data = d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹,
-        eval_max = 150, startval = 0.001, ftol_abs = 50, solver = :LN_COBYLA,  
+        eval_max = 200, startval = 0.001, ftol_abs = 50, solver = :LN_COBYLA,  
         ## eval_max = 250, startval = 0.001, ftol_abs = 1, solver = :LN_COBYLA,  
     )
     @show β
@@ -830,7 +836,9 @@ end
 
 #-
 
+
 @sblock let f_cr, qu, φ, θ, hide_plots
+
     hide_plots && return
 
     imgs = Dict(1=>real(f_cr[:]), 2=>imag(f_cr[:]))
@@ -847,9 +855,106 @@ end
         figsize=(10,16), nrows=2, fontsize=14
     )
     return nothing
+
 end
 
 
+
+
+###################################################
+###################################################
+
+#-
+
+
+@sblock let d, φ, θ, hide_plots
+
+    hide_plots && return
+
+    imgs = Dict(1=>real(d[:]), 2=>imag(d[:]))
+    txt  = Dict(
+        1=>"Q data",     2=>"U data",
+    )
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, fontsize=14
+    )
+    return nothing
+
+end
+
+
+
+#-
+
+
+@sblock let f_cr, φ, θ, hide_plots
+
+    hide_plots && return
+
+    imgs = Dict(1=>real(f_cr[:]), 2=>imag(f_cr[:]))
+    txt  = Dict(
+        1=>"Q est",     2=>"U est",
+    )
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, fontsize=14
+    )
+    return nothing
+
+end
+
+
+
+#-
+
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+    hide_plots && return
+    viz = function (ϕ0)
+        v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
+        ϕ2v!(v, ϕ0[:])
+        v 
+    end
+    imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
+    txt  = Dict(1=>L"true $\nabla_\theta \phi$", 2=>L"est $\nabla_\theta \phi$")
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, fontsize=14
+    )
+    return nothing
+end
+
+
+
+#-
+
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+    hide_plots && return
+    viz = function (ϕ0)
+        v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
+        ϕ2v!(v, ϕ0[:])
+        v 
+    end
+    imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
+    txt  = Dict(1=>L"true $\nabla_\varphi \phi$", 2=>L"est $\nabla_\varphi \phi$")
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, fontsize=14
+    )
+    return nothing
+end
+
+
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+    hide_plots && return
+    viz = function (ϕ0)
+        v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
+        ϕ2v!(v, ϕ0[:])
+        v 
+    end
+    imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
+    txt  = Dict(1=>L"true $\phi$", 2=>L"est $\phi$")
+    fig, ax = CMBrings.diskplot(
+        imgs, φ', π.-θ; txt=txt, fontsize=14
+    )
+    return nothing
+end
 
 
 
