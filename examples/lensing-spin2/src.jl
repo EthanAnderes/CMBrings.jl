@@ -1,13 +1,13 @@
 # Modules
 # ==============================
-using LinearAlgebra
 # using MKL
+using LinearAlgebra
 # BLAS.get_config() 
 # BLAS.set_num_threads(4)
 
 using FFTW 
 # FFTW.set_provider!("mkl")
-FFTW.set_num_threads(8)
+FFTW.set_num_threads(Threads.nthreads())
 
 ## using GLMakie
 
@@ -59,7 +59,9 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## 𝕊nθ, 𝕊nφ = (2560, 1536-1) 
     ## 𝕊nθ, 𝕊nφ = (2048, 2560-1)
     ## 𝕊nθ, 𝕊nφ = (2560, 2560-1) # 6/19
-    𝕊nθ, 𝕊nφ = (3584, 2560-1)
+    # 𝕊nθ, 𝕊nφ = (3584, 2560-1) # 6/21 a
+    # 𝕊nθ, 𝕊nφ = (3000, 2560-1) # 6/21 b
+    𝕊nθ, 𝕊nφ = (2900, 2048-1) # 6/21 c
     ## 𝕊nθ, 𝕊nφ = (3584, 1536-1)
     ## 𝕊nθ, 𝕊nφ = (3584, 3584-1) # good one here 
     ## 𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
@@ -73,7 +75,7 @@ tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let
     ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
     ## θsouth∂ = 2.85
     ## Small strip at full resolution
-    θnorth∂ = 2.6 # 2.3784761904657956 # 2.5 # 
+    θnorth∂ = 2.3784761904657956 # 2.5 # 
     θsouth∂ = 2.769474354549005 # 2.7
     ## Almost to south pole 
     ## θnorth∂ = 2.6 
@@ -755,7 +757,7 @@ gwf = 0*d
 Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
 
 
-@showprogress for otr = 1:15
+@showprogress for otr = 1:2
 ## @showprogress for otr = 1:3
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
