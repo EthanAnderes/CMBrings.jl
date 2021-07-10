@@ -9,7 +9,9 @@ function LinearAlgebra.dot(f::Xfield{T},g::Xfield{T}) where T<:𝕎
 end
 
 
-
+# 
+# Slated for removal
+#
 # Transform types Az𝕊0 and Az𝕊2 that are rings 
 # but hold an extra 𝕊0 or 𝕊2 transform to allow 
 # operations on the embedded sphere. 

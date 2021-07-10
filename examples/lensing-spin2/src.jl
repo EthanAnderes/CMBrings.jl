@@ -1,135 +1,145 @@
+## get lensing-spin2 example up and running
+
+## ▪ == "\smblksquare" or  "\vrectangleblack"
+
+
 # Modules
 # ==============================
-# using MKL
 using LinearAlgebra
-# BLAS.get_config() 
-# BLAS.set_num_threads(4)
-
 using FFTW 
-# FFTW.set_provider!("mkl")
 FFTW.set_num_threads(Threads.nthreads())
-
-## using GLMakie
 
 using XFields
 using CMBrings
 using CMBsphere     
-using CMBflat: PrQr # Eventually remove this
-
 import FFTransforms as FT
-import SphereTransforms as ST
-
 using Spectra
 using FieldLensing 
 
-using  LinearAlgebra
-using  SparseArrays
-import Dierckx 
-import NLopt
-
+using BlockArrays
+using SparseArrays
 using DelimitedFiles
 using LBblocks: @sblock
 using PyPlot
+import Dierckx 
+import NLopt
 using BenchmarkTools
 using ProgressMeter
 
+
+
+hide_plots = true
+
 #- 
 
-if isdefined(Main,:PlutoRunner)
-    import PlutoUI
-    hide_plots = false
-elseif isdefined(Main, :IJulia) && Main.IJulia.inited
+if isdefined(Main, :IJulia) && Main.IJulia.inited
     hide_plots = false
 else 
     hide_plots = true
 end
 
-# Set ring transforms
+
+# Extra methods
 # ==============================
 
-tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0 = @sblock let 
+# TODO: get this in Spectra or spin-off
+function periodize(f::Vector{T}, freq_mult::Int) where {T}
+    n = length(f)
+    nfm = n÷freq_mult
+    @assert nfm == n//freq_mult
+    f′ = sum( circshift(f, k*nfm) for k=0:freq_mult-1)
+    f′[1:nfm]
+end
 
-    ## size of the embedding full sphere
-    ## 𝕊nθ, 𝕊nφ = (1536, 1536-1)
-    ## 𝕊nθ, 𝕊nφ = (1536, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (2048, 1536-1)
-    ## 𝕊nθ, 𝕊nφ = (2048, 2048-1)
-    ## 𝕊nθ, 𝕊nφ = (2560, 2048-1)
-    ## 𝕊nθ, 𝕊nφ = (2560, 2048-1) # test for near-pole
-    ## 𝕊nθ, 𝕊nφ = (2560, 1536-1) 
-    ## 𝕊nθ, 𝕊nφ = (2048, 2560-1)
-    ## 𝕊nθ, 𝕊nφ = (2560, 2560-1) # 6/19
-    # 𝕊nθ, 𝕊nφ = (3584, 2560-1) # 6/21 a
-    # 𝕊nθ, 𝕊nφ = (3000, 2560-1) # 6/21 b
-    𝕊nθ, 𝕊nφ = (2900, 2048-1) # 6/21 c
-    ## 𝕊nθ, 𝕊nφ = (3584, 1536-1)
-    ## 𝕊nθ, 𝕊nφ = (3584, 3584-1) # good one here 
-    ## 𝕊nθ, 𝕊nφ = (3584, 4096-1) # good one here 
-    ## 𝕊nθ, 𝕊nφ = (4096, 3584-1)
 
-    ## grid coords on full sphere
-    θ𝕊, φ𝕊  = ST.pix(𝕊nθ, 𝕊nφ) 
+# Pixel grid
+# ==============================
 
-    ## north and southern boundaries and the corresponding indices
-    ## Default, SPT:
-    ## θnorth∂ = 2.4 # (small) # 2.2 (part) # 2.12 (full)
-    ## θsouth∂ = 2.85
-    ## Small strip at full resolution
-    θnorth∂ = 2.3784761904657956 # 2.5 # 
-    θsouth∂ = 2.769474354549005 # 2.7
-    ## Almost to south pole 
-    ## θnorth∂ = 2.6 
-    ## θsouth∂ = 3.0
-    ## Over the south pole
-    ## θnorth∂ = 2.6
-    ## θsouth∂ = 3.135
 
-    θrng    = findall(θnorth∂ .<= θ𝕊 .<= θsouth∂)
-    ringidx = CartesianIndices((θrng[1]:θrng[end], 1:length(φ𝕊)))
+θ, φ, Ω, Δθ, nθ, nφ, freq_mult, tmUS2, tmUS0 = @sblock let 
+
+    freq_mult = 3 # 3
+    nθ, nφ    = (200, 768)
+    θnorth∂ = 2.8 # 2.5 #  2.3784 # 
+    θsouth∂ = 3.0 # 2.7 #  2.7694 # 
+
+    ## θpix∂   = θnorth∂ .+ (θsouth∂ - θnorth∂)*(0:nθ)/nθ  |> collect
+    ## --- or -------
+    znorth = cos.(θnorth∂)
+    zsouth = cos.(θsouth∂)
+    θpix∂ = acos.(range(znorth, zsouth, length=nθ+1))
+    ## --------------
+    Δθ = diff(θpix∂)
+    θ = θpix∂[2:end] .- Δθ/2    
     
-    nθ, nφ  = size(ringidx)
-    θ, φ  = θ𝕊[ringidx[:,1]], φ𝕊
-    Ω     = ST.Ωpix(𝕊nθ, 𝕊nφ)[ringidx[:,1]]
+    ## set φ (assuming it is uniform)
+    φleft∂  = 0.0          # 2.5 # 2.3784
+    φright∂ = 2π/freq_mult # 2.7 # 2.7694
+    φ       = φleft∂ .+ (φright∂ - φleft∂)*(0:nφ-1)/nφ  |> collect
 
-    ## Unitary transforms for spin0 and spin2 
+    ## set φ (this assumes φ gridding is uniform)
+    Ω   = @. (φ[2] - φ[1]) * abs(cos(θpix∂[1:end-1]) - cos(θpix∂[2:end]))
+
+
+    ## Unitary transforms
     T = Float64
-    ## T = Float32
-    tmS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
-    tmUS0 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
-    tmUS2 = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π)) |> x -> FT.unitary_scale(x)*x
+    tmUS2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π/freq_mult))
+    tmUS2 *= FT.unitary_scale(tmUS2) 
+    
+    tmUS0  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π/freq_mult))
+    tmUS0 *= FT.unitary_scale(tmUS0) 
 
-    return tmUS0, tmUS2, θ, φ, Ω, ringidx, tmS0
+
+    return θ, φ, Ω, Δθ, nθ, nφ, freq_mult, tmUS2, tmUS0
 end;
+
+@show extrema(@. rad2deg(√Ω)*60) 
+
+# Plot √Ωpix over ring θ's 
+
+@sblock let θ, φ, Ω, Δθ, hide_plots
+    hide_plots && return
+    fig,ax = subplots(1)
+    ax.plot(θ, (@. rad2deg(√Ω)*60), label="sqrt pixel area (arcmin)")
+    ax.plot(θ, (@. rad2deg(Δθ)*60), label="Δθ (arcmin)")
+    ax.set_xlabel(L"polar coordinate $\theta$")
+    ax.legend()
+    return nothing
+end
+
+
 
 # Mask and CMBring observation region
 # ==============================
 
-data_mask_init = @sblock let θ, φ
+
+
+data_msk = @sblock let θ, φ
     
-    ## Default:
-    pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
-    ## Near-south pole mask:
-    ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
-    ## South pole mask:
-    ## pr_mat_init  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
-    
-    θ_mat_init, φ_mat_init = ST.pix(size(pr_mat_init)...)
-    spline_mask = Dierckx.Spline2D(θ_mat_init, φ_mat_init, pr_mat_init, kx=1, ky=1, s=0.0)
+    pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
+    ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
+    ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
+    nθ_msk, nφ_msk = size(pr_msk)
+    θ_msk = π*(0.5:nθ_msk-0.5)/nθ_msk |> collect
+    φ_msk = 2π*(0:nφ_msk-1)/nφ_msk    |> collect
+    spline_mask = Dierckx.Spline2D(θ_msk, φ_msk, pr_msk, kx=1, ky=1, s=0.0)
 
-    data_mask_init = spline_mask.(θ, φ') .> 0
-    data_mask_init[1:15,:] .= 0
-    data_mask_init[end - 15 + 1:end,:] .= 0
+    data_msk = spline_mask.(θ, φ') .> 0
+    data_msk[1:15,:] .= 0
+    data_msk[end - 15 + 1:end,:] .= 0
 
-
-    return data_mask_init
+    return data_msk
 
 end;
 
+
 #- 
 
-Pr, Qr = @sblock let tmUS2, θ, φ, data_mask_init, QP_bdry=1e-5, fwhm′=150
-    tmFlat = FT.𝕎(real(eltype_in(tmUS2)), size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
-    pr0x, qr0x = PrQr(tmFlat, data_mask_init, fwhm′, fwhm′, QP_bdry)
+using CMBflat: PrQr # Eventually remove this
+
+Pr, Qr = @sblock let tmUS2, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=150
+    tmFlat = FT.𝕎(real(eltype_in(tmUS2)), size(data_msk), ((θ[2] - θ[1])*length(θ), 2π))
+    pr0x, qr0x = PrQr(tmFlat, data_msk, fwhm′, fwhm′, QP_bdry)
     pr0 = Xmap(tmUS2, pr0x)
     qr0 = Xmap(tmUS2, qr0x)
     DiagOp(pr0), DiagOp(qr0)
@@ -137,9 +147,9 @@ end;
 
 # Localize lensing vector field to data mask.
 
-Mϕ = @sblock let tmS0, θ, φ, data_mask_init, QP_bdry=1e-5, fwhm′=75
-    tmFlat = FT.𝕎(real(eltype_in(tmS0)), size(data_mask_init), ((θ[2] - θ[1])*length(θ), 2π))
-    pr0x, qr0x = PrQr(tmFlat, data_mask_init, fwhm′, fwhm′, QP_bdry)
+Mϕ = @sblock let tmUS0, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=75
+    tmFlat = FT.𝕎(real(eltype_in(tmUS0)), size(data_msk), ((θ[2] - θ[1])*length(θ), 2π))
+    pr0x, qr0x = PrQr(tmFlat, data_msk, fwhm′, fwhm′, QP_bdry)
 
     ## mϕx = pr0x .+ qr0x
     mϕx = pr0x 
@@ -147,13 +157,13 @@ Mϕ = @sblock let tmS0, θ, φ, data_mask_init, QP_bdry=1e-5, fwhm′=75
     ## make sure it hits zero and 1
     mϕx .-= minimum(mϕx)
     mϕx ./= maximum(mϕx)
-    Mϕ    = DiagOp(Xmap(tmS0, mϕx))
+    Mϕ    = DiagOp(Xmap(tmUS0, mϕx))
     Mϕ
 end;
 
 # Azimuthal ring mask
 
-@sblock let ma=real.(Pr[:]), dma=data_mask_init, φ, θ, hide_plots
+@sblock let ma=real.(Pr[:]), dma=data_msk, φ, θ, hide_plots
     hide_plots && return
     imgs = Dict(1=>dma, 2=>ma)
     txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
@@ -162,19 +172,6 @@ end;
         txt=txt, 
         figsize=(10,8), nrows=1, fontsize=14
     )
-    return nothing
-end
-
-# Plot √Ωpix over ring θ's 
-
-@sblock let θ, φ, Ω, hide_plots
-    hide_plots && return
-    fig,ax = subplots(1)
-    ax.plot(θ, rad2deg.(sqrt.(Ω)).*60, label="sqrt pixel area (arcmin)")
-    ax.plot(θ, zero(θ) .+ rad2deg.(θ[2] - θ[1]).*60, label="Δθ (arcmin)")
-    ## ax.plot(θ, zero(θ) .+ rad2deg.(φ[2] - φ[1]).*60, label="Δφ (arcmin)")
-    ax.set_xlabel(L"polar coordinate $\theta$")
-    ax.legend()
     return nothing
 end
 
@@ -218,41 +215,105 @@ eeℓ, bbℓ, ẽeℓ, b̃bℓ, ϕϕℓ, ℓvec = @sblock let
 end;
 
 
-# EB ring operator 
+
+
+# EB▪ ring operator
 # ==============================
 
-EB_ring = @sblock let  eeℓ, bbℓ, ℓvec, θ, φ, 
+EB▪  = @sblock let  eeℓ, bbℓ, ℓvec, θ, φ, freq_mult, nθ, nφ
 
-    covPβ = Spectra.βcovSpin2(ℓvec, eeℓ, bbℓ;
-        ## n_grid::Int = 100_000, 
-        ## β_grid = range(0, π^(1/3), length=n_grid).^3,
-    );
+    covPβ = Spectra.βcovSpin2(ℓvec, eeℓ, bbℓ);
+    nφ2π  = nφ*freq_mult
+    φ2π   = 2π*(0:nφ2π-1)/nφ2π |> collect
 
-    nθ = length(θ)
-    nφ = length(φ)
+    ptmW = FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
+    γⱼₖ = zeros(ComplexF64, nφ)
+    ξⱼₖ = zeros(ComplexF64, nφ)
+
+    T  = ComplexF64 # ComplexF32
+    A▪ = Matrix{T}[zeros(T,2nθ,2nθ) for ℓ = 1:nφ÷2+1]
+
+    prgss = Progress(nθ, 1, "Computing A▪ for EBcov ...")
+    for k = 1:nθ
+        for j = 1:nθ
+            θ1, θ2 = θ[j], θ[k]
+            β  =  Spectra.geoβ.(θ1, θ2, 0.0, φ2π) 
+            covPP̄, covPP = covPβ(β)  
+            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, 0.0, φ2π) 
+            covPP .*= Spectra.multPP.(θ1, θ2, 0.0, φ2π)
+            ## --- periodize and restrict from φ2π to φ
+            covPP̄′ = periodize(covPP̄, freq_mult)       
+            covPP′ = periodize(covPP, freq_mult)       
+            ## --- 
+            mul!(γⱼₖ, ptmW, covPP̄′)
+            mul!(ξⱼₖ, ptmW, covPP′)
+            @inbounds for ℓ = 1:nφ÷2+1
+                Jℓ = ℓ==1 ? 1 : nφ - ℓ + 2
+                A▪[ℓ][j,   k   ] = γⱼₖ[ℓ]
+                A▪[ℓ][j,   k+nθ] = ξⱼₖ[ℓ]
+                A▪[ℓ][j+nθ,k   ] = conj(ξⱼₖ[Jℓ])
+                A▪[ℓ][j+nθ,k+nθ] = conj(γⱼₖ[Jℓ])
+
+            end
+        end
+        next!(prgss)
+    end
+
+    @show Base.summarysize(A▪) / 1e9
+
+    return CircOp(map(Hermitian, A▪))
+end;
+
+## z = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
+## 
+## # EB▪½ = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
+## # f    = EB▪½ * z
+## 
+## # EB▪½ = map(sqrt, EB▪.Σ) |> CircOp
+## # f    = EB▪½ * z
+## 
+## f = ▪2field(tmUS2, map((Σ,w)->sqrt(Σ)*w, EB▪.Σ, field2▪(z)))
+## 
+## f[:] .|> real |> matshow; colorbar()
+## f[:] .|> imag |> matshow; colorbar()
+## 
+## 
+## @benchmark $EB▪ * $z
+## 
+
+
+
+# Φ operator 
+# ==============================
+
+Φ_ring = @sblock let ϕϕℓ, ℓvec, θ, φ, Ω
+
+    covΦβ = Spectra.βcovSpin0(ℓvec, ϕϕℓ)
+    nθ=length(θ)
+    nφ=length(φ)
 
     ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
     Γdjk = zeros(ComplexF64, nφ)
-    Cdjk = zeros(ComplexF64, nφ)
 
-    ## T = ComplexF32
-    T = ComplexF64
+    ## T    = Float32
+    T    = Float64
     Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
+    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
 
-    prgss = Progress(nθ, 1, "Computing EB cov operator ...")
+    prgss = Progress(nθ, 1, "Computing the Φ operator ...")
     for k = 1:nθ
         for j = 1:nθ
             θ1, θ2, φ1 = θ[j], θ[k], φ[1]
-            β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covPP̄, covPP = covPβ(β)  
-            covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
-            covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
-            mul!(Γdjk, ptmW, covPP̄)
-            mul!(Cdjk, ptmW, covPP)
+            Ωk    = Ω[k] 
+            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
+            covIĪ = complex.(covΦβ(β))  
+            mul!(Γdjk, ptmW, covIĪ)
             for ℓ = 1:nφ
-                @inbounds Γdb[ℓ][j,k] = Γdjk[ℓ]
-                @inbounds Cdb[ℓ][j,k] = Cdjk[ℓ]
+                ## TODO: double check this ....
+                ## @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
+                ## @inbounds Cdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
+                @inbounds Γdb[ℓ][j,k] = real.(Γdjk[ℓ])
             end
         end
         next!(prgss)
@@ -260,6 +321,18 @@ EB_ring = @sblock let  eeℓ, bbℓ, ℓvec, θ, φ,
 
     return CMBrings.ComplexCircRings(Γdb, Cdb)
 end;
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Beam
@@ -335,46 +408,6 @@ Noise_ring, μK′n = @sblock let μK′n = 1.5, θ, φ, Ω
 end;
 
 
-
-
-# Φ operator 
-# ==============================
-
-Φ_ring = @sblock let ϕϕℓ, ℓvec, θ, φ, Ω
-
-    covΦβ = Spectra.βcovSpin0(ℓvec, ϕϕℓ)
-    nθ=length(θ)
-    nφ=length(φ)
-
-    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
-    Γdjk = zeros(ComplexF64, nφ)
-
-    ## T    = Float32
-    T    = Float64
-    Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
-
-    prgss = Progress(nθ, 1, "Computing the Φ operator ...")
-    for k = 1:nθ
-        for j = 1:nθ
-            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
-            Ωk    = Ω[k] 
-            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covIĪ = complex.(covΦβ(β))  
-            mul!(Γdjk, ptmW, covIĪ)
-            for ℓ = 1:nφ
-                ## TODO: double check this ....
-                ## @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-                ## @inbounds Cdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-                @inbounds Γdb[ℓ][j,k] = real.(Γdjk[ℓ])
-            end
-        end
-        next!(prgss)
-    end
-
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
-end;
 
 
 # Gradients Set sparse increment matrices for non-FFT lensing

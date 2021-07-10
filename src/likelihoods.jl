@@ -4,7 +4,7 @@
 
 # gradient of log likelihood of f′ w.r.t ϕ
 ## perhaps we should just input f instead of f′ ....? 
-function ∇ll_ϕf′(ϕ, f′, Φ_ring::ComplexCircRings, EB_ring::ComplexCircRings; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14, ds...)
+function ∇ll_ϕf′(ϕ, f′, Φ_ring::CircOp, EB_ring::CircOp; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14, ds...)
     L    = Ł(ϕ)
     Lᴴ   = Ł(ϕ)'
 
@@ -48,7 +48,7 @@ function ∇ll_ϕf′(ϕ, f′, Φ_ring::ComplexCircRings, EB_ring::ComplexCircR
 end
 
 ## TESTING input f instead of f′
-function ∇ll_ϕf′_usingf(ϕ, f, Φ_ring::ComplexCircRings, EB_ring::ComplexCircRings; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14, ds...)
+function ∇ll_ϕf′_usingf(ϕ, f, Φ_ring::CircOp, EB_ring::CircOp; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14, ds...)
     L    = Ł(ϕ)
     Lᴴ   = Ł(ϕ)'
 
@@ -96,7 +96,7 @@ end
 
 
 # log likelihood and quasi-gibbs and optimization updates
-function ll_ϕf′(ϕ, f′, Φ_ring::ComplexCircRings, EB_ring::ComplexCircRings; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ds...)
+function ll_ϕf′(ϕ, f′, Φ_ring::CircOp, EB_ring::CircOp; data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ds...)
     L    = Ł(ϕ)
     f    = Ð⁻¹ * (L \ f′)
     lnf  = L * f
@@ -112,7 +112,7 @@ function ll_ϕf′(ϕ, f′, Φ_ring::ComplexCircRings, EB_ring::ComplexCircRing
 end
 
 #  linesearch updates for ϕ
-function linesearch_ϕf′(inHgrad, ϕ, f′, Φ_ring::ComplexCircRings, EB_ring::ComplexCircRings; 
+function linesearch_ϕf′(inHgrad, ϕ, f′, Φ_ring::CircOp, EB_ring::CircOp; 
         data, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹,
         seconds_max = 0, # seconds 
         eval_max    = 0,

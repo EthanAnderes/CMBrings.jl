@@ -33,7 +33,7 @@ end
 # =====================================
 
 function update_f(
-    Łϕ, EB::ComplexCircRings; 
+    Łϕ, EB::CircOp; 
     data,
     Pr, Qr, Bm, No, Pc⁻¹,
     ginit=0*data,
@@ -68,6 +68,7 @@ function update_f(
 end
 
 
+#=
 
 # TODO: this is currently only used for lensing-spin0. 
 # merge with above...
@@ -111,3 +112,4 @@ function update_f(
 
     return  fsim_out, gwf, hst
 end
+=#
