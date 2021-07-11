@@ -180,7 +180,7 @@ end
 # ==============================
 
 # ϕϕ, EB spectra
-eeℓ, bbℓ, ẽeℓ, b̃bℓ, ϕϕℓ, ℓvec = @sblock let
+eeℓ, bbℓ, ẽeℓ, b̃bℓ, ϕϕℓ, ℓ = @sblock let
     
     r  = 0.01
 
@@ -216,146 +216,105 @@ end;
 
 
 
-
-# EB▪ ring operator
+# EB and Phi cov operator 
 # ==============================
+Phi▪, EB▪  = @sblock let  ℓ, eeℓ, bbℓ, ϕϕℓ, θ, φ, freq_mult, nθ, nφ
 
-EB▪  = @sblock let  eeℓ, bbℓ, ℓvec, θ, φ, freq_mult, nθ, nφ
+    covβEB  = Spectra.βcovSpin2(ℓ, eeℓ, bbℓ);
+    covβPhi = Spectra.βcovSpin0(ℓ, ϕϕℓ)
 
-    covPβ = Spectra.βcovSpin2(ℓvec, eeℓ, bbℓ);
     nφ2π  = nφ*freq_mult
     φ2π   = 2π*(0:nφ2π-1)/nφ2π |> collect
 
-    ptmW = FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
-    γⱼₖ = zeros(ComplexF64, nφ)
-    ξⱼₖ = zeros(ComplexF64, nφ)
+    ptmW   = FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FFTW.MEASURE) 
+    EBγⱼₖ  = zeros(ComplexF64, nφ)
+    EBξⱼₖ  = zeros(ComplexF64, nφ)
+    Phiγⱼₖ = zeros(ComplexF64, nφ)
 
-    T  = ComplexF64 # ComplexF32
-    A▪ = Matrix{T}[zeros(T,2nθ,2nθ) for ℓ = 1:nφ÷2+1]
+    T    = ComplexF64 # ComplexF32
+    rT   = real(T)
+    EB▪  = Matrix{T}[zeros(T,2nθ,2nθ) for ℓ = 1:nφ÷2+1]
+    Phi▪ = Matrix{rT}[zeros(rT,nθ,nθ) for ℓ = 1:nφ÷2+1]
 
-    prgss = Progress(nθ, 1, "Computing A▪ for EBcov ...")
+    prgss = Progress(nθ, 1, "Computing Phi▪ and EB▪ ")
     for k = 1:nθ
         for j = 1:nθ
             θ1, θ2 = θ[j], θ[k]
-            β  =  Spectra.geoβ.(θ1, θ2, 0.0, φ2π) 
-            covPP̄, covPP = covPβ(β)  
+            β      = Spectra.geoβ.(θ1, θ2, 0.0, φ2π)
+            covIĪ  = complex.(covβPhi(β))  
+            covPP̄, covPP = covβEB(β)  
             covPP̄ .*= Spectra.multPP̄.(θ1, θ2, 0.0, φ2π) 
             covPP .*= Spectra.multPP.(θ1, θ2, 0.0, φ2π)
-            ## --- periodize and restrict from φ2π to φ
+            ## periodize and restrict from φ2π to φ
+            covIĪ′ = periodize(covIĪ, freq_mult)   
             covPP̄′ = periodize(covPP̄, freq_mult)       
             covPP′ = periodize(covPP, freq_mult)       
-            ## --- 
-            mul!(γⱼₖ, ptmW, covPP̄′)
-            mul!(ξⱼₖ, ptmW, covPP′)
+            mul!(Phiγⱼₖ, ptmW, covIĪ′)
+            mul!(EBγⱼₖ, ptmW, covPP̄′)
+            mul!(EBξⱼₖ, ptmW, covPP′)
             @inbounds for ℓ = 1:nφ÷2+1
                 Jℓ = ℓ==1 ? 1 : nφ - ℓ + 2
-                A▪[ℓ][j,   k   ] = γⱼₖ[ℓ]
-                A▪[ℓ][j,   k+nθ] = ξⱼₖ[ℓ]
-                A▪[ℓ][j+nθ,k   ] = conj(ξⱼₖ[Jℓ])
-                A▪[ℓ][j+nθ,k+nθ] = conj(γⱼₖ[Jℓ])
-
+                Phi▪[ℓ][j,  k   ] = real.(Phiγⱼₖ[ℓ])
+                EB▪[ℓ][j,   k   ] = EBγⱼₖ[ℓ]
+                EB▪[ℓ][j,   k+nθ] = EBξⱼₖ[ℓ]
+                EB▪[ℓ][j+nθ,k   ] = conj(EBξⱼₖ[Jℓ])
+                EB▪[ℓ][j+nθ,k+nθ] = conj(EBγⱼₖ[Jℓ])
             end
         end
         next!(prgss)
     end
 
-    @show Base.summarysize(A▪) / 1e9
+    @show Base.summarysize(Phi▪) / 1e9
+    @show Base.summarysize(EB▪)  / 1e9
 
-    return CircOp(map(Hermitian, A▪))
-end;
-
-## z = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
-## 
-## # EB▪½ = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
-## # f    = EB▪½ * z
-## 
-## # EB▪½ = map(sqrt, EB▪.Σ) |> CircOp
-## # f    = EB▪½ * z
-## 
-## f = ▪2field(tmUS2, map((Σ,w)->sqrt(Σ)*w, EB▪.Σ, field2▪(z)))
-## 
-## f[:] .|> real |> matshow; colorbar()
-## f[:] .|> imag |> matshow; colorbar()
-## 
-## 
-## @benchmark $EB▪ * $z
-## 
-
-
-
-# Φ operator 
-# ==============================
-
-Φ_ring = @sblock let ϕϕℓ, ℓvec, θ, φ, Ω
-
-    covΦβ = Spectra.βcovSpin0(ℓvec, ϕϕℓ)
-    nθ=length(θ)
-    nφ=length(φ)
-
-    ptmW = FT.FFTW.plan_fft(Vector{ComplexF64}(undef, nφ), flags=FT.FFTW.MEASURE) 
-    Γdjk = zeros(ComplexF64, nφ)
-
-    ## T    = Float32
-    T    = Float64
-    Γdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    ## Cdb  = Matrix{T}[zeros(T, nθ, nθ) for ℓ = 1:nφ]
-    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
-
-    prgss = Progress(nθ, 1, "Computing the Φ operator ...")
-    for k = 1:nθ
-        for j = 1:nθ
-            θ1, θ2, φ1 = θ[j], θ[k], φ[1]
-            Ωk    = Ω[k] 
-            β     =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covIĪ = complex.(covΦβ(β))  
-            mul!(Γdjk, ptmW, covIĪ)
-            for ℓ = 1:nφ
-                ## TODO: double check this ....
-                ## @inbounds Γdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-                ## @inbounds Cdb[ℓ][j,k] = real(Γdjk[ℓ] / 2)
-                @inbounds Γdb[ℓ][j,k] = real.(Γdjk[ℓ])
-            end
-        end
-        next!(prgss)
-    end
-
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
+    return CircOp(map(Symmetric, Phi▪)), CircOp(map(Hermitian,EB▪))
 end;
 
 
+# EB▪½  = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
+# Phi▪½ = map(M->Array(cholesky(M).L), Phi▪.Σ) |> CircOp
 
+EB▪½  = map(sqrt, EB▪.Σ)  |> CircOp
+Phi▪½ = map(sqrt, Phi▪.Σ) |> CircOp
 
+zUS2 = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
+zUS0 = Xmap(tmUS0, randn(Float64, nθ, nφ))
 
+f0    = Phi▪½ * zUS0
+f2    = EB▪½  * zUS2
 
+# f0 = ▪2field(tmUS0, map((Σ,w)->sqrt(Σ)*w, Phi▪.Σ, field2▪(zUS0)))
+# f2 = ▪2field(tmUS2, map((Σ,w)->sqrt(Σ)*w, EB▪.Σ, field2▪(zUS2)))
 
+f0[:] |> matshow; colorbar()
+f2[:] .|> real |> matshow; colorbar()
+f2[:] .|> imag |> matshow; colorbar()
 
-
-
-
-
+@benchmark $Phi▪½ * $(Xfourier(zUS0)) # 9.953 ms down from 262.847 ms
+@benchmark $EB▪½  * $(Xfourier(zUS2)) # 34.088 ms
 
 
 # Beam
 # ==============================
 
-beamℓ = @sblock let ℓvec
+beamℓ = @sblock let ℓ
     ## THIS IS A TEST ↯↯↯↯↯↯↯↯
     ## beamfwhm  = 55.0 |> arcmin -> deg2rad(arcmin/60)
     beamfwhm     = 3.5 |> arcmin -> deg2rad(arcmin/60)
     ## beamfwhm  = 25.0 |> arcmin -> deg2rad(arcmin/60)
 
     σ² = beamfwhm^2 / 8 / log(2)
-    bℓ = @. exp( - σ²*ℓvec*(ℓvec+1) / 2)
+    bℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
 
     ## ℓcut = 200
-    ## bℓ .*= ℓvec .< ℓcut
+    ## bℓ .*= ℓ .< ℓcut
 
     return bℓ
 end;
 
-Beam_ring = @sblock let beamℓ, ℓvec, θ, φ, Ω
+Beam_ring = @sblock let beamℓ, ℓ, θ, φ, Ω
     
-    covBeamβ = Spectra.βcovSpin0(ℓvec, beamℓ)
+    covBeamβ = Spectra.βcovSpin0(ℓ, beamℓ)
 
     nθ=length(θ)
     nφ=length(φ)
@@ -574,7 +533,7 @@ end
 @time ϕ = CMBrings.map_ring(
     (fℓ, Σℓ) -> sqrt(Symmetric(Matrix(Σℓ))) * fℓ,
     Xmap(tmS0, randn(eltype_in(tmS0), size_in(tmS0))),
-    Φ_ring, 
+    Phi▪, 
 )
 
 d = Pr * (Beam_ring * Ł(ϕ) * qu + no)
@@ -584,9 +543,9 @@ d = Pr * (Beam_ring * Ł(ϕ) * qu + no)
 # MixFlow
 # ==============================
 
-Ð⁻¹ = @sblock let ẽeℓ, b̃bℓ, ℓvec, θ, φ, EB_ring, Noise_ring
+Ð⁻¹ = @sblock let ẽeℓ, b̃bℓ, ℓ, θ, φ, EB_ring, Noise_ring
 
-    covPβ = Spectra.βcovSpin2(ℓvec, ẽeℓ, b̃bℓ)
+    covβ = Spectra.βcovSpin2(ℓ, ẽeℓ, b̃bℓ)
 
     nθ = length(θ)
     nφ = length(φ)
@@ -604,7 +563,7 @@ d = Pr * (Beam_ring * Ł(ϕ) * qu + no)
         for j = 1:nθ
             θ1, θ2, φ1 = θ[j], θ[k], φ[1]
             β  =  Spectra.geoβ.(θ1, θ2, φ1, φ) 
-            covPP̄, covPP = covPβ(β)  
+            covPP̄, covPP = covβ(β)  
             covPP̄ .*= Spectra.multPP̄.(θ1, θ2, φ1, φ) 
             covPP .*= Spectra.multPP.(θ1, θ2, φ1, φ)            
             mul!(Γdjk, ptmW, covPP̄)
@@ -634,7 +593,7 @@ end;
 
 import CMBflat
 
-N0ℓ, NΦNℓ =  @sblock let n_iter = 5, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ = deg2rad(μK′n / 60)^2 .+ zero(ℓvec), ℓvec
+N0ℓ, NΦNℓ =  @sblock let n_iter = 5, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ = deg2rad(μK′n / 60)^2 .+ zero(ℓ), ℓ
 
     ## T_fld = Float32
     T_fld = Float64
@@ -714,7 +673,7 @@ N0ℓ, NΦNℓ =  @sblock let n_iter = 5, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ 
         ; k=1, bc="zero",
     )
 
-    N0ℓ = spline_k4n0ck.(ℓvec) ./ ℓvec.^4
+    N0ℓ = spline_k4n0ck.(ℓ) ./ ℓ.^4
     N0ℓ[real.(N0ℓ) .<= 0] .= Inf 
     N0ℓ[isnan.(N0ℓ)]      .= Inf 
     NΦNℓ = @. inv(inv(N0ℓ) + inv(ϕϕℓ))
@@ -724,9 +683,9 @@ end;
 
 #-
 
-NΦN_ring = @sblock let NΦNℓ, ℓvec, θ, φ, Ω
+NΦN_ring = @sblock let NΦNℓ, ℓ, θ, φ, Ω
 
-    covΦβ = Spectra.βcovSpin0(ℓvec, NΦNℓ)
+    covΦβ = Spectra.βcovSpin0(ℓ, NΦNℓ)
     nθ=length(θ)
     nφ=length(φ)
 
@@ -808,16 +767,16 @@ Noise_ring⁻¹ = CMBrings.map_ring(Nℓ->diagm(1 ./ diag(Nℓ)), Noise_ring);
     );
     @show hst[end]
     f′_cr =  Ł(ϕ_cr) * (Ð⁻¹ \ f_cr) 
-    @show CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
+    @show CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
 
     ## ------ ϕ gradient
-    ## @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
-    @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
+    ## @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
+    @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
     @time ∇ϕ_cr = NΦN_ring * gradϕ 
         
     ## ------ linesearch 
     @time β = CMBrings.linesearch_ϕf′(
-        ∇ϕ_cr, ϕ_cr, f′_cr, Φ_ring, EB_ring; 
+        ∇ϕ_cr, ϕ_cr, f′_cr, Phi▪, EB_ring; 
         data = d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹,
         eval_max = 200, startval = 0.001, ftol_abs = 50, solver = :LN_COBYLA,  
         ## eval_max = 250, startval = 0.001, ftol_abs = 1, solver = :LN_COBYLA,  
@@ -995,8 +954,8 @@ end
 
 #-
 
-##  CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
-##  CMBrings.ll_ϕf′(ϕ_cr + .01 * ∇ϕ_cr, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
+##  CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
+##  CMBrings.ll_ϕf′(ϕ_cr + .01 * ∇ϕ_cr, f′_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
 ## 
 ##  opt = NLopt.Opt(:LN_COBYLA, 1)
 ##  opt.upper_bounds = Float64[2]
@@ -1005,7 +964,7 @@ end
 ##  ϕₒ, inHgradₒ = promote(ϕ_cr, ∇ϕ_cr)
 ##  opt.max_objective = function (β, grad)
 ##      ϕβ = ϕₒ + β[1] * inHgradₒ       
-##      return CMBrings.ll_ϕf′(ϕβ, f′_cr, Φ_ring, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
+##      return CMBrings.ll_ϕf′(ϕβ, f′_cr, Phi▪, EB_ring; data=d, Ł, Ð⁻¹, Pr, Beam_ring, Noise_ring⁻¹)
 ##  end
 ##     
 ##  ll_opt, β_opt, = NLopt.optimize(opt,  Float64[0.001])
@@ -1028,17 +987,17 @@ wn2[:] .- wn[:] .|> imag |> matshow; colorbar()
 
 
 #= ##################################
-loglog(ℓvec, ℓvec.^4 .* NΦNℓ)
-loglog(ℓvec, ℓvec.^4 .* ϕϕℓ)
+loglog(ℓ, ℓ.^4 .* NΦNℓ)
+loglog(ℓ, ℓ.^4 .* ϕϕℓ)
 =# ##################################
 
 
 
 #= ##################################################### 
 nℓₒ = exp(mean(log.(eeℓ[4:5000])))
-loglog(ℓvec, eeℓ)
-loglog(ℓvec, bbℓ)
-loglog(ℓvec, fill(nℓₒ, length(ℓvec)) )
+loglog(ℓ, eeℓ)
+loglog(ℓ, bbℓ)
+loglog(ℓ, fill(nℓₒ, length(ℓ)) )
 =# ##################################################### 
 
 
@@ -1223,10 +1182,10 @@ deg2rad(μK′n / 60)^2 / Ω[end - 50]
 =# ##################################################### 
 
 #= #####################################################
-d,V = Φ_ring[3] |> Symmetric |> eigen
-d,V = Φ_ring[100] |> Symmetric |> eigen
-@time Φ_ring[100] |> Symmetric |> sqrt
-@time Φ_ring[100] |> Symmetric |> cholesky
+d,V = Phi▪[3] |> Symmetric |> eigen
+d,V = Phi▪[100] |> Symmetric |> eigen
+@time Phi▪[100] |> Symmetric |> sqrt
+@time Phi▪[100] |> Symmetric |> cholesky
 =# #####################################################
 
 

@@ -35,7 +35,7 @@ end
 function ▪2ℝfθk(w::Vector{Vector{To}}) where To 
     nθ, nφ½₊1 = length(w[1]), length(w)
     fθk = zeros(To, nθ, nφ½₊1)
-    for i in 1:nc 
+    for i in 1:nφ½₊1 
         fθk[:,i] = w[i]
     end
     fθk
@@ -93,12 +93,10 @@ function field2▪(p_field::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
 end
 
 function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Real} 
-    tm = fieldtransform(f)
     Xfourier(tm, ▪2ℝfθk(w))
 end
 
 function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Complex} 
-    tm = fieldtransform(f)
     nφ = size_in(tm)[2] 
     Xfourier(tm, ▪2ℂfθk(w,nφ))
 end
