@@ -8,7 +8,6 @@ circulant field covariance op.
 
 The storage format corresponds to the structure of the operator as it applies to the real and 
 imag part of the pixel field as a function of (θ, φ).
-
 """
 struct CircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp
     Σ::Vector{M}
@@ -19,7 +18,16 @@ function CircOp(nrows::Int, ncols::Int, nblocks::Int, ::Type{M}) where {M<:Abstr
     CircOp{M}(Σ)
 end 
 
+# AdjointCircOp
+# =======================================
 
+struct AdjointCircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp
+    az::CircOp{M}
+end
+
+function Base.adjoint(az::CircOp{M}) where {M}
+    return AdjointCircOp{M}(az)
+end
 
 # Preping 1-d FFT'd matrices for CircOp argument
 # =======================================
@@ -80,16 +88,17 @@ function ▪2ℂfθk(w::Vector{Vector{To}}, nφ::Int) where To
     pθk
 end
 
-
 # A bit higher level conversion from blk to the format accepted by CircOps
 # =======================================
 
-function field2▪(f_field::Xf) where {Tm,Ti<:Real,To,Xf<:Xfield{Tm,Ti,To,2}}
-    ℝfθk2▪(f_field[!])
+function field2▪(f::Xf) where {Tm,Ti<:Real,To,Xf<:Xfield{Tm,Ti,To,2}}
+    # ℝfθk2▪(fielddata(FourierField(f)))
+    ℝfθk2▪(f[!])
 end
 
-function field2▪(p_field::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
-    ℂfθk2▪(p_field[!])
+function field2▪(f::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
+    # ℂfθk2▪(fielddata(FourierField(f)))
+    ℂfθk2▪(f[!])
 end
 
 function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Real} 
@@ -101,64 +110,54 @@ function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Co
     Xfourier(tm, ▪2ℂfθk(w,nφ))
 end
 
+# Define map(fun::Function, az::CircOp, f::Xfield)
+# where fun(Σℓ,vℓ) -> wℓ
+# ==================================
+# Question: does fun::Tf where {Tf<:Function} overspecialize vrs fun::Function
 
-# AdjointCircOp
-# =======================================
+function Base.map(fun::Tf, az::CircOp, f::XF)::XF where {Tf<:Function, Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+    Σf▪ = map(fun, az.Σ, field2▪(f))
+    XF(▪2field(fieldtransform(f), Σf▪))
+end 
 
-struct AdjointCircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp
-    az::CircOp{M}
-end
+function Base.map(fun::Tf, az::AdjointCircOp, f::XF)::XF where {Tf<:Function, Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+    Σf▪ = map((Σ,v)->fun(adjoint(Σ),v), az.az.Σ, field2▪(f))
+    XF(▪2field(fieldtransform(f), Σf▪))
+end 
 
-function Base.adjoint(az::CircOp{M}) where {M}
-    return AdjointCircOp{M}(az)
-end
-
-
-
-# Define left mult 
+# Define left divide (to be used sparingly) 
 # ==================================
 
-# CircOp, for fields which are complex in map space
-function XFields._lmult(az::CircOp, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
-    v  = ℂfθk2▪(fielddata(FourierField(f)))
-    w  = map(*, az.Σ, v)
-    tm = fieldtransform(f)
-    nφ = size_in(tm)[2] 
-    Xfourier(tm, ▪2ℂfθk(w, nφ))
-end
+function Base.:\(az::Union{CircOp,AdjointCircOp}, f::XF)::XF where {Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+    map(\, az, f)
+end 
 
-# CircOp, for fields which are real in map space
-function XFields._lmult(az::CircOp, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
-    v  = ℝfθk2▪(fielddata(FourierField(f)))
-    w  = map(*, az.Σ, v)
-    tm = fieldtransform(f)
-    Xfourier(tm, ▪2ℝfθk(w))
-end
+function Base.:*(az::Union{CircOp,AdjointCircOp}, f::XF)::XF where {Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+    map(*, az, f)
+end 
 
-function Base.:*(az::CircOp, f::XF) where {XF<:Xfield}
-    XF(XFields._lmult(az, f))
-end
+# this avoids converting back to the original basis ... not sure how much it helps
+# ==================================
 
-# ----------------------------
+# General CircOp for complex fields (in map space)
+# [ Σ₁  Σ₃ ] [reP(θ,φ)]
+# [ Σ₂  Σ₄ ] [imP(θ,φ)]
 
-# AdjointCircOp, Complex in pixel space
-function XFields._lmult(az::AdjointCircOp, f::XF) where {TM, Ti<:Complex, To, XF<:Xfield{TM,Ti,To,2}}
-    v  = ℂfθk2▪(fielddata(FourierField(f)))
-    w  = map((A,b)->A'*b, az.az.Σ, v)
-    tm = fieldtransform(f)
-    nφ = size_in(tm)[2] 
-    Xfourier(tm, ▪2ℂfθk(w, nφ))
-end
+#  CircOp for real fields (in map space)
+# [ Σ₁  0 ] [reP(θ,φ)]
+# [ 0  Σ₁ ] [0       ]
 
-# AdjointCircOp, Real in pixel space
-function XFields._lmult(az::AdjointCircOp, f::XF) where {TM, Ti<:Real, To, XF<:Xfield{TM,Ti,To,2}}
-    v  = ℝfθk2▪(fielddata(FourierField(f)))
-    w  = map((A,b)->A'*b, az.az.Σ, v)
-    tm = fieldtransform(f)
-    Xfourier(tm, ▪2ℝfθk(w))
-end
+# function XFields._lmult(az::CircOp, f::XF) where {Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+#     Σf▪ = map(*, az.Σ, field2▪(f))
+#     ▪2field(fieldtransform(f), Σf▪)
+# end
 
-function Base.:*(az::AdjointCircOp, f::XF) where {XF<:Xfield}
-    XF(XFields._lmult(az, f))
-end
+# function XFields._lmult(az::AdjointCircOp, f::XF) where {Tm,Ti,To,XF<:Xfield{Tm,Ti,To,2}}
+#     Σf▪ = map((A,b)->A'*b, az.az.Σ, field2▪(f))
+#     ▪2field(fieldtransform(f), Σf▪)
+# end
+
+# function Base.:*(az::Union{CircOp, AdjointCircOp}, f::XF) where {XF<:Xfield}
+#     XF(XFields._lmult(az, f))
+# end
 
