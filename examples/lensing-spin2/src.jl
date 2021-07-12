@@ -131,7 +131,7 @@ end;
 
 using CMBflat: PrQr # Eventually remove this
 
-Pr, Qr = @sblock let tmUS2, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=100
+Pr, Qr = @sblock let tmUS2, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=150
     tmFlat = FT.𝕎(real(eltype_in(tmUS2)), size(data_msk), (θ[end]-θ[1], φ[end]-φ[1]))
     pr0x, qr0x = PrQr(tmFlat, data_msk, fwhm′, fwhm′, QP_bdry)
     pr0 = Xmap(tmUS2, pr0x)
@@ -141,7 +141,7 @@ end;
 
 # Localize lensing vector field to data mask.
 
-Mϕ = @sblock let tmUS0, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=75
+Mϕ = @sblock let tmUS0, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=100
     tmFlat = FT.𝕎(real(eltype_in(tmUS0)), size(data_msk), (θ[end]-θ[1], φ[end]-φ[1]))
     pr0x, qr0x = PrQr(tmFlat, data_msk, fwhm′, fwhm′, QP_bdry)
 
@@ -429,43 +429,43 @@ end |> CircOp
 # Some testing 
 # =============================
 
-# EB▪½  = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
-# Phi▪½ = map(M->Array(cholesky(M).L), Phi▪.Σ) |> CircOp
-# N▪½   = map(M->Array(cholesky(M).L), N▪.Σ) |> CircOp
-
-EB▪½  = map(sqrt, EB▪.Σ)  |> CircOp
-Phi▪½ = map(sqrt, Phi▪.Σ) |> CircOp
-N▪½   = map(sqrt, N▪.Σ) |> CircOp
-
-zUS2 = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
-zUS0 = Xmap(tmUS0, randn(Float64, nθ, nφ))
-
-f0    = Phi▪½ * zUS0
-f1    = N▪½   * zUS2
-f2    = EB▪½  * zUS2
-f3    = Ð▪⁻¹  \ f2 
-f4    = Beam▪ * f2
-f5    = Precon▪⁻¹ * f2
-
-f0[:]  |> matshow; colorbar()
-f1[:] .|> real |> matshow; colorbar()
-f1[:] .|> imag |> matshow; colorbar()
-f2[:] .|> real |> matshow; colorbar()
-f2[:] .|> imag |> matshow; colorbar()
-f3[:] .|> real |> matshow; colorbar()
-f3[:] .|> imag |> matshow; colorbar()
-f4[:] .|> real |> matshow; colorbar()
-f4[:] .|> imag |> matshow; colorbar()
-f5[:] .|> real |> matshow; colorbar()
-f5[:] .|> imag |> matshow; colorbar()
-
-
-@benchmark $Phi▪½ * $(Xfourier(zUS0))  # 9.953 ms down from 262.847 ms
-@benchmark $Beam▪ * $(Xfourier(zUS2))  # 27.339 ms
-@benchmark $EB▪½  * $(Xfourier(zUS2))  # 35.575 ms
-@benchmark $N▪½   * $(Xfourier(zUS2))  # 3.036 ms
-@benchmark $Ð▪⁻¹  \ $(Xfourier(zUS2))  # 2.423 s
-@benchmark $Precon▪⁻¹ * $(Xfourier(zUS2)) # 34.079 ms
+## # EB▪½  = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
+## # Phi▪½ = map(M->Array(cholesky(M).L), Phi▪.Σ) |> CircOp
+## # N▪½   = map(M->Array(cholesky(M).L), N▪.Σ) |> CircOp
+## 
+## EB▪½  = map(sqrt, EB▪.Σ)  |> CircOp
+## Phi▪½ = map(sqrt, Phi▪.Σ) |> CircOp
+## N▪½   = map(sqrt, N▪.Σ) |> CircOp
+## 
+## zUS2 = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
+## zUS0 = Xmap(tmUS0, randn(Float64, nθ, nφ))
+## 
+## f0    = Phi▪½ * zUS0
+## f1    = N▪½   * zUS2
+## f2    = EB▪½  * zUS2
+## f3    = Ð▪⁻¹  \ f2 
+## f4    = Beam▪ * f2
+## f5    = Precon▪⁻¹ * f2
+## 
+## f0[:]  |> matshow; colorbar()
+## f1[:] .|> real |> matshow; colorbar()
+## f1[:] .|> imag |> matshow; colorbar()
+## f2[:] .|> real |> matshow; colorbar()
+## f2[:] .|> imag |> matshow; colorbar()
+## f3[:] .|> real |> matshow; colorbar()
+## f3[:] .|> imag |> matshow; colorbar()
+## f4[:] .|> real |> matshow; colorbar()
+## f4[:] .|> imag |> matshow; colorbar()
+## f5[:] .|> real |> matshow; colorbar()
+## f5[:] .|> imag |> matshow; colorbar()
+## 
+## 
+## @benchmark $Phi▪½ * $(Xfourier(zUS0))  # 9.953 ms down from 262.847 ms
+## @benchmark $Beam▪ * $(Xfourier(zUS2))  # 27.339 ms
+## @benchmark $EB▪½  * $(Xfourier(zUS2))  # 35.575 ms
+## @benchmark $N▪½   * $(Xfourier(zUS2))  # 3.036 ms
+## @benchmark $Ð▪⁻¹  \ $(Xfourier(zUS2))  # 2.423 s
+## @benchmark $Precon▪⁻¹ * $(Xfourier(zUS2)) # 34.079 ms
 
 
 # Gradients Set sparse increment matrices for non-FFT lensing
@@ -519,7 +519,7 @@ function generate_∇!_∇!ϕ_1storder(θℝ::Vector{Tf}, φℝ::Vector{Tf}) whe
 #    ∇!   = CMBrings.Nabla!(Matrix((∂θ - ∂θ')/2), Matrix((∂φᵀ - ∂φᵀ')/2))
 #    ∇!_ϕ = CMBrings.Nabla!(Matrix(∂θ), Matrix(∂φᵀ))
 
-    ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, ∂φᵀ - ∂φᵀ')/2)
+    ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
     ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
 
 
@@ -603,7 +603,7 @@ gwf  = 0*d
 ## special for this noise
 N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
 
-@showprogress for otr = 1:6
+@showprogress for otr = 1:50
 ## @showprogress for otr = 2:3
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
@@ -625,7 +625,7 @@ N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
     
     ## ------ ϕ gradient
     ## @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
-    @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
+    @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14)
     @time ∇ϕ_cr = NΦN▪ * gradϕ 
         
     ## ------ linesearch 
