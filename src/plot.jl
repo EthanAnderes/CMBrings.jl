@@ -8,16 +8,16 @@
 # imshow(A, fig, ax[1])
 # imshow(A, fig, ax[2])
 
-function PyPlot.imshow(A::Matrix, fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7)
-    PyPlot.imshow(-, fig, ax; vmin, vmax, shrink)(A)
+function PyPlot.imshow(A::Matrix, fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015)
+    PyPlot.imshow(-, fig, ax; vmin, vmax, shrink, pad)(A)
 end
 
 
-function PyPlot.imshow(::typeof(-), fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7)
+function PyPlot.imshow(::typeof(-), fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015)
     function (A::Matrix)
         img = ax.imshow(A, vmin=vmin, vmax=vmax)
         ax.axis("off")
-        fig.colorbar(img, ax=ax, shrink=shrink)
+        fig.colorbar(img, ax=ax, shrink=shrink, pad=pad)
         fig.tight_layout()
         img
     end
