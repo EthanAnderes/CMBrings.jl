@@ -1,4 +1,27 @@
+# The following allows 
+# fig, ax = subplots(2)
+# A |> imshow(-, fig, ax[1])
+# A |> imshow(-, fig, ax[2])
+#
+# ... or ...
+# fig, ax = subplots(2)
+# imshow(A, fig, ax[1])
+# imshow(A, fig, ax[2])
 
+function PyPlot.imshow(A::Matrix, fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7)
+    PyPlot.imshow(-, fig, ax; vmin, vmax, shrink)(A)
+end
+
+
+function PyPlot.imshow(::typeof(-), fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7)
+    function (A::Matrix)
+        img = ax.imshow(A, vmin=vmin, vmax=vmax)
+        ax.axis("off")
+        fig.colorbar(img, ax=ax, shrink=shrink)
+        fig.tight_layout()
+        img
+    end
+end
 
 
 

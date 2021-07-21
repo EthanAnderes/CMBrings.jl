@@ -19,6 +19,8 @@ using Spectra: camb_cls
 using CirculantCov: βcovSpin2, βcovSpin0, geoβ, 
 multPP̄, multPP, periodize, Jperm
 
+import HealpixTransforms
+
 using SparseArrays
 using DelimitedFiles
 using LBblocks: @sblock
@@ -44,18 +46,30 @@ hide_plots = false
 
 θ, φ, Ω, Δθ, nθ, nφ, freq_mult, tmUS2, tmUS0 = @sblock let 
 
-    freq_mult = 4 # 3
-    nθ, nφ    = (250, 768)
-    ## nθ, nφ  = (290, 1024)
-    θnorth∂ = 2.7 # 2.5 #  2.3784 # 
-    θsouth∂ = 2.9 # 2.7 #  2.7694 # 
+    freq_mult = 4 
+    #nφ  = 768
+    nφ  = 1024
 
-    θpix∂   = θnorth∂ .+ (θsouth∂ - θnorth∂)*(0:nθ)/nθ  |> collect
+    ## θnorth∂, θsouth∂, nθ = 2.55, 2.75, 325
+    ## θnorth∂, θsouth∂, nθ = 2.5, 2.85, 500
+    ## θnorth∂, θsouth∂, nθ = 2.4, 2.75, 500
+    ## θnorth∂, θsouth∂, nθ = 2.3784, 2.7694, 500
+    ## θpix∂   = θnorth∂ .+ (θsouth∂ - θnorth∂)*(0:nθ)/nθ  |> collect
     ## --- or -------
+    ## θnorth∂, θsouth∂, nθ = 2.55, 2.75, 325
     ## znorth = cos.(θnorth∂)
     ## zsouth = cos.(θsouth∂)
     ## θpix∂ = acos.(range(znorth, zsouth, length=nθ+1))
+    ## --- or -------
+    θnorth∂, θsouth∂ = 2.52, 2.769
+    nside    = 1024
+    θhp, φhp = HealpixTransforms.pix(nside)
+    θmat     = HealpixTransforms.rings2rows(θhp, nside)
+    θpix∂    = θmat[θnorth∂ .<= θmat[:,1] .<= θsouth∂, 1]
+    nθ       = length(θpix∂)-1
     ## --------------
+    
+
     Δθ = diff(θpix∂)
     θ = θpix∂[2:end] .- Δθ/2    
     
@@ -98,8 +112,8 @@ end
 
 data_msk = @sblock let θ, φ
     
-    ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
-    pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
+    pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
+    ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
     ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
     nθ_msk, nφ_msk = size(pr_msk)
     θ_msk = π*(0.5:nθ_msk-0.5)/nθ_msk |> collect
@@ -132,14 +146,10 @@ end;
 
 # Localize lensing vector field to data mask.
 
-# Mϕ = @sblock let tmUS0, θ, φ, data_msk, QP_bdry=1e-5, fwhm′=75
-#     tmFlat = FT.𝕎(real(eltype_in(tmUS0)), size(data_msk), (θ[end]-θ[1], φ[end]-φ[1]))
-#     pr0x, qr0x = PrQr(tmFlat, data_msk, fwhm′, fwhm′, QP_bdry)
-
-Mϕ = @sblock let tmUS0, Pr, ppwr = 2
+Mϕ = @sblock let tmUS0, Pr, sqz = 7 # increase sqz to get shaper transition
 
     ## mϕx = real.(Pr[:]) .+ qr0x
-    mϕx = real.(Pr[:]).^ppwr 
+    mϕx = real.(Pr[:]) .|> x-> atan(sqz*(x-1/2))
 
     ## make sure it hits zero and 1
     mϕx .-= minimum(mϕx)
@@ -147,7 +157,10 @@ Mϕ = @sblock let tmUS0, Pr, ppwr = 2
     Mϕ    = DiagOp(Xmap(tmUS0, mϕx))
     Mϕ
 end;
-# Mϕ[:] .|> real |> matshow; colorbar()
+#=
+ Mϕ[:] .|> real |> matshow; colorbar()
+ Pr[:] .|> real |> matshow; colorbar()
+=# 
 
 # Azimuthal ring mask
 
@@ -167,8 +180,8 @@ end
 # Spectral densities and operators
 # ==============================
 
-μK_arcmin       = 2.5
-beamfwhm_arcmin = 3.0
+μK_arcmin       = 2.0
+beamfwhm_arcmin = maximum(@. rad2deg(√Ω)*60)
 
 ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, ẽẽℓ, b̃b̃ℓ = @sblock let beamfwhm_arcmin
     
@@ -612,7 +625,7 @@ gwf  = 0*d
 ## special for this noise
 N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
 
-@showprogress for otr = 1:25
+@showprogress for otr = 1:30
 ## @showprogress for otr = 2:16
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
@@ -655,6 +668,10 @@ end
 #=
 ϕ_cr[:] |> matshow; colorbar()
 ϕ[:] |> matshow; colorbar()
+
+qu[:] .|> real |> matshow; colorbar()
+qu[:] .|> imag |> matshow; colorbar()
+
 =#
 
 #-
