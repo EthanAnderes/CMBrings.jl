@@ -44,53 +44,31 @@ hide_plots = false
 # ==============================
 
 
-θ, φ, Ω, Δθ, nθ, nφ, freq_mult, tmUS2, tmUS0 = @sblock let 
+θ, φ, Ω, Δθ, nθ, nφ, freq_mult, grid_type = @sblock let 
 
     freq_mult = 4 
-    #nφ  = 768
-    nφ  = 1024
 
-    ## θnorth∂, θsouth∂, nθ = 2.55, 2.75, 325
-    ## θnorth∂, θsouth∂, nθ = 2.5, 2.85, 500
-    ## θnorth∂, θsouth∂, nθ = 2.4, 2.75, 500
-    ## θnorth∂, θsouth∂, nθ = 2.3784, 2.7694, 500
-    ## θpix∂   = θnorth∂ .+ (θsouth∂ - θnorth∂)*(0:nθ)/nθ  |> collect
-    ## --- or -------
-    ## θnorth∂, θsouth∂, nθ = 2.55, 2.75, 325
-    ## znorth = cos.(θnorth∂)
-    ## zsouth = cos.(θsouth∂)
-    ## θpix∂ = acos.(range(znorth, zsouth, length=nθ+1))
-    ## --- or -------
-    θnorth∂, θsouth∂ = 2.52, 2.769
-    nside    = 1024
-    θhp, φhp = HealpixTransforms.pix(nside)
-    θmat     = HealpixTransforms.rings2rows(θhp, nside)
-    θpix∂    = θmat[θnorth∂ .<= θmat[:,1] .<= θsouth∂, 1]
-    nθ       = length(θpix∂)-1
-    ## --------------
-    
+    φ, φ∂ = CMBrings.φ_grid(; φspan=(0.0, 2π/freq_mult), N=810)
+    ##φ, φ∂ = CMBrings.φ_grid(; φspan=(0.0, 2π/freq_mult), N=768)
+    ## φ, φ∂ = CMBrings.φ_grid(; φspan=(0.0, 2π/freq_mult), N=1024)
 
-    Δθ = diff(θpix∂)
-    θ = θpix∂[2:end] .- Δθ/2    
-    
-    ## set φ (assuming it is uniform)
-    φleft∂  = 0.0          # 2.5 # 2.3784
-    φright∂ = 2π/freq_mult # 2.7 # 2.7694
-    φ       = φleft∂ .+ (φright∂ - φleft∂)*(0:nφ-1)/nφ  |> collect
+    θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.5,2.8), N=1024, type=:healpix)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.45,2.7), N= 3700, type=:equiθ)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.4,2.7), N=1024, type=:healpix)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.4,2.7), N= 1270, type=:equicosθ)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.3,2.7), N= 2372, type=:equiθ)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.5,2.7), N= 3900, type=:equiθ)
 
-    ## set φ (this assumes φ gridding is uniform)
-    Ω   = @. (φ[2] - φ[1]) * abs(cos(θpix∂[1:end-1]) - cos(θpix∂[2:end]))
+    nθ, nφ = length(θ), length(φ)
+    θspan = (θ∂[1], θ∂[end])
+    φspan = (φ∂[1], φ∂[end])
+    Ω  = (φ∂[2] .- φ∂[1]) .* diff(.- cos.(θ∂))
+    Δθ = diff(θ∂)
 
-    ## Unitary transforms
-    T = Float64
-    tmUS2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π/freq_mult))
-    tmUS2 *= FT.unitary_scale(tmUS2) 
-    
-    tmUS0  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π/freq_mult))
-    tmUS0 *= FT.unitary_scale(tmUS0) 
+    θ, φ, Ω, Δθ, nθ, nφ, freq_mult, grid_type
+end 
 
-    return θ, φ, Ω, Δθ, nθ, nφ, freq_mult, tmUS2, tmUS0
-end;
+@show (nθ, nφ)
 
 @show extrema(@. rad2deg(√Ω)*60) 
 
@@ -107,8 +85,24 @@ end;
 end
 
 
-# Mask and CMBring observation region
+# Transformations, Mask and CMBring observation region
 # ==============================
+
+
+tmUS2, tmUS0 = @sblock let nθ, nφ, freq_mult
+
+    ## Unitary transforms
+    T = Float64
+    tmUS2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π/freq_mult))
+    tmUS2 *= FT.unitary_scale(tmUS2) 
+    
+    tmUS0  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π/freq_mult))
+    tmUS0 *= FT.unitary_scale(tmUS0) 
+
+    return tmUS2, tmUS0
+end;
+
+#-
 
 data_msk = @sblock let θ, φ
     
@@ -180,7 +174,7 @@ end
 # Spectral densities and operators
 # ==============================
 
-μK_arcmin       = 2.0
+μK_arcmin       = 3.0
 beamfwhm_arcmin = maximum(@. rad2deg(√Ω)*60)
 
 ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, ẽẽℓ, b̃b̃ℓ = @sblock let beamfwhm_arcmin
@@ -316,6 +310,12 @@ end;
 
 # Ring Ops 
 # ==============================
+
+
+
+
+
+
 
 EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪  = @sblock let ℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ, ϕϕℓ, beamℓ, NΦNℓ, μK_arcmin, θ, φ, freq_mult, Ω 
 
@@ -580,7 +580,7 @@ function generate_lense_sublense(;
 end
 
 ## ∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ;uniformΔθ=true) 
-∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ;uniformΔθ=false) 
+∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ; uniformΔθ = (grid_type == :equiθ) ? true : false) 
 
 Ł, ϕ2v!, ϕ2vᴴ!, ∇! = generate_lense_sublense(;
         θ, mv1x=Mϕ[:], mv2x=Mϕ[:], ∇!,  ∇!_ϕ, 
@@ -609,10 +609,26 @@ d = Pr * (Beam▪ * Ł(ϕ) * qu + no)
 
 #= β
 lnqu = Ł(ϕ) * qu
-lnqu[:] .|> real |> matshow 
-lnqu[:] .|> imag |> matshow 
-(lnqu-qu)[:] .|> real |> matshow 
-(lnqu-qu)[:] .|> imag |> matshow 
+
+fig, ax = subplots(2)
+d[:] .|> real |> imshow(-, fig, ax[1]) 
+d[:] .|> imag |> imshow(-, fig, ax[2]) 
+
+fig, ax = subplots(2)
+qu[:] .|> real |> imshow(-, fig, ax[1]) 
+qu[:] .|> imag |> imshow(-, fig, ax[2]) 
+
+fig, ax = subplots(2)
+lnqu[:]  .|> real |> imshow(-, fig, ax[1]) 
+lnqu[:]  .|> imag |> imshow(-, fig, ax[2]) 
+
+
+fig, ax = subplots(2)
+(lnqu-qu)[:] .|> real |> imshow(-, fig, ax[1]) 
+(lnqu-qu)[:] .|> imag |> imshow(-, fig, ax[2]) 
+
+
+
 =#
 
 # Now do some iterations ...
@@ -625,7 +641,7 @@ gwf  = 0*d
 ## special for this noise
 N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
 
-@showprogress for otr = 1:30
+@showprogress for otr = 1:25
 ## @showprogress for otr = 2:16
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
@@ -666,11 +682,13 @@ end
 #-
 
 #=
-ϕ_cr[:] |> matshow; colorbar()
-ϕ[:] |> matshow; colorbar()
+fig, ax = subplots(2)
+ϕ_cr[:]  |> imshow(-, fig, ax[1]) 
+ϕ[:]     |> imshow(-, fig, ax[2]) 
 
-qu[:] .|> real |> matshow; colorbar()
-qu[:] .|> imag |> matshow; colorbar()
+fig, ax = subplots(2)
+qu[:] .|> real |> imshow(-, fig, ax[1]) 
+qu[:] .|> imag |> imshow(-, fig, ax[2]) 
 
 =#
 

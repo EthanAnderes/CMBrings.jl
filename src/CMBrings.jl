@@ -34,8 +34,6 @@ function LinearAlgebra.:*(A::Symmetric{T,Matrix{T}}, x::AbstractVector{Complex{T
     complex.(A*real(x), A*imag(x))
 end
 
-
-
 # TODO: you may also want to do something similar for triangular matrices:
 # trmv, Triangular matrix-vector multiplication
 

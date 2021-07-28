@@ -16,12 +16,6 @@
 
 AbstractArrayLense = Union{FieldLensing.ArrayLense, FieldLensing.ArrayLenseᴴ}
 
-function FieldLensing.flow_data(L::AbstractArrayLense, ff::Xmap{<:Az𝕊2}) 
-    fd = fielddata(ff)
-    (fd[:,:,1], fd[:,:,2])
-end
-
-
 ## for polarization fields stored as a complex field
 
 function FieldLensing.flow_data(L::CMBrings.AbstractArrayLense, ff::Xmap{TM, TI, TO, d}) where {TM, TI<:Complex, TO, d}
@@ -165,5 +159,9 @@ function (∇!::FFTNabla!{TW,Tik,Tx})(des, y, ::Val{2}) where {TW,Tik,Tx}
     @inbounds ∇!.sk .*= ∇!.ikφ
     mul!(des, ∇!.planW.unscaled_inverse_transform, ∇!.sk)
 end
+
+
+
+
 
 
