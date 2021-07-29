@@ -52,8 +52,8 @@ hide_plots = false
     ##φ, φ∂ = CMBrings.φ_grid(; φspan=(0.0, 2π/freq_mult), N=768)
     ## φ, φ∂ = CMBrings.φ_grid(; φspan=(0.0, 2π/freq_mult), N=1024)
 
-    θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.5,2.8), N=1024, type=:healpix)
-    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.45,2.7), N= 3700, type=:equiθ)
+    ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.5,2.8), N=1024, type=:healpix)
+    θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.45,2.7), N= 3700, type=:equiθ)
     ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.4,2.7), N=1024, type=:healpix)
     ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.4,2.7), N= 1270, type=:equicosθ)
     ## θ, θ∂, grid_type = CMBrings.θ_grid(; θspan=(2.3,2.7), N= 2372, type=:equiθ)
@@ -135,6 +135,7 @@ Pr, Qr = @sblock let tmUS2, θ, φ, data_msk, QP_bdry=1e-5, fwhmθ′=25, fwhmφ
     qr0 = Xmap(tmUS2, qr0x)
     DiagOp(pr0), DiagOp(qr0)
 end;
+
 # Pr[:] .|> real |> matshow; colorbar()
 # Qr[:] .|> real |> matshow; colorbar()
 
@@ -316,7 +317,6 @@ end;
 
 
 
-
 EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪  = @sblock let ℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ, ϕϕℓ, beamℓ, NΦNℓ, μK_arcmin, θ, φ, freq_mult, Ω 
 
     nθ, nφ = length(θ), length(φ)
@@ -412,7 +412,10 @@ EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪  = @sblock let ℓ, eeℓ, bb�
     EB▪   = CircOp(map(Hermitian,EB▫))
     Phi▪  = CircOp(map(Symmetric,Phi▫))
     NΦN▪  = CircOp(map(Symmetric,NΦN▫))
-    Beam▪ = CircOp(map(Symmetric,Beam▫))
+    ## Beam▪ = CircOp(map(Symmetric,Beam▫))
+    ## The beam shouldn't be symmetric ... unless equicosθ grid
+    Beam▪ = CircOp(Beam▫)
+
 
     μKᵒn = μK_arcmin / 60
     σ²   = deg2rad(μKᵒn)^2
@@ -428,52 +431,19 @@ EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪  = @sblock let ℓ, eeℓ, bb�
     return EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪
 end;
 
+
+## EB▪.Σ[2] == EB▪[2]
+## EB▪.Σ[2]' == (EB▪')[2]
+## (Beam▪')[2] == Beam▪[2]'
+
+
+
 # Preconditioner
-@time Precon▪⁻¹ = map(EB▪.Σ, N▪.Σ, Beam▪.Σ) do EB, No, Bm
-    Hermitian(pinv(Bm * EB * Bm' + No))
-end |> CircOp
+@time Precon▪⁻¹ = CircOp(@. Hermitian(pinv(Beam▪ * EB▪ * Beam▪' + N▪)));
+# @time Precon▪⁻¹ = map(EB▪.Σ, N▪.Σ, Beam▪.Σ) do EB, No, Bm
+#     Hermitian(pinv(Bm * EB * Bm' + No))
+# end |> CircOp;
 
-
-# Some testing 
-# =============================
-
-## # EB▪½  = map(M->Array(cholesky(M).L), EB▪.Σ)  |> CircOp
-## # Phi▪½ = map(M->Array(cholesky(M).L), Phi▪.Σ) |> CircOp
-## # N▪½   = map(M->Array(cholesky(M).L), N▪.Σ) |> CircOp
-## 
-## EB▪½  = map(sqrt, EB▪.Σ)  |> CircOp
-## Phi▪½ = map(sqrt, Phi▪.Σ) |> CircOp
-## N▪½   = map(sqrt, N▪.Σ) |> CircOp
-## 
-## zUS2 = Xmap(tmUS2, randn(ComplexF64, nθ, nφ))
-## zUS0 = Xmap(tmUS0, randn(Float64, nθ, nφ))
-## 
-## f0    = Phi▪½ * zUS0
-## f1    = N▪½   * zUS2
-## f2    = EB▪½  * zUS2
-## f3    = Ð▪⁻¹  \ f2 
-## f4    = Beam▪ * f2
-## f5    = Precon▪⁻¹ * f2
-## 
-## f0[:]  |> matshow; colorbar()
-## f1[:] .|> real |> matshow; colorbar()
-## f1[:] .|> imag |> matshow; colorbar()
-## f2[:] .|> real |> matshow; colorbar()
-## f2[:] .|> imag |> matshow; colorbar()
-## f3[:] .|> real |> matshow; colorbar()
-## f3[:] .|> imag |> matshow; colorbar()
-## f4[:] .|> real |> matshow; colorbar()
-## f4[:] .|> imag |> matshow; colorbar()
-## f5[:] .|> real |> matshow; colorbar()
-## f5[:] .|> imag |> matshow; colorbar()
-## 
-## 
-## @benchmark $Phi▪½ * $(Xfourier(zUS0))  # 9.953 ms down from 262.847 ms
-## @benchmark $Beam▪ * $(Xfourier(zUS2))  # 27.339 ms
-## @benchmark $EB▪½  * $(Xfourier(zUS2))  # 35.575 ms
-## @benchmark $N▪½   * $(Xfourier(zUS2))  # 3.036 ms
-## @benchmark $Ð▪⁻¹  \ $(Xfourier(zUS2))  # 2.423 s
-## @benchmark $Precon▪⁻¹ * $(Xfourier(zUS2)) # 34.079 ms
 
 
 # Gradients Set sparse increment matrices for non-FFT lensing
@@ -609,6 +579,8 @@ d = Pr * (Beam▪ * Ł(ϕ) * qu + no)
 
 #= β
 lnqu = Ł(ϕ) * qu
+
+@benchmark $(Ł(ϕ)) * qu
 
 fig, ax = subplots(2)
 d[:] .|> real |> imshow(-, fig, ax[1]) 
@@ -791,40 +763,19 @@ end
 
 
 
-
-
-#-
-
-##  CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð▪⁻¹, Pr, Beam▪, N▪⁻¹)
-##  CMBrings.ll_ϕf′(ϕ_cr + .01 * ∇ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð▪⁻¹, Pr, Beam▪, N▪⁻¹)
-## 
-##  opt = NLopt.Opt(:LN_COBYLA, 1)
-##  opt.upper_bounds = Float64[2]
-##  opt.lower_bounds = Float64[0]
-##  opt.ftol_abs = 10.0
-##  ϕₒ, inHgradₒ = promote(ϕ_cr, ∇ϕ_cr)
-##  opt.max_objective = function (β, grad)
-##      ϕβ = ϕₒ + β[1] * inHgradₒ       
-##      return CMBrings.ll_ϕf′(ϕβ, f′_cr, Phi▪, EB▪; data=d, Ł, Ð▪⁻¹, Pr, Beam▪, N▪⁻¹)
-##  end
-##     
-##  ll_opt, β_opt, = NLopt.optimize(opt,  Float64[0.001])
-    
-
+# Some testing 
+# =============================
 
 #= ############################################
-wn   = Xmap(tmUS2, randn(eltype_in(tmUS2), size_in(tmUS2)))
-Σwn1 = @time CMBrings.map_ring((fℓ, Σℓ) -> Σℓ*fℓ, wn, EB▪)
-Σwn2 = @time EB▪ * wn 
-Σwn1[:] .- Σwn2[:] .|> abs |> matshow; colorbar()
-Σwn2[:] .|> abs |> matshow; colorbar()
 
+@benchmark $Phi▪  * $(Xfourier(ϕ))  # 9.953 ms down from 262.847 ms
+@benchmark $Beam▪ * $(Xfourier(qu)) # 27.339 ms
+@benchmark $EB▪   * $(Xfourier(qu)) # 35.575 ms
+@benchmark $N▪    * $(Xfourier(qu)) # 3.036 ms
+@benchmark $Ð▪⁻¹  \ $(Xfourier(qu)) # 2.423 s
 
-wn2 = @time EB▪ \ Σwn2
-wn2[:] .|> abs |> matshow; colorbar()
-wn2[:] .- wn[:] .|> real |> matshow; colorbar()
-wn2[:] .- wn[:] .|> imag |> matshow; colorbar()
 =# ############################################
+
 
 
 #= ##################################
