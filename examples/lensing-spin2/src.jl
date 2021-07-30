@@ -19,7 +19,6 @@ using CMBflat: PrQr # Eventually remove this
 import FFTransforms as FT
 import CirculantCov as CC
 
-using SparseArrays
 using DelimitedFiles
 using LBblocks: @sblock
 using PyPlot
@@ -135,10 +134,14 @@ end;
 
 # Localize lensing vector field to data mask.
 
-Mϕ = @sblock let tmUS0, Pr, sqz = 7 # increase sqz to get shaper transition
+Mϕ = @sblock let tmUS0, Pr, 
 
-    ## mϕx = real.(Pr[:]) .+ qr0x
-    mϕx = real.(Pr[:]) .|> x-> atan(sqz*(x-1/2))
+    ## sqz = 7 # increase sqz to get shaper transition
+    ## mϕx = real.(Pr[:]) .|> x-> atan(sqz*(x-1/2))
+    ## ---------- or 
+    sqz = 8
+    sft = 0.5
+    mϕx = real.(Pr[:]) .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
 
     ## make sure it hits zero and 1
     mϕx .-= minimum(mϕx)
@@ -386,9 +389,7 @@ EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪  = @sblock let ℓ, eeℓ, bb�
     return EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪
 end;
 
-
 # 7mins vrs 4mins, slower using CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗ ...
-
 
 ## EB▪.Σ[2] == EB▪[2]
 ## EB▪.Σ[2]' == (EB▪')[2]
@@ -398,114 +399,13 @@ end;
 @time Precon▪⁻¹ = CircOp(@. Hermitian(pinv(Beam▪ * EB▪ * Beam▪' + N▪)));
 
 
-
 # Gradients Set sparse increment matrices for non-FFT lensing
 # ==================================================
 
-function generate_∇!∇!ϕ(θ::Vector{Tf}, φ::Vector{Tf}; uniformΔθ=true) where {Tf}
-    Δφ = φ[2] - φ[1]
-
-    if uniformΔθ
-        Δθ = θ[2]-θ[1]
-        ∂θ′ = spdiagm(
-                -2 => fill( 1,length(θ)-2),
-                -1 => fill(-8,length(θ)-1),
-                 1 => fill( 8,length(θ)-1),
-                 2 => fill(-1,length(θ)-2),
-                )
-        ∂θ′[1,end]   =  -8
-        ∂θ′[1,end-1] =  1
-        ∂θ′[2,end]   =  1
-        ∂θ′[end,1]   =  8
-        ∂θ′[end,2]   = -1
-        ∂θ′[end-1,1] = -1
-        ∂θ = (1 / (12Δθ)) * ∂θ′
-    else
-        Δθ = vcat(diff(θ), θ[end]-θ[end-1])
-        ∂θ′ = spdiagm(
-                0 => fill(-1,length(θ)), 
-                1 => fill(1,length(θ)-1),
-            )
-        ∂θ′[end,1] =  1
-        ∂θ = spdiagm(1 ./ Δθ) * ∂θ′
-    end
-
-
-    ∂φ  = spdiagm(
-            -2 => fill( 1,length(φ)-2),
-            -1 => fill(-8,length(φ)-1),
-             1 => fill( 8,length(φ)-1),
-             2 => fill(-1,length(φ)-2),
-            )
-    ∂φ[1,end]   =  -8
-    ∂φ[1,end-1] =  1
-    ∂φ[2,end]   =  1
-    ∂φ[end,1]   =  8
-    ∂φ[end,2]   =  -1
-    ∂φ[end-1,1] =  -1
-    ∂φᵀ = transpose((1 / (12Δφ)) * ∂φ)
-    ## -------- or -------
-    ## ∂φ  = spdiagm(
-    ##     0 => fill(-1,length(φ)), 
-    ##     1 => fill(1,length(φ)-1)
-    ## )
-    ## ∂φ[end,1] =  1
-    ## ∂φᵀ = transpose(Tf(1 / (Δφ)) * ∂φ)
-
-    ∇!   = CMBrings.Nabla!((∂θ - ∂θ')/2, (∂φᵀ - ∂φᵀ')/2)
-    ∇!_ϕ = CMBrings.Nabla!(∂θ, ∂φᵀ)
-
-    ## ∇!   = CMBrings.Nabla!(Matrix((∂θ - ∂θ')/2), Matrix((∂φᵀ - ∂φᵀ')/2))
-    ## ∇!_ϕ = CMBrings.Nabla!(Matrix(∂θ), Matrix(∂φᵀ))
-
-    ## ∇!   = CMBrings.Pix1dFFTNabla!((∂θ - ∂θ')/2, Tf, length(φ), Tf(2π))
-    ## ∇!_ϕ = CMBrings.Pix1dFFTNabla!(∂θ, Tf, length(φ), Tf(2π))
-
-    return ∇!, ∇!_ϕ
-end  
-
-
-function generate_lense_sublense(;
-        θ, mv1x=1, mv2x=1, 
-        ∇!,  ∇!_ϕ, ## subidx, sub_∇!, 
-        nsteps_lensing=14
-        ) 
-
-    ## ∇!_ϕ used in ϕ2v! and ϕ2vᴴ!
-    ## ∇! used in Ł
-    
-    sin⁻²θ = @. csc(θ)^2 
-    mvx₁ = ones(size(θ)) .* mv1x
-    mvx₂ = sin⁻²θ .* mv2x
-
-    ϕ2v! = function (v::NTuple{2,Array}, ϕ::Array)
-        ∇!_ϕ(v, ϕ)
-        v[1] .*= mvx₁
-        v[2] .*= mvx₂
-        v
-    end 
-
-    ϕ2vᴴ! = function (ϕ::Array, v::NTuple{2,Array})
-        mv = (similar(v[1]), similar(v[2]))
-        ∇!_ϕ'(mv, (mvx₁.*v[1], mvx₂.*v[2]) )
-        ϕ .= mv[1] .+ mv[2]
-        ϕ 
-    end 
-
-    Ł = function (ϕ_az::Xfield)
-        ϕ = ϕ_az[:]
-        v = (similar(ϕ), similar(ϕ))
-        ϕ2v!(v,ϕ)
-        FieldLensing.ArrayLense(v, ∇!, 0, 1, nsteps_lensing)
-    end
-
-    Ł, ϕ2v!, ϕ2vᴴ!, ∇!
-end
-
 ## ∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ;uniformΔθ=true) 
-∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ; uniformΔθ = (grid_type == :equiθ) ? true : false) 
+∇!,  ∇!_ϕ = CMBrings.generate_∇!∇!ϕ(θ, φ; uniformΔθ = (grid_type == :equiθ) ? true : false) 
 
-Ł, ϕ2v!, ϕ2vᴴ!, ∇! = generate_lense_sublense(;
+Ł, ϕ2v!, ϕ2vᴴ!, ∇! = CMBrings.generate_lense(;
         θ, mv1x=Mϕ[:], mv2x=Mϕ[:], ∇!,  ∇!_ϕ, 
         nsteps_lensing=14
 );

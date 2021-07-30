@@ -9,7 +9,7 @@ using SphereTransforms
 using LinearAlgebra
 using FFTW
 using Statistics 
-using SharedArrays
+using SparseArrays
 using Distributed
 using JLD2
 using ProgressMeter
