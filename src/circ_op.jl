@@ -14,6 +14,11 @@ General CircOp for complex fields (in map space)
 [ Σ₁  Σ₃ ] [reP(θ,φ)]
 [ Σ₂  Σ₄ ] [imP(θ,φ)]
 
+Beam CircOp for complex fields (in map space)
+[ Σ₁  0  ] [ Diagonal(Ω)  0           ] [reP(θ,φ)]
+[ 0   Σ₁ ] [ 0            Diagonal(Ω) ] [imP(θ,φ)]
+
+
  CircOp for real fields (in map space)
 [ Σ₁  0 ] [reP(θ,φ)]
 [ 0  Σ₁ ] [0       ]
@@ -160,7 +165,6 @@ Base.eltype(::Type{AdjointCircOp{M}}) where {M<:Hermitian} = M
 Base.eltype(::Type{AdjointCircOp{M}}) where {M<:Diagonal}  = M 
 Base.eltype(::Type{AdjointCircOp{M}}) where {A,B,M<:LowerTriangular{A,B}} = UpperTriangular{A,Adjoint{A,B}} 
 Base.eltype(::Type{AdjointCircOp{M}}) where {A,B,M<:UpperTriangular{A,B}} = LowerTriangular{A,Adjoint{A,B}} 
-
 
 Base.firstindex(az::Union{CircOp, AdjointCircOp}) = 1
 Base.lastindex(az::Union{CircOp, AdjointCircOp})  = length(az)

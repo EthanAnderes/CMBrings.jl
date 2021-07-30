@@ -50,18 +50,18 @@ function θ_grid(;θspan::Tuple{<:Real,<:Real}, N::Int, type=:equiθ)
 end 
 
 
-function φ_grid(;φspan::Tuple{T,T}, N::Int) where T<:Real
+# function φ_grid(;φspan::Tuple{T,T}, N::Int) where T<:Real
 
-    @assert N > 0
-    # TODO: relax this condition ...
-    @assert 0 <= φspan[1] < φspan[2] <= 2π 
+#     @assert N > 0
+#     # TODO: relax this condition ...
+#     @assert 0 <= φspan[1] < φspan[2] <= 2π 
 
-    φ∂    = collect(φspan[1] .+ (φspan[2] - φspan[1])*(0:N)/N)
-    Δφ    = φ∂[2] - φ∂[1]
-    φ     = φ∂[1:end-1] .+ Δφ/2
+#     φ∂    = collect(φspan[1] .+ (φspan[2] - φspan[1])*(0:N)/N)
+#     Δφ    = φ∂[2] - φ∂[1]
+#     φ     = φ∂[1:end-1] .+ Δφ/2
     
-    φ, φ∂
-end
+#     φ, φ∂
+# end
 
     
 
