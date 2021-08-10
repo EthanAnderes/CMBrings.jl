@@ -1,53 +1,53 @@
 # Useful grid generation
 # =====================================
 
-function θ_healpix_j_Nside(j_Nside) 
-    0 < j_Nside < 1  ? acos(1-abs2(j_Nside)/3)      :
-    1 ≤ j_Nside ≤ 3  ? acos(2*(2-j_Nside)/3)        :
-    3 < j_Nside < 4  ? acos(-(1-abs2(4-j_Nside)/3)) : 
-    error("argument ∉ (0,4)")
-end
+# function θ_healpix_j_Nside(j_Nside) 
+#     0 < j_Nside < 1  ? acos(1-abs2(j_Nside)/3)      :
+#     1 ≤ j_Nside ≤ 3  ? acos(2*(2-j_Nside)/3)        :
+#     3 < j_Nside < 4  ? acos(-(1-abs2(4-j_Nside)/3)) : 
+#     error("argument ∉ (0,4)")
+# end
 
-θ_healpix(Nside) = θ_healpix_j_Nside.((1:4Nside-1)/Nside)
+# θ_healpix(Nside) = θ_healpix_j_Nside.((1:4Nside-1)/Nside)
 
-θ_equicosθ(N)    = acos.( ((N-1):-1:-(N-1))/N )
+# θ_equicosθ(N)    = acos.( ((N-1):-1:-(N-1))/N )
 
-θ_equiθ(N)       = π*(1:N-1)/N
+# θ_equiθ(N)       = π*(1:N-1)/N
 
-function θ_grid(;θspan::Tuple{<:Real,<:Real}, N::Int, type=:equiθ)
-    @assert N > 0
-    @assert 0 <= θspan[1] < θspan[2] <= π
+# function θ_grid(;θspan::Tuple{<:Real,<:Real}, N::Int, type=:equiθ)
+#     @assert N > 0
+#     @assert 0 <= θspan[1] < θspan[2] <= π
 
-    # θgrid′ is the full grid from 0 to π
-    if type==:equiθ
-        θgrid′ = θ_equiθ(N)
-    elseif type==:equicosθ
-        θgrid′ = θ_equicosθ(N)
-    elseif type==:healpix
-        θgrid′ = θ_healpix(N)
-    else
-        error("`type` is not valid. Options include `:equiθ`, `:equicosθ` or `:healpix`")
-    end 
+#     # θgrid′ is the full grid from 0 to π
+#     if type==:equiθ
+#         θgrid′ = θ_equiθ(N)
+#     elseif type==:equicosθ
+#         θgrid′ = θ_equicosθ(N)
+#     elseif type==:healpix
+#         θgrid′ = θ_healpix(N)
+#     else
+#         error("`type` is not valid. Options include `:equiθ`, `:equicosθ` or `:healpix`")
+#     end 
 
-    # θgrid′′ subsets θgrid′ to be within θspan
-    # δ½south′′ and δ½north′′ are the arclength midpoints to the adjacent pixel
-    θgrid′′   = θgrid′[θspan[1] .≤ θgrid′ .≤ θspan[2]]
-    δ½south′′ = (circshift(θgrid′′,-1)  .- θgrid′′) ./ 2
-    δ½north′′ = (θgrid′′ .- circshift(θgrid′′,1)) ./ 2   
+#     # θgrid′′ subsets θgrid′ to be within θspan
+#     # δ½south′′ and δ½north′′ are the arclength midpoints to the adjacent pixel
+#     θgrid′′   = θgrid′[θspan[1] .≤ θgrid′ .≤ θspan[2]]
+#     δ½south′′ = (circshift(θgrid′′,-1)  .- θgrid′′) ./ 2
+#     δ½north′′ = (θgrid′′ .- circshift(θgrid′′,1)) ./ 2   
     
-    # now restrict to the interior of the range of θgrid′′
-    θ       = θgrid′′[2:end-1]
-    δ½south = δ½south′′[2:end-1]
-    δ½north = δ½north′′[2:end-1]
-    # Δθ      = @. δ½south + δ½north
-    # Δz      = @. cos(θ - δ½north) - cos(θ + δ½south)
+#     # now restrict to the interior of the range of θgrid′′
+#     θ       = θgrid′′[2:end-1]
+#     δ½south = δ½south′′[2:end-1]
+#     δ½north = δ½north′′[2:end-1]
+#     # Δθ      = @. δ½south + δ½north
+#     # Δz      = @. cos(θ - δ½north) - cos(θ + δ½south)
 
-    # These are the pixel boundaries along polar
-    # so length(θ∂) == length(θ)+1
-    θ∂ = vcat(θ[1] .- δ½north[1], θ .+ δ½south)
+#     # These are the pixel boundaries along polar
+#     # so length(θ∂) == length(θ)+1
+#     θ∂ = vcat(θ[1] .- δ½north[1], θ .+ δ½south)
 
-    θ, θ∂, type 
-end 
+#     θ, θ∂, type 
+# end 
 
 
 # function φ_grid(;φspan::Tuple{T,T}, N::Int) where T<:Real
