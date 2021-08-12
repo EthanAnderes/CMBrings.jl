@@ -16,6 +16,7 @@ using FieldLensing
 using Spectra: camb_cls
 using CMBflat: PrQr # Eventually remove this
 
+using  FFTransforms
 import FFTransforms as FT
 import CirculantCov as CC
 
@@ -82,11 +83,14 @@ end
 tmUS2, tmUS0 = @sblock let nθ, nφ, freq_mult
 
     T = Float64
-    tmUS2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π/freq_mult))
-    tmUS2 *= FT.unitary_scale(tmUS2) 
-    
-    tmUS0  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π/freq_mult))
-    tmUS0 *= FT.unitary_scale(tmUS0) 
+
+    ## tmUS2  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(Complex{T}, nφ, 2π/freq_mult))
+    ## tmUS2 *= FT.unitary_scale(tmUS2) 
+    ## tmUS0  = FT.:⊗(FT.𝕀(nθ), FT.𝕎(T, nφ, 2π/freq_mult))
+    ## tmUS0 *= FT.unitary_scale(tmUS0) 
+
+    tmUS2 = 𝕀(nθ) ⊗ 𝕌(Complex{T}, nφ, 2π/freq_mult)
+    tmUS0 = 𝕀(nθ) ⊗ 𝕌(T, nφ, 2π/freq_mult)
 
     return tmUS2, tmUS0
 end;
@@ -476,7 +480,7 @@ gwf  = 0*d
 N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
 
 ## @showprogress for otr = 1:30
-@showprogress for otr = 1:5
+@showprogress for otr = 1:10
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
 
