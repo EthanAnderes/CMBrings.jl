@@ -47,10 +47,13 @@ hide_plots = false
     φspan, freq_mult = deg2rad.((-60, 60)), 3
     φ, φ∂ = CC.φ_grid(;φspan, N=1024) # N=768 or N=1024, 972
 
-    ## type, N, θspan  = :equicosθ, 200, π/2 .- deg2rad.((-60,-70)) # ?
-    type, N, θspan  = :equiθ,  495, π/2 .- deg2rad.((-47,-70)) # ?
+    ## type, N, θspan  = :equiθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
+    type, N, θspan  = :equicosθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
+
+    ## type, N, θspan  = :equicosθ,  650, π/2 .- deg2rad.((-47,-70)) # ?
+    ## type, N, θspan  = :equiθ,  495, π/2 .- deg2rad.((-47,-70)) # ✓
     ## type, N, θspan  = :equicosθ, 495, π/2 .- deg2rad.((-47,-70)) # ✓
-    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-40,-70))
+    ## type, N, θspan  = :equicosθ, 600, π/2 .- deg2rad.((-40,-70)) 
     ## type, N, θspan  = :healpix, 2048, π/2 .- deg2rad.((-40,-70))
     θ, θ∂ = CC.θ_grid(; θspan, N, type)
 
@@ -93,6 +96,30 @@ end;
 
 #-
 
+# kron product mask
+Pr, Qr, prθ, prφ  =  @sblock let nθ, nφ, tmUS2
+    ▮lθ_ex, ▮lθ, ▯lθ = 5, 15, 40
+    ▮rθ_ex, ▮rθ, ▯rθ = nθ-▮lθ_ex+1, nθ-▮lθ+1, nθ-▯lθ+1 
+    prθ    = CMBrings.pixweight.(1:nθ; ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
+    prθ_ex = CMBrings.pixweight.(1:nθ; ▮l=▮lθ_ex, ▯l=▮lθ+1, ▯r=▮rθ-1, ▮r=▮rθ_ex)
+    # qrθ    = 1 .- prθ
+    # prθ .+ qrθ
+    # prθ .* qrθ
+
+
+    ▮lφ_ex, ▮lφ, ▯lφ = 5, 15, 40
+    ▮rφ_ex, ▮rφ, ▯rφ = nφ-▮lφ_ex+1, nφ-▮lφ+1, nφ-▯lφ+1 
+    prφ    = CMBrings.pixweight.(1:nφ; ▮l=▮lφ,    ▯l=▯lφ, ▯r=▯rφ, ▮r=▮rφ)
+    prφ_ex = CMBrings.pixweight.(1:nφ; ▮l=▮lφ_ex, ▯l=▮lφ+1, ▯r=▮rφ-1, ▮r=▮rφ_ex)
+
+    prθφ = prθ .* prφ'
+    qrθφ = 1 .- prθ_ex .* prφ_ex'
+
+    DiagOp(Xmap(tmUS2, prθφ)), DiagOp(Xmap(tmUS2, qrθφ)), prθ, prφ
+end;
+
+#- 
+
 ## data_msk = @sblock let θ, φ
 ##     
 ##     pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
@@ -114,34 +141,35 @@ end;
 ## end;
 
 
-data_msk = @sblock let θ, φ
+# data_msk = @sblock let θ, φ
     
-    data_msk = ones(length(θ), length(φ))
-    data_msk[1:15,:] .= 0
-    data_msk[end - 15 + 1:end,:] .= 0
-    data_msk[:,1:25] .= 0
-    data_msk[:, end - 25 + 1:end] .= 0
+#     data_msk = ones(length(θ), length(φ))
+#     data_msk[1:15,:] .= 0
+#     data_msk[end - 15 + 1:end,:] .= 0
+#     data_msk[:,1:25] .= 0
+#     data_msk[:, end - 25 + 1:end] .= 0
 
 
-    return data_msk
-end;
+#     return data_msk
+# end;
 
 
 #- 
 
 
-Pr, Qr = @sblock let tmUS2, θ∂, φ∂, data_msk, QP_bdry=1e-5, fwhmθ′=50, fwhmφ′=200
-    Δφspan  = CC.counterclock_Δφ(φ∂[1], φ∂[end])
-    Δθ∂span = CC.counterclock_Δφ(θ∂[1], θ∂[end])
-    tmFlat  = FT.𝕎(real(eltype_in(tmUS2)), size(data_msk), (Δθ∂span, Δφspan))
-    pr0x, qr0x = PrQr(tmFlat, data_msk, fwhmθ′, fwhmφ′, QP_bdry)
-    pr0 = Xmap(tmUS2, pr0x)
-    qr0 = Xmap(tmUS2, qr0x)
-    DiagOp(pr0), DiagOp(qr0)
-end;
+# Pr, Qr = @sblock let tmUS2, θ∂, φ∂, data_msk, QP_bdry=1e-5, fwhmθ′=50, fwhmφ′=200
+#     Δφspan  = CC.counterclock_Δφ(φ∂[1], φ∂[end])
+#     Δθ∂span = CC.counterclock_Δφ(θ∂[1], θ∂[end])
+#     tmFlat  = FT.𝕎(real(eltype_in(tmUS2)), size(data_msk), (Δθ∂span, Δφspan))
+#     pr0x, qr0x = PrQr(tmFlat, data_msk, fwhmθ′, fwhmφ′, QP_bdry)
+#     pr0 = Xmap(tmUS2, pr0x)
+#     qr0 = Xmap(tmUS2, qr0x)
+#     DiagOp(pr0), DiagOp(qr0)
+# end;
 
-# Pr[:] .|> real |> matshow; colorbar()
-# Qr[:] .|> real |> matshow; colorbar()
+## Pr[:] .|> real |> matshow; colorbar()
+## Qr[:] .|> real |> matshow; colorbar()
+## Qr[:] .+ Pr[:] .|> real |> matshow; colorbar()
 
 # Localize lensing vector field to data mask.
 
@@ -167,7 +195,7 @@ end;
 
 # Azimuthal ring mask
 
-@sblock let ma=real.(Pr[:]), dma=data_msk, φ, θ, hide_plots
+@sblock let ma=real.(Pr[:]), dma=real.(Pr[:]).>0, φ, θ, hide_plots
     hide_plots && return
     imgs = Dict(1=>dma, 2=>ma)
     txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
@@ -184,7 +212,7 @@ end
 # ==============================
 
 μK_arcmin       = 2.2
-beamfwhm_arcmin = 1.1 * maximum(@. rad2deg(√Ω)*60)
+beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
 ## beamfwhm_arcmin = 1.4 # mean(@. rad2deg(√Ω)*60)
 ## beamfwhm_arcmin = 4.5
 
@@ -415,9 +443,9 @@ end;
         ## Matrix(L2 / L1)
 end |> CircOp; # 21.650719 seconds (1.80 M allocations: 13.858 GiB, 63.80% gc time, 0.31% compilation time)
 
-## ẼB̃▪ = 0; 
+ẼB̃▪ = 0; 
 
-## GC.gc()
+GC.gc()
 
 #-
 
@@ -510,42 +538,59 @@ gwf  = 0*d
 f_cr = 0*d
 ϕ_cr = 0*ϕ
 
+## initial non-lensing WF (updates f_cr and f′_cr)
+@time f_cr, gwf, hst = CMBrings.update_f(
+    DiagOp(Xmap(tmUS2,1)), EB▪; 
+    data=d, Pr=Pr, Qr=Qr, Bm=Beam▪, No=N▪, Pc⁻¹=Precon▪⁻¹,
+    ginit=gwf,
+    pcg_nsteps=350,
+    pcg_rel_tol=1e-10
+);
+@show hst[end] # semilogy(hst)
+f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
+
 ## special for this noise
 N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
 
-@showprogress for otr = 1:25
+#-
+
+@showprogress for otr = 1:3 # 10
+
     global f_cr, gwf, hst
     global f′_cr, ϕ_cr, ∇ϕ_cr
-
-    ## ------ update field
-    @time f_cr, gwf, hst = CMBrings.update_f(
-        ## (otr==1) ? DiagOp(Xmap(tmUS2,1)) : Ł(ϕ_cr), # slot for Łϕ
-        Ł(ϕ_cr), EB▪; 
-        data=d, Pr=Pr, Qr=Qr, Bm=Beam▪, No=N▪, Pc⁻¹=Precon▪⁻¹,
-        ginit=gwf,
-        pcg_nsteps=300, ##pcg_nsteps = (otr==1) ? 300 : 300, 
-        pcg_rel_tol=1e-10
-    );
-    @show hst[end]
-    f′_cr =  Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
-    @show CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹)
     
-    ## ------ ϕ gradient
+    ## ------- update ϕ (inputs are updated f′_cr and f_cr)
+
+    ## ϕ gradient
     ## @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
     @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14)
     @time ∇ϕ_cr = NΦN▪ * gradϕ 
-        
-    ## ------ linesearch 
+    ## linesearch 
     @time β = CMBrings.linesearch_ϕf′(
         ∇ϕ_cr, ϕ_cr, f′_cr, Phi▪, EB▪; 
         data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr=Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹,
         eval_max=350, startval=0.001, ftol_abs=20, solver=:LN_COBYLA,  
     )
     @show β
-
-    ## ------ update ϕ_cr
+    ## update ϕ_cr
     ϕ_cr += β * ∇ϕ_cr
+
+    ## ------ update f′_cr and f_cr
+
+    @time f_cr, gwf, hst = CMBrings.update_f(
+        Ł(ϕ_cr), EB▪; 
+        data=d, Pr=Pr, Qr=Qr, Bm=Beam▪, No=N▪, Pc⁻¹=Precon▪⁻¹,
+        ginit=gwf,
+        pcg_nsteps=300,
+        pcg_rel_tol=1e-10
+    );
+    @show hst[end]
+    f′_cr =  Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
+    @show CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹)
+    
 end
+
+
 
 
 #-

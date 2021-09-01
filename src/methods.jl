@@ -1,3 +1,23 @@
+# A one dimensional smooth mask
+# ====================================
+
+
+function pixweight(x::T; ▮l, ▯l, ▯r, ▮r) where T<:Number
+    @assert ▮l ≤ ▯l ≤ ▯r ≤ ▮r
+    if ▯l ≤ x ≤ ▯r
+        return one(T)
+    elseif (x ≤ ▮l) | (▮r ≤ x)
+        return zero(T)
+    elseif ▮l < x < ▯l
+        return (1-cos(π*(x-▮l)/(▯l-▮l))) / 2
+    else 
+        @assert ▯r < x < ▮r 
+        return (1+cos(π*(x-▯r)/(▮r-▯r))) / 2
+    end
+end
+
+
+
    
 
 # custom pcg with function composition (Minv * A \approx I)

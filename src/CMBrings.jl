@@ -1,10 +1,8 @@
 module CMBrings
 
-
 using XFields
 using FFTransforms
 using FieldLensing
-using SphereTransforms  
 
 using LinearAlgebra
 using FFTW
@@ -13,9 +11,11 @@ using SparseArrays
 using Distributed
 using JLD2
 using ProgressMeter
-using PyPlot
 using PyCall
+using PyPlot 
 using NLopt
+
+using SphereTransforms # there is some strange interaction: need this after PyPlot
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
