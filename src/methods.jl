@@ -9,10 +9,10 @@ function pixweight(x::T; ▮l, ▯l, ▯r, ▮r) where T<:Number
     elseif (x ≤ ▮l) | (▮r ≤ x)
         return zero(T)
     elseif ▮l < x < ▯l
-        return (1-cos(π*(x-▮l)/(▯l-▮l))) / 2
+        return T((1-cos(π*(x-▮l)/(▯l-▮l))) / 2)
     else 
         @assert ▯r < x < ▮r 
-        return (1+cos(π*(x-▯r)/(▮r-▯r))) / 2
+        return T((1+cos(π*(x-▯r)/(▮r-▯r))) / 2)
     end
 end
 
@@ -46,6 +46,44 @@ function pcg(Minv::Function, A::Function, b, x=0*b; nsteps::Int=75, rel_tol = 0)
     return x, reshist
 end
 
+
+function pcg_coupled(;
+        _Aᵍ::Function, # preconditioner 
+        A::Function,   # operator we want to invert
+        b_g, b_f,      # solution we want is A⁻¹*vcat(b_g, f_g)
+        x_g, x_f,      # warm start for solution
+        nsteps=30, rel_tol = 0.0,
+        reshist=Vector{Float64}() 
+    )
+    Ax_g, Ax_f = A(x_g, x_f)
+    r_g  = b_g - Ax_g
+    r_f  = b_f - Ax_f
+    z_g, z_f  =  _Aᵍ(r_g, r_f)
+    p_g  = deepcopy(z_g)
+    p_f  = deepcopy(z_f)
+
+    res   = dot(r_g,z_g) + dot(r_f,z_f)
+
+    for i = 1:nsteps
+        p′_g, p′_f = A(p_g, p_f)
+        α    = res / (dot(p_g,p′_g) + dot(p_f,p′_f))
+        x_g  += α * p_g
+        x_f  += α * p_f
+        r_g  -= α * p′_g
+        r_f  -= α * p′_f
+        z_g, z_f = _Aᵍ(r_g, r_f)
+        res′ = dot(r_g,z_g) + dot(r_f,z_f)
+        p_g  = z_g + (res′ / res) * p_g
+        p_f  = z_f + (res′ / res) * p_f
+        rel_error = (dot(r_g,r_g) + dot(r_f,r_f)) / (dot(b_g,b_g) + dot(b_f,b_f))
+        if rel_error < rel_tol
+            break 
+        end
+        push!(reshist, rel_error)
+        res = res′
+    end
+    return x_g, x_f, reshist
+end
 
 
 

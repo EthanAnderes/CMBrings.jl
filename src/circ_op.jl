@@ -1,9 +1,11 @@
 
 # CircOp struct
 # =======================================
+const MatrixOrFactorization{T} = Union{Factorization{T}, AbstractMatrix{T}}
+
 
 """
-`CircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp` holds the Diagonal blocks of a 
+`CircOp{M<:MatrixOrFactorization{} <: XFields.AbstractLinearOp` holds the Diagonal blocks of a 
 circulant field covariance op.
 
 The storage format corresponds to the structure of the operator as it applies to the real and 
@@ -23,11 +25,12 @@ Beam CircOp for complex fields (in map space)
 [ Σ₁  0 ] [reP(θ,φ)]
 [ 0  Σ₁ ] [0       ]
 """
-struct CircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp
+# struct CircOp{M<:MatrixOrFactorization} <: XFields.AbstractLinearOp
+struct CircOp{M} <: XFields.AbstractLinearOp
     Σ::Vector{M}
 end
 
-function CircOp(nrows::Int, ncols::Int, nblocks::Int, ::Type{M}) where {M<:AbstractMatrix}
+function CircOp(nrows::Int, ncols::Int, nblocks::Int, ::Type{M}) where {M<:MatrixOrFactorization}
     Σ = M[M(undef, nrows, ncols) for ℓ ∈ 1:nblocks]
     CircOp{M}(Σ)
 end 
@@ -37,7 +40,8 @@ Base.parent(az::CircOp) = az.Σ
 # AdjointCircOp
 # =======================================
 
-struct AdjointCircOp{M<:AbstractMatrix} <: XFields.AbstractLinearOp
+# struct AdjointCircOp{M<:MatrixOrFactorization} <: XFields.AbstractLinearOp
+struct AdjointCircOp{M} <: XFields.AbstractLinearOp
     az::CircOp{M}
 end
 
@@ -55,7 +59,7 @@ Base.parent(az::AdjointCircOp) = az.az.Σ
 Real map fields have an implicit pairing with primal and dual frequency
 so we instead construct nφ÷2+1 vectors of length nθ 
 """
-function ℝfθk2▪(Uf::AbstractMatrix)
+function ℝfθk2▪(Uf::AbstractArray)
     return [copy(v) for v ∈ eachcol(Uf)]
 end
  
@@ -71,7 +75,7 @@ end
 """
 Complex map fields get frequency paired with dual frequency ... to make nφ÷2+1 vectors of length 2nθ 
 """
-function ℂfθk2▪(Up::AbstractMatrix{To}) where To
+function ℂfθk2▪(Up::AbstractArray{To}) where To
     nθ, nφ = size(Up)
     w  = Vector{To}[zeros(To,2nθ) for ℓ = Base.OneTo(nφ÷2+1)]
     Up_col = collect(eachcol(Up))

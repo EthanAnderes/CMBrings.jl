@@ -48,7 +48,10 @@ hide_plots = false
     φ, φ∂ = CC.φ_grid(;φspan, N=1024) # N=768 or N=1024, 972
 
     ## type, N, θspan  = :equiθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
-    type, N, θspan  = :equicosθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
+    ## type, N, θspan  = :equicosθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
+    
+    ## type, N, θspan  = :equicosθ,  400, (.1*π, .9*π) # test ...
+    type, N, θspan  = :equiθ,  400, (.1*π, .9*π) # test ...
 
     ## type, N, θspan  = :equicosθ,  650, π/2 .- deg2rad.((-47,-70)) # ?
     ## type, N, θspan  = :equiθ,  495, π/2 .- deg2rad.((-47,-70)) # ✓
@@ -212,7 +215,8 @@ end
 # ==============================
 
 μK_arcmin       = 2.2
-beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
+beamfwhm_arcmin = 30 ###!!!!! testing 
+## beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
 ## beamfwhm_arcmin = 1.4 # mean(@. rad2deg(√Ω)*60)
 ## beamfwhm_arcmin = 4.5
 
@@ -490,6 +494,8 @@ end
 end 
 
 d = Xfourier(Pr * (Beam▪ * Ł(ϕ) * qu + no))
+
+# d = Xfourier(Beam▪ * qu)
 
 
 #=
