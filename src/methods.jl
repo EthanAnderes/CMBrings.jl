@@ -1,13 +1,13 @@
 # Constructors for Block diagonals in AzEqui coordinates
 # ====================================
+# TODO: put these into CirculantCov
 
-
-function az_cov_blks(ℓ, ffℓ::Vector{rT}; θ, φ, ngrid=150_000) where {rT}
+function az_cov_blks(ℓ, ffℓ::Vector{rT}; θ, φ, ngrid=100_000) where {rT}
     nθ, nφ = length(θ), length(φ)
     ptmW   = FFTW.plan_fft(Vector{complex(rT)}(undef, nφ))
     Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
     M▫     = Matrix{rT}[zeros(rT,nθ,nθ) for ℓ in 1:nφ÷2+1]
-    prgss  = Progress(nθ, dt=1, desc="CircOp construction")
+    prgss  = Progress(nθ, dt=1, desc="Computing Block Diagonals")
     for k = 1:nθ
         for j = 1:nθ
             Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ,  ptmW)
@@ -20,16 +20,84 @@ function az_cov_blks(ℓ, ffℓ::Vector{rT}; θ, φ, ngrid=150_000) where {rT}
     return M▫
 end
 
+
+function az_cov_blks(
+        ℓ, eeℓ::Vector{rT}, bbℓ::Vector{rT}; 
+        θ, φ, ngrid=100_000
+        ) where {rT}
+    T      = complex(rT)
+    nθ, nφ = length(θ), length(φ)
+    ptmW   = FFTW.plan_fft(Vector{T}(undef, nφ))
+    Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
+    M▫     = Matrix{T}[zeros(T,2nθ,2nθ) for ℓ in 1:nφ÷2+1]
+    prgss  = Progress(nθ, dt=1, desc="Computing Block Diagonals")
+    for k = 1:nθ
+        for j = 1:nθ
+            Mγⱼₖℓ⃗, Mξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, C, ptmW)
+            for ℓ in 1:nφ÷2+1
+                Jℓ = CC.Jperm(ℓ, nφ)
+                M▫[ℓ][j,   k   ] = Mγⱼₖℓ⃗[ℓ]
+                M▫[ℓ][j,   k+nθ] = Mξⱼₖℓ⃗[ℓ]
+                M▫[ℓ][j+nθ,k   ] = conj(Mξⱼₖℓ⃗[Jℓ])
+                M▫[ℓ][j+nθ,k+nθ] = conj(Mγⱼₖℓ⃗[Jℓ])
+            end
+        end
+        next!(prgss)
+    end
+    return M▫
+end
+
+## TODO: Can we make a Iso version of this and then just make diag blocks for Spin2 fields?
+function az_beam4spin2_blks(
+        ℓ, beamℓ::Vector{rT},
+        θ, φ, Ω, ngrid=100_000
+        ) where {rT<:Real}
+    nθ, nφ = length(θ), length(φ)
+    ptmW   = FFTW.plan_fft(Vector{complex(rT)}(undef, nφ))
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, beamℓ; ngrid)
+    M▫     = Matrix{rT}[zeros(rT,2nθ,2nθ) for ℓ in 1:nφ÷2+1]
+    prgss  = Progress(nθ, dt=1, desc="Computing Block Diagonals")
+    for k = 1:nθ
+        for j = 1:nθ
+            Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, ptmW)
+            for ℓ in 1:nφ÷2+1
+                Jℓ = CC.Jperm(ℓ, nφ)
+                M▫[ℓ][j, k   ]   = real(Mγⱼₖℓ⃗[ℓ])
+                M▫[ℓ][j,   k+nθ] = 0
+                M▫[ℓ][j+nθ,k   ] = 0
+                M▫[ℓ][j+nθ,k+nθ] = real(Mγⱼₖℓ⃗[Jℓ])
+            end
+        end
+        next!(prgss)
+    end
+    Ω2Diag = Diagonal(vcat(Ω,Ω))
+    return map(M->M*Ω2Diag, M▫)
+end
+
 # Constructors for Block diagonals with 
 # Vecchia approx in each block in AzEqui coordinates
 # ====================================
+
+
+function initalize_bidiag_lblks(::Type{T}, blk_sizes) where T
+    N = length(blk_sizes)
+    B = BlockArray{T}(undef_blocks, blk_sizes, blk_sizes)
+    for ic=1:N
+        B[Block(ic,ic)] = zeros(T, blk_sizes[ic], blk_sizes[ic])
+        if ic < N 
+            B[Block(ic+1,ic)] = zeros(T, blk_sizes[ic+1], blk_sizes[ic])
+        end 
+    end 
+    B 
+end 
+
 
 
 function az_cov½_vecchia_blks(
     ℓ, ffℓ::Vector{rT}, 
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ngrid=150_000
+    θ, φ, ngrid=100_000
     ) where {rT}
     
     nθ, nφ = length(θ), length(φ)
@@ -42,22 +110,11 @@ function az_cov½_vecchia_blks(
         end
     end
     
-    blk_indices = blocks(PseudoBlockArray(perm, blk_sizes))
     N = length(blk_sizes)
-    initalize_blks = function ()
-        B = BlockArray{rT}(undef_blocks, blk_sizes, blk_sizes)
-        for ic=1:N
-            B[Block(ic,ic)] = zeros(rT, blk_sizes[ic], blk_sizes[ic])
-            if ic < N 
-                B[Block(ic+1,ic)] = zeros(rT, blk_sizes[ic+1], blk_sizes[ic])
-            end 
-        end 
-        B 
-    end 
+    blk_indices = blocks(PseudoBlockArray(perm, blk_sizes))
+    M▫     = [initalize_bidiag_lblks(rT, blk_sizes) for ℓ in 1:nφ÷2+1]
 
-    M▫     = [initalize_blks() for ℓ in 1:nφ÷2+1]
-    
-    prgss  = Progress(N, dt=1, desc="CircOp construction")
+    prgss  = Progress(N, dt=1, desc="Computing Block Diagonals")
     for ic in 1:N # loop over column block
         # start with diag block in ic's block column
         for k in blk_indices[ic], j in blk_indices[ic]
@@ -80,6 +137,80 @@ function az_cov½_vecchia_blks(
     end
 end
 
+
+
+# Note: this inherits the permutation on θ given in perm
+# and doubles blk_sizes
+function az_cov½_vecchia_blks(
+    ℓ, eeℓ::Vector{rT}, bbℓ::Vector{rT},
+    blk_sizes::AbstractVector{<:Integer}, 
+    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+    θ, φ, ngrid=100_000
+    ) where {rT}
+    
+    T      = complex(rT)
+    nθ, nφ = length(θ), length(φ)
+    ptmW   = FFTW.plan_fft(Vector{T}(undef, nφ))
+    Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
+    setΣ! = function (Mγ▫,Mξ▫,cMγJ▫,cMξJ▫,j,k)
+        Mγⱼₖℓ⃗, Mξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, C, ptmW)
+        for ℓ in 1:nφ÷2+1
+            Jℓ = CC.Jperm(ℓ, nφ)
+            Mγ▫[ℓ][j,k]   = Mγⱼₖℓ⃗[ℓ]
+            Mξ▫[ℓ][j,k]   = Mξⱼₖℓ⃗[ℓ]
+            cMξJ▫[ℓ][j,k] = conj(Mξⱼₖℓ⃗[Jℓ])
+            cMγJ▫[ℓ][j,k] = conj(Mγⱼₖℓ⃗[Jℓ])
+        end
+    end
+
+    Mγ▫   = [initalize_bidiag_lblks(T, blk_sizes) for ℓ in 1:nφ÷2+1]
+    Mξ▫   = [initalize_bidiag_lblks(T, blk_sizes) for ℓ in 1:nφ÷2+1]
+    cMγJ▫ = [initalize_bidiag_lblks(T, blk_sizes) for ℓ in 1:nφ÷2+1]
+    cMξJ▫ = [initalize_bidiag_lblks(T, blk_sizes) for ℓ in 1:nφ÷2+1]
+
+    blk_indices = blocks(PseudoBlockArray(perm, blk_sizes))
+    N = length(blk_sizes)
+    prgss  = Progress(N, dt=1, desc="Computing Block Diagonals")
+    for ic in 1:N # loop over column block
+        # start with diag block in ic's block column
+        for k in blk_indices[ic], j in blk_indices[ic]
+            setΣ!(Mγ▫,Mξ▫,cMγJ▫,cMξJ▫, j, k) # this automatically sets
+        end
+        # then the lower diag in ic's block column
+        if ic < N
+            for k in blk_indices[ic], j in blk_indices[ic+1] 
+                setΣ!(Mγ▫,Mξ▫,cMγJ▫,cMξJ▫, j, k)
+            end
+        end
+        next!(prgss)
+    end 
+
+    # Put Mγ▫,Mξ▫,cMγJ▫,cMξJ▫  toghether for the full Spin2 operator
+    M▫ = map(Mγ▫,Mξ▫,cMγJ▫,cMξJ▫) do Mγ,Mξ,cMγJ,cMξJ
+        M = initalize_bidiag_lblks(T, 2 .* blk_sizes)
+        for ic=1:N 
+            M[Block(ic,ic)] = [ Mγ[Block(ic,ic)]   Mξ[Block(ic,ic)]
+                              cMξJ[Block(ic,ic)] cMγJ[Block(ic,ic)] ]
+            if ic < N
+                M[Block(ic+1,ic)] = [ Mγ[Block(ic+1,ic)]   Mξ[Block(ic+1,ic)]
+                                    cMξJ[Block(ic+1,ic)] cMγJ[Block(ic+1,ic)] ]
+            end 
+        end
+        M
+    end
+
+    blk_sizes2 = 2 .* blk_sizes
+    a1 = 1:2nθ |> x->reshape(x,nθ,2) # 2nθ indicies split in half and put in two columns
+    a2 = a1[perm,:][:] # do a within θ perm of each block, i.e. perm the rows, re-stack into one column
+    a3 = blocks(PseudoBlockArray(a2, vcat(blk_sizes, blk_sizes))) # divide into blocks
+    perm2 = a3 |> x->reshape(x,N,2) |> x->permutedims(x) |> vec |> x->vcat(x...) # interlace the blocks
+    P = VF.Piv(perm2)
+    map(M▫) do M 
+        R, preM, = VF.R_M_P(M, blk_sizes2)
+        M½ = VF.Midiagonal(map(sqrt, preM.data))
+        P' * inv(R) * M½
+    end
+end
 
 
 
