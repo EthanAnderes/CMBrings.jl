@@ -15,6 +15,10 @@ using PyCall
 using PyPlot 
 using NLopt
 
+import CirculantCov as CC
+import VecchiaFactorization as VF
+using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
+
 using SphereTransforms # there is some strange interaction: need this after PyPlot
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath

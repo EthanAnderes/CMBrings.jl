@@ -5,6 +5,8 @@ version = "0.1.0"
 
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
+CirculantCov = "edf8e0bb-e88b-4581-a03e-dda99a63c493"
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 FFTransforms = "41ee4b3b-6d90-492a-9c4b-6a995b15ca9c"
@@ -24,6 +26,7 @@ Spectra = "8da7f3c5-fb1b-42d3-91b9-3c2bc450b4c2"
 SphereTransforms = "b2109e22-118d-4f27-a5aa-3a6f7f43afc7"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 XFields = "6b266097-e72c-4055-8154-82a0a0b3a8e0"
+VecchiaFactorization = "766796f2-a851-4db4-b814-5102eb0274c5"
 
 [compat]
 julia = "1.3"

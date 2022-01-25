@@ -1,3 +1,88 @@
+# Constructors for Block diagonals in AzEqui coordinates
+# ====================================
+
+
+function az_cov_blks(ℓ, ffℓ::Vector{rT}; θ, φ, ngrid=150_000) where {rT}
+    nθ, nφ = length(θ), length(φ)
+    ptmW   = FFTW.plan_fft(Vector{complex(rT)}(undef, nφ))
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    M▫     = Matrix{rT}[zeros(rT,nθ,nθ) for ℓ in 1:nφ÷2+1]
+    prgss  = Progress(nθ, dt=1, desc="CircOp construction")
+    for k = 1:nθ
+        for j = 1:nθ
+            Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ,  ptmW)
+            for ℓ in 1:nφ÷2+1
+                M▫[ℓ][j,k] = real(Mγⱼₖℓ⃗[ℓ])
+            end
+        end
+        next!(prgss)
+    end
+    return M▫
+end
+
+# Constructors for Block diagonals with 
+# Vecchia approx in each block in AzEqui coordinates
+# ====================================
+
+
+function az_cov½_vecchia_blks(
+    ℓ, ffℓ::Vector{rT}, 
+    blk_sizes::AbstractVector{<:Integer}, 
+    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+    θ, φ, ngrid=150_000
+    ) where {rT}
+    
+    nθ, nφ = length(θ), length(φ)
+    ptmW   = FFTW.plan_fft(Vector{complex(rT)}(undef, nφ))
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    setΣ! = function (M▫,j,k)
+        Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, ptmW)
+        for ℓ in 1:nφ÷2+1
+            M▫[ℓ][j,k] = real(Mγⱼₖℓ⃗[ℓ])
+        end
+    end
+    
+    blk_indices = blocks(PseudoBlockArray(perm, blk_sizes))
+    N = length(blk_sizes)
+    initalize_blks = function ()
+        B = BlockArray{rT}(undef_blocks, blk_sizes, blk_sizes)
+        for ic=1:N
+            B[Block(ic,ic)] = zeros(rT, blk_sizes[ic], blk_sizes[ic])
+            if ic < N 
+                B[Block(ic+1,ic)] = zeros(rT, blk_sizes[ic+1], blk_sizes[ic])
+            end 
+        end 
+        B 
+    end 
+
+    M▫     = [initalize_blks() for ℓ in 1:nφ÷2+1]
+    
+    prgss  = Progress(N, dt=1, desc="CircOp construction")
+    for ic in 1:N # loop over column block
+        # start with diag block in ic's block column
+        for k in blk_indices[ic], j in blk_indices[ic]
+            setΣ!(M▫, j, k)
+        end
+        # then the lower diag in ic's block column
+        if ic < N
+            for k in blk_indices[ic], j in blk_indices[ic+1] 
+                setΣ!(M▫, j, k)
+            end
+        end
+        next!(prgss)
+    end 
+
+    P = VF.Piv(perm)
+    map(M▫) do M 
+        R, preM, = VF.R_M_P(M, blk_sizes)
+        M½ = VF.Midiagonal(map(sqrt, preM.data))
+        P' * inv(R) * M½
+    end
+end
+
+
+
+
 # A one dimensional smooth mask
 # ====================================
 
