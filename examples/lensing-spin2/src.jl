@@ -1,31 +1,35 @@
-## get lensing-spin2 example up and running
 
-## ▪ == "\smblksquare" or  "\vrectangleblack"
+## Testing likelihood code imported to CMBrings from "./likelihoods_CMBrings.jl" 
+
+## TODO: Add full simulation to compare with Vecchia
+## TODO: Try different Vecchia blocks at different ell's
+## TODO: Test conditional simulations in gradient flows
+## TODO: Test an Asmuthal component to the mask
+
 
 # Modules
 # ==============================
 using LinearAlgebra
+## LinearAlgebra.BLAS.set_num_threads(1)
 using FFTW 
-FFTW.set_num_threads(Threads.nthreads())
+## FFTW.set_num_threads(6)
 
 using XFields
-using CMBrings
-using CMBsphere     
-using FieldLensing 
-using Spectra: camb_cls
-using CMBflat: PrQr # Eventually remove this
-
 using  FFTransforms
 import FFTransforms as FT
 import CirculantCov as CC
-
-using DelimitedFiles
+using CMBrings
+using FieldLensing 
+using Spectra: camb_cls
+using VecchiaFactorization
+import VecchiaFactorization as VF
 using LBblocks: @sblock
+
+using SparseArrays
 using PyPlot
-import Dierckx 
-import NLopt
 using BenchmarkTools
 using ProgressMeter
+using BlockArrays
 
 #- 
 
@@ -34,32 +38,34 @@ if isdefined(Main, :IJulia) && Main.IJulia.inited
 else 
     hide_plots = true
 end
+save_figures = false 
 
-hide_plots = false
 
 # Pixel grid
 # ==============================
 
 θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type = @sblock let 
-
-    ## freq_mult = 3 
-    ## φspan     = (0, 2π/freq_mult)
-    φspan, freq_mult = deg2rad.((-60, 60)), 3
-    φ, φ∂ = CC.φ_grid(;φspan, N=1024) # N=768 or N=1024, 972
-
-    ## type, N, θspan  = :equiθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
-    ## type, N, θspan  = :equicosθ,  220, π/2 .- deg2rad.((-60,-70)) # ✓
+    ## --------- Hi-res
+    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    ## type, N, θspan  = :healpix,  2048, π/2 .- deg2rad.((-41,-70)) 
+    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ##  -------- Med-res
+    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1024, 972, 1536, 1280
+    ## type, N, θspan  = :equicosθ,  800, π/2 .- deg2rad.((-43,-68)) 
+    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ##  -------- med/low-res
+    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1024, 972, 1536, 1280
+    ## type, N, θspan  = :equiθ,  800, π/2 .- deg2rad.((-41,-70)) 
+    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ##  -------- low-res
+    φspan, freq_mult = deg2rad.((-45, 45)), 4
+    φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1024, 972, 1536, 1280
+    type, N, θspan  = :equiθ,  500, π/2 .- deg2rad.((-50,-65)) 
+    θ, θ∂  = CC.θ_grid(; θspan, N, type)
     
-    ## type, N, θspan  = :equicosθ,  400, (.1*π, .9*π) # test ...
-    type, N, θspan  = :equiθ,  400, (.1*π, .9*π) # test ...
-
-    ## type, N, θspan  = :equicosθ,  650, π/2 .- deg2rad.((-47,-70)) # ?
-    ## type, N, θspan  = :equiθ,  495, π/2 .- deg2rad.((-47,-70)) # ✓
-    ## type, N, θspan  = :equicosθ, 495, π/2 .- deg2rad.((-47,-70)) # ✓
-    ## type, N, θspan  = :equicosθ, 600, π/2 .- deg2rad.((-40,-70)) 
-    ## type, N, θspan  = :healpix, 2048, π/2 .- deg2rad.((-40,-70))
-    θ, θ∂ = CC.θ_grid(; θspan, N, type)
-
     nθ, nφ = length(θ), length(φ)
     Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))
     Δθ = diff(θ∂)
@@ -67,164 +73,59 @@ hide_plots = false
     collect(θ), φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, type
 end 
 
-@show (nθ, nφ)
 
+pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg(x)
+@show (nθ, nφ)
 @show extrema(@. rad2deg(√Ω)*60) 
+@show extrema(@. rad2deg(Δθ)*60) 
+@show extrema(pix_diag_arcmin) 
 
 # Plot √Ωpix over ring θ's 
 
-@sblock let θ, φ, Ω, Δθ, hide_plots
+@sblock let θ, φ, Ω, Δθ, hide_plots, save_figures
     hide_plots && return
+
+    pix_diag_rad = CC.geoβ.(θ[2:end], θ[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
+    pixφside_rad = sin.(θ) .* CC.counterclock_Δφ(φ[1], φ[2])
+    pixθside_rad = Δθ
+
+
     fig,ax = subplots(1)
     ax.plot(θ, (@. rad2deg(√Ω)*60), label="sqrt pixel area (arcmin)")
-    ax.plot(θ, (@. rad2deg(Δθ)*60), label="Δθ (arcmin)")
+    ax.plot(θ, (@. rad2deg(pixθside_rad)*60), label="Δθ (arcmin)")
+    ax.plot(θ, (@. rad2deg(pixφside_rad)*60), label="pix φ side arclen (arcmin)")
+    ax.plot(θ[1:end-1], (@. rad2deg(pix_diag_rad)*60), label="pix diag arclen (arcmin)")
     ax.set_xlabel(L"polar coordinate $\theta$")
     ax.legend()
+    save_figures && savefig("figure$(fig.number).png", dpi=250)
     return nothing
 end
 
 
-# Transformations, Mask and CMBring observation region
+# Transformations
 # ==============================
 
-
-tmUS2, tmUS0 = @sblock let nθ, nφ, freq_mult
-
-    T = Float64
-    tmUS2 = 𝕀(nθ) ⊗ 𝕌(Complex{T}, nφ, 2π/freq_mult)
-    tmUS0 = 𝕀(nθ) ⊗ 𝕌(T, nφ, 2π/freq_mult)
-
-    return tmUS2, tmUS0
+tmUS2, tmUS0, T = @sblock let nθ, nφ, freq_mult
+    ## T  = ComplexF32
+    T  = ComplexF64
+    Tr = real(T)
+    tmUS2 = 𝕀(nθ) ⊗ 𝕌(T, nφ, 2π/freq_mult)
+    tmUS0 = 𝕀(nθ) ⊗ 𝕌(Tr, nφ, 2π/freq_mult)
+    return tmUS2, tmUS0, T
 end;
 
-#-
 
-# kron product mask
-Pr, Qr, prθ, prφ  =  @sblock let nθ, nφ, tmUS2
-    ▮lθ_ex, ▮lθ, ▯lθ = 5, 15, 40
-    ▮rθ_ex, ▮rθ, ▯rθ = nθ-▮lθ_ex+1, nθ-▮lθ+1, nθ-▯lθ+1 
-    prθ    = CMBrings.pixweight.(1:nθ; ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
-    prθ_ex = CMBrings.pixweight.(1:nθ; ▮l=▮lθ_ex, ▯l=▮lθ+1, ▯r=▮rθ-1, ▮r=▮rθ_ex)
-    # qrθ    = 1 .- prθ
-    # prθ .+ qrθ
-    # prθ .* qrθ
-
-
-    ▮lφ_ex, ▮lφ, ▯lφ = 5, 15, 40
-    ▮rφ_ex, ▮rφ, ▯rφ = nφ-▮lφ_ex+1, nφ-▮lφ+1, nφ-▯lφ+1 
-    prφ    = CMBrings.pixweight.(1:nφ; ▮l=▮lφ,    ▯l=▯lφ, ▯r=▯rφ, ▮r=▮rφ)
-    prφ_ex = CMBrings.pixweight.(1:nφ; ▮l=▮lφ_ex, ▯l=▮lφ+1, ▯r=▮rφ-1, ▮r=▮rφ_ex)
-
-    prθφ = prθ .* prφ'
-    qrθφ = 1 .- prθ_ex .* prφ_ex'
-
-    DiagOp(Xmap(tmUS2, prθφ)), DiagOp(Xmap(tmUS2, qrθφ)), prθ, prφ
-end;
-
-#- 
-
-## data_msk = @sblock let θ, φ
-##     
-##     pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_nθ3072_nφ4095.csv"), ',', Bool)    
-##     ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_mid2pole_nθ2560_nφ3071.csv"), ',', Bool)    
-##     ## pr_msk  = readdlm(joinpath(CMBrings.module_dir,"examples/artifacts/FastTransform_mask_spole_nθ3072_nφ4095.csv"), ',', Bool)    
-##     nθ_msk, nφ_msk = size(pr_msk)
-##     θ_msk = π*(0.5:nθ_msk-0.5)/nθ_msk |> collect
-##     φ_msk = 2π*(0:nφ_msk-1)/nφ_msk    |> collect
-##     spline_mask = Dierckx.Spline2D(θ_msk, φ_msk, pr_msk, kx=1, ky=1, s=0.0)
-## 
-##     data_msk = spline_mask.(θ, φ') .> 0
-##     data_msk[1:5,:] .= 0
-##     data_msk[end - 5 + 1:end,:] .= 0
-## 
-##     ## data_msk[:,1:15] .= 0
-##     ## data_msk[:, end - 15 + 1:end] .= 0
-## 
-##     return data_msk
-## end;
-
-
-# data_msk = @sblock let θ, φ
-    
-#     data_msk = ones(length(θ), length(φ))
-#     data_msk[1:15,:] .= 0
-#     data_msk[end - 15 + 1:end,:] .= 0
-#     data_msk[:,1:25] .= 0
-#     data_msk[:, end - 25 + 1:end] .= 0
-
-
-#     return data_msk
-# end;
-
-
-#- 
-
-
-# Pr, Qr = @sblock let tmUS2, θ∂, φ∂, data_msk, QP_bdry=1e-5, fwhmθ′=50, fwhmφ′=200
-#     Δφspan  = CC.counterclock_Δφ(φ∂[1], φ∂[end])
-#     Δθ∂span = CC.counterclock_Δφ(θ∂[1], θ∂[end])
-#     tmFlat  = FT.𝕎(real(eltype_in(tmUS2)), size(data_msk), (Δθ∂span, Δφspan))
-#     pr0x, qr0x = PrQr(tmFlat, data_msk, fwhmθ′, fwhmφ′, QP_bdry)
-#     pr0 = Xmap(tmUS2, pr0x)
-#     qr0 = Xmap(tmUS2, qr0x)
-#     DiagOp(pr0), DiagOp(qr0)
-# end;
-
-## Pr[:] .|> real |> matshow; colorbar()
-## Qr[:] .|> real |> matshow; colorbar()
-## Qr[:] .+ Pr[:] .|> real |> matshow; colorbar()
-
-# Localize lensing vector field to data mask.
-
-Mϕ = @sblock let tmUS0, Pr
-
-    ## sqz = 7 # increase sqz to get shaper transition
-    ## mϕx = real.(Pr[:]) .|> x-> atan(sqz*(x-1/2))
-    ## ---------- or 
-    sqz = 8
-    sft = 0.5
-    mϕx = real.(Pr[:]) .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
-
-    ## make sure it hits zero and 1
-    mϕx .-= minimum(mϕx)
-    mϕx ./= maximum(mϕx)
-    Mϕ    = DiagOp(Xmap(tmUS0, mϕx))
-    Mϕ
-end;
-#=
- Mϕ[:] .|> real |> matshow; colorbar()
- Pr[:] .|> real |> matshow; colorbar()
-=# 
-
-# Azimuthal ring mask
-
-@sblock let ma=real.(Pr[:]), dma=real.(Pr[:]).>0, φ, θ, hide_plots
-    hide_plots && return
-    imgs = Dict(1=>dma, 2=>ma)
-    txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; 
-        txt=txt, 
-        figsize=(10,8), nrows=1, fontsize=14
-    )
-    return nothing
-end
-
-
-# Spectral densities and operators
+# Spectral densities
 # ==============================
 
-μK_arcmin       = 2.2
-beamfwhm_arcmin = 30 ###!!!!! testing 
-## beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
-## beamfwhm_arcmin = 1.4 # mean(@. rad2deg(√Ω)*60)
-## beamfwhm_arcmin = 4.5
+φ_approx_nyq = freq_mult * nφ / minimum(sin.(θ)) / 2
+θ_approx_nyq = π / minimum(Δθ) 
+@show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
-ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, ẽẽℓ, b̃b̃ℓ = @sblock let beamfwhm_arcmin
+approx_lmax += ceil(Int, approx_lmax * 0.3) # for good measure:)
+
+ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01
     
-    r  = 0.01
-
-    lmax = 11000
     l = 0:lmax
     cld = camb_cls(;lmax=lmax, r)
     
@@ -248,61 +149,294 @@ beamfwhm_arcmin = 30 ###!!!!! testing
     b̃bl[1] = 0
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    ϕϕl[1] =  0
+    ϕϕl[1] =  ϕϕl[2] ### trying to fix a rank degeneracy here ...
 
-    beamfwhm_rad = beamfwhm_arcmin |> arcmin -> deg2rad(arcmin/60)
-    σ² = beamfwhm_rad^2 / 8 / log(2)
-    beaml = @. exp( - σ²*l*(l+1) / 2)
-
-    return l, eel, bbl, ϕϕl, beaml, ẽel, b̃bl 
+    return l, ϕϕl, eel, bbl, ẽel, b̃bl 
 end;
 
-# Uncertainty for ϕ based on iterative quadratic estimate
-## TODO: needs fixing up ...
+## semilogy(ℓ, eeℓ)
+## semilogy(ℓ, bbℓ)
+
+## can use this to check if we are getting pos definite 
+## EB▫_tail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:150], φ);
+## EB▫_tail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-250:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
+
+## EB▫_tail[1] |> Hermitian |> eigen |> x->x.values
+## EB▫_tail[end] |> Hermitian |> eigen |> x->x.values
+
+## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
+## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
+## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-2] |> plot
+## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-3] |> plot
+
+
+
+
+# Mask 
+# =========================================
+
+# kron product mask
+prθ, prφ  =  @sblock let rT=real(T), nθ, nφ, tmUS2
+    ##
+    ▮lθ, ▯lθ = 35, 65 
+    ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
+    ## ▮lθ, ▯lθ = 40, 70 
+    ## ▮rθ, ▯rθ = nθ-10+1, nθ-20+1 
+    prθ    = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
+    ## 
+    ## ▮lφ, ▯lφ = 5, 40 
+    ## ▮rφ, ▯rφ = nφ-▮lφ+1, nφ-▯lφ+1 
+    ## prφ    = CMBrings.pixweight.(rT.(1:nφ); ▮l=▮lφ,    ▯l=▯lφ, ▯r=▯rφ, ▮r=▮rφ)
+    ## ----- alt ----- ↓↓ No azmuthal mask ↓↓
+    prφ = ones(rT,nφ)
+    ##
+    
+    prθ, prφ
+end;
+
+# Lensing mask (to keep the lense from transporting off the polar cut)
+Mϕ = @sblock let rT=real(T), nθ, nφ, tmUS0, prθφ = prθ.*prφ'
+
+    ## ▮lθ, ▯lθ = 25, 35 
+    ## ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
+    ## prθ  = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
+    ## mϕx = prθ * ones(rT,nφ)'
+    ## ---------- or 
+    sqz = 8
+    sft = 0.5
+    mϕx = prθφ .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
+
+    ## make sure it hits zero and 1
+    mϕx .-= minimum(mϕx)
+    mϕx ./= maximum(mϕx)
+    Mϕ    = DiagOp(Xmap(tmUS0, mϕx))
+    Mϕ
+end;
+
+## Mϕ[:] .|> real |> matshow; colorbar()
+## prθ .* prφ' .|> real |> matshow; colorbar()
+
+# Azimuthal ring mask
+
+@sblock let prθ, prφ, Mϕ, φ, θ, hide_plots, save_figures
+    hide_plots && return
+    prθφ = prθ .* prφ'
+    dma = prθφ .> 0
+    ma  = prθφ
+    ## imgs = Dict(1=>dma, 2=>ma)
+    ## txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
+    imgs = Dict(1=>ma, 2=>Mϕ[:])
+    txt  = Dict(1=>"data mask", 2=>"lensing mask")
+
+    fig, ax = CMBrings.diskplot(
+        imgs, CC.in_negπ_π.(φ)', π.-θ; 
+        txt=txt, 
+        figsize=(10,8), nrows=1, fontsize=14
+    )
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+    return nothing
+end
+
+
+# Coordinate pivot, blocks and queries for Vecchia
+# ==============================
+## using Primes; factor(length(θ)) # ; @assert nθ÷bks == nθ/bks
+
+permθ, block_sizesθ = @sblock let prθ, bsd_nθ=125, nθ
+    block_sizesθ = VF.block_split(nθ, bsd_nθ)
+    ## block_sizesθ = VF.block_split(nθ, bsd_nθ) |> sort
+
+    permθ=1:nθ
+    permθ, block_sizesθ
+end
+
+
+
+# Data operators
+# ============================
+
+# ## Noise
+
+μK_arcmin       = 1.0
+
+N▪ = @sblock let μK_arcmin, Ω, nφ 
+    σ²   = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
+    σ²_Ω = σ² ./ Ω
+    Nmat = Diagonal(vcat(σ²_Ω,σ²_Ω))
+    N▫   = [Nmat for ℓ = 1:nφ÷2+1]
+    CircOp(N▫)
+end; 
+
+# ## Mask
+
+M = DiagOp(Xmap(tmUS2, prθ .* prφ' ));
+
+# ## Beam
+# Conjecturing here that the arclength of the pixel diagonals 
+# is what determines quality of the AzEq beam. 
+
+pix_diag_rad = CC.geoβ.(θ[2:end], θ[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
+beamfwhm_arcmin = maximum(60 .* rad2deg.(pix_diag_rad))
+
+## pixφside = sin.(θ) .* CC.counterclock_Δφ(φ∂[1], φ∂[2])
+## pixθside = Δθ
+## beamfwhm_arcmin = 2.0 * maximum(60 .* rad2deg.(vcat(pixθside, pixφside)))
+##
+## beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
+
+
+beamℓ = @sblock let ℓ, beamfwhm_arcmin
+    beamfwhm_rad = beamfwhm_arcmin |> arcmin -> deg2rad(arcmin/60)
+    σ² = beamfwhm_rad^2 / 8 / log(2)
+    beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
+end 
+
+
+B▪ = @sblock let ℓ, beamℓ, block_sizesθ, permθ, θ, φ, Ω
+
+    nθ, nφ = length(θ), length(φ)
+    DΩΩ  = Diagonal(vcat(Ω, Ω))
+
+    ## Bspin0▫½ = CMBrings.az_cov½_vecchia_blks(ℓ, beamℓ, block_sizesθ, permθ; θ, φ);
+    
+    Bspin0▪ = CMBrings.az_cov_vecchia_blks(
+        ℓ, beamℓ, 
+        block_sizesθ,  permθ; θ, φ
+    ) |> CircOp;
+
+    Bspin2▪ = map(Bspin0▪) do B
+        ## B = Bspin0▪[2]
+        P = B[1]'
+        R = inv(B[2])
+        Mpre = B[3] ## B[3]*B[3]'
+        M = VF.Midiagonal(Mpre.data) # What is the speed effect here??
+
+        a1 = 1:2nθ |> x->reshape(x,nθ,2)
+        P2 = VF.Piv(a1[P.perm,:][:])
+        M2 = vcat(M.data, M.data) |> VF.Midiagonal
+        invR2 = vcat(
+            R.data, 
+            [zeros(eltype(M.data[1]), size(M.data[1],1), size(M.data[end],2))], 
+            R.data
+        ) |> VF.Ridiagonal |> inv
+
+        P2' * invR2 * M2 * invR2' * P2 * DΩΩ
+    end |> CircOp
+
+    return Bspin2▪
+end;  
+
+
+
+# Spin 2 signal
+# =================================================
+
+@time EB▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
+## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
+EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
+
+
+# EB▪½[end-5][3].data[2]
+# EB▪⁻½[end-5][2].data[2]
+
+## EB▫ = CMBrings.az_cov_blks(
+##     ℓ, eeℓ, bbℓ; θ, φ, 
+##    ℓrange = [1,2,3,4, nφ÷2-1, nφ÷2, nφ÷2+1]
+## );
+
+# Spin 0 signal
+# =================================================
+
+Phi▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+## sum(Base.summarysize, Phi▪½) / 1e9 # 1.4 GB, 2.5min construction, high res
+## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
+Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
+
+# Lensing operators
+# ============================
+
+∇!,  ∇!_ϕ = CMBrings.generate_∇!∇!ϕ(θ, φ; uniformΔθ = (grid_type == :equiθ) ? true : false); 
+
+Ł, ϕ2v!, ϕ2vᴴ!, ∇! = CMBrings.generate_lense(;
+        θ, mv1x=Mϕ[:], mv2x=Mϕ[:], ∇!,  ∇!_ϕ, 
+        nsteps_lensing=14
+);
+
+# Mixflow operator
+# ============================
+
+nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
+
+Ð▪⁻¹ = CMBrings.az_cov½_vecchia_blks(
+   ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
+   block_sizesθ,  permθ; θ, φ
+) |> CircOp;
+
+# simulation
+# ==============================
+
+ϕ = Phi▪½ * Xmap(tmUS0,randn(Float64,nθ,nφ))
+
+qu = EB▪½ * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+
+no = map(N▪, Xmap(tmUS2,randn(ComplexF64,nθ,nφ))) do Σ,v
+    sqrt(Σ)*v
+end 
+
+d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
+
+#-
+
+## d[:] |> real |> matshow; colorbar()
+## d[:] |> imag |> matshow; colorbar()
+## ϕ[:] |> matshow; colorbar()
+## qu[:] |> real |> matshow; colorbar()
+## qu[:] |> imag |> matshow; colorbar()
+## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> real |> matshow; colorbar()
+## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> imag |> matshow; colorbar()
+
+
+# Initalize opps for ϕ gradient
+# ==============================================
+
+N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
 
 import CMBflat
+import Dierckx
 
-N0ℓ, NΦNℓ =  @sblock let n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ = deg2rad(μK_arcmin/60)^2 .+ zero(ℓ)
-
-    ## T_fld = Float32
+N0ℓ, NΦNℓ =  @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ=fill(nnℓ,length(ℓ)) 
     T_fld = Float64
-    
     nθ, nφ  = 512, 512   
-    periodθ = T_fld(nθ * deg2rad(3.5 / 60))
-    periodφ = T_fld(nφ * deg2rad(3.5 / 60))
+    periodθ = T_fld(nθ * pix_side_rad)
+    periodφ = T_fld(nφ * pix_side_rad)
     tm    = FT.𝕎(T_fld, (nθ, nφ), (periodθ, periodφ))
     tmΦ   = FT.ordinary_scale(tm) * tm
     tmEB  = CMBflat.QU2EB(T_fld, (nθ, nφ), (periodθ, periodφ))
-
     Idx  = round.(Int,FT.wavenum(tmΦ)) .+ 1
     ecl  = map(i -> getindex(eeℓ, i), Idx)
     bcl  = map(i -> getindex(bbℓ, i), Idx)
     ϕcl  = map(i -> getindex(ϕϕℓ, i), Idx)
     ncl  = map(i -> getindex(nnℓ, i), Idx)
     bmcl = map(i -> getindex(beamℓ, i), Idx)
-
     EBcov = DiagOp(Xfourier(tmEB, cat(ecl,bcl;dims=3))) 
     Ncov  = DiagOp(Xfourier(tmEB, cat(ncl,ncl;dims=3))) 
     Bm    = DiagOp(Xfourier(tmEB, cat(bmcl,bmcl;dims=3)))
     Φcov  = DiagOp(Xfourier(tmΦ, ϕcl))
-
     ## lcut_prpn = [0.75, 0.95]    
     ## kf  =  [abs.(FT.fullfreq(FT.𝕎(tmEB))[i]) .<= lcut_prpn[i]*FT.nyq(FT.𝕎(tmEB))[i] for i = 1:2]
     ## Bm *= DiagOp(Xfourier(tmEB, kf[1] ))
     ## Bm *= DiagOp(Xfourier(tmEB, kf[2] ))
-
     ## ----- 
     Ncov_local = Ncov / Bm^2
     Ncov_local.f.fd[real.(Bm.f.fd) .<= 0] .= Inf
     Ncov_local.f.fd[1,1,1] = Inf
     Ncov_local.f.fd[1,1,2] = Inf
-
     ## ----- EBcov_local: unlensed signal
     ## Not sure if we want zero B power here??
     ## EBcov_local = Xfourier(tmEB, EBcov[:El], 0) |> DiagOp
     ## -- alternative 
     EBcov_local = deepcopy(EBcov)
-    
     ## ----- Nϕ with tot power == EBcov_local + B̃fromE + Ncov_local
     ## In the iterations B̃fromE will get reduced. 
     B̃fromE  = CMBflat.lnB_matpwr(tmΦ, EBcov_local[:El], Φcov[!]) |> 
@@ -315,15 +449,12 @@ N0ℓ, NΦNℓ =  @sblock let n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, nn�
     )
     Nϕ.f.fd[real.(Nϕ.f.fd) .<= 0] .= Inf 
     Nϕ.f.fd[1,1] = Inf 
-    
     for cntr = 1:n_iter
-
         wf_B̃fromE  = CMBflat.lnB_matpwr(
             tmΦ, 
             (EBcov_local^2 * inv(EBcov_local + Ncov_local))[:El], 
             (Φcov^2 * inv(Φcov + Nϕ))[!],
         ) |> x-> Xfourier(tmEB, 0, x) |> DiagOp    
-        
         Nϕ  = CMBflat.N0ℓ_EB(
             tmΦ, 
             EBcov_local, 
@@ -333,275 +464,250 @@ N0ℓ, NΦNℓ =  @sblock let n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, nn�
         Nϕ.f.fd[1,1] = Inf 
 
     end
-
     k      = FT.wavenum(tmΦ)[:,1]
     k4n0ck = k.^4 .* real.(Nϕ[!][:,1])
-
     spline_k4n0ck = Dierckx.Spline1D(
         vcat(2,k[3:end]), vcat(k4n0ck[3], k4n0ck[3:end])
         ; k=1, bc="zero",
     )
-
     N0ℓ = spline_k4n0ck.(ℓ) ./ ℓ.^4
     N0ℓ[real.(N0ℓ) .<= 0] .= Inf 
     N0ℓ[isnan.(N0ℓ)]      .= Inf 
     NΦNℓ = @. inv(inv(N0ℓ) + inv(ϕϕℓ))
-
     N0ℓ, NΦNℓ
 end;
 
+NΦN▪ = CMBrings.az_cov½_vecchia_blks(
+    ℓ, NΦNℓ,  
+    block_sizesθ,  permθ; θ, φ
+) |> x->map(m->m*m',x) |> CircOp;
 
-# Ring Ops 
-# ==============================
+# Initalize opps for WF
+# ==============================================
 
-EB▪, ẼB̃▪, Phi▪, Beam▪, N▪,  NΦN▪  = @sblock let ℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ, ϕϕℓ, beamℓ, NΦNℓ, μK_arcmin, θ, φ, freq_mult, Ω 
+## we apparently need this to commute with M ....
+## diag(W▪[1])[1:end÷2] == diag(W▪[1])[end÷2+1:end]
 
-    nθ, nφ = length(θ), length(φ)
+mult_nnℓ = 0.95
 
-    # create the structs for computing the cov diag blocks
-    ΓC_EB  = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=50_000)
-    ΓC_ẼB̃  = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, ẽẽℓ, b̃b̃ℓ; ngrid=50_000)
-    Γ_Phi  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ϕϕℓ;      ngrid=50_000)
-    Γ_NΦN  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, NΦNℓ;     ngrid=50_000)
-    Γ_Beam = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, beamℓ;    ngrid=50_000)
+wwℓ  = mult_nnℓ .*  nnℓ
+nn⁺ℓ = nnℓ .- wwℓ
 
-    # create the storage for the cov diag blocks
-    T     = ComplexF64 # ComplexF32
-    rT    = real(T)
-    EB▫   = Hermitian{T,Matrix{T}}[Hermitian(zeros(T,2nθ,2nθ),:L) for ℓ = 1:nφ÷2+1]
-    ẼB̃▫   = Hermitian{T,Matrix{T}}[Hermitian(zeros(T,2nθ,2nθ),:L) for ℓ = 1:nφ÷2+1]
-    Phi▫  = Symmetric{rT,Matrix{rT}}[Symmetric(zeros(rT,nθ,nθ),:L) for ℓ = 1:nφ÷2+1]
-    NΦN▫  = Symmetric{rT,Matrix{rT}}[Symmetric(zeros(rT,nθ,nθ),:L) for ℓ = 1:nφ÷2+1]
-    Beam▫ = Matrix{rT}[zeros(rT,2nθ,2nθ) for ℓ = 1:nφ÷2+1]
-    
-    # FFTW plan and pre-compute storage
-    ptmW    = FFTW.plan_fft(Vector{ComplexF64}(undef, nφ))
+W▪    = map(N▪) do N 
+    Diagonal(real(diag(N)) * mult_nnℓ) 
+end |> CircOp;
 
-    prgss = Progress(nθ, 1, "EB▪, Phi▪, Beam▪, N▪, Ð▪⁻¹, NΦN▪ ")
-    for k = 1:nθ
-        for j = 1:nθ
+N▪⁺ᵍ  = map(W▪, N▪) do W, N 
+    pinv(N - W)
+end |> CircOp;
 
-            Phiγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ_Phi,  ptmW)
-            NΦNγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ_NΦN,  ptmW)
-            Beamγⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ_Beam, ptmW)
-            EBγⱼₖℓ⃗, EBξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, ΓC_EB..., ptmW)
-            ẼB̃γⱼₖℓ⃗, ẼB̃ξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, ΓC_ẼB̃..., ptmW)
-
-            for ℓ = 1:nφ÷2+1
-                Phi▫[ℓ].data[j,k] = real(Phiγⱼₖℓ⃗[ℓ])
-                NΦN▫[ℓ].data[j,k] = real(NΦNγⱼₖℓ⃗[ℓ])
-
-                Jℓ = CC.Jperm(ℓ, nφ)
-                
-                EB▫[ℓ].data[j,   k   ]   = EBγⱼₖℓ⃗[ℓ]
-                EB▫[ℓ].data[j,   k+nθ]   = EBξⱼₖℓ⃗[ℓ]
-                EB▫[ℓ].data[j+nθ,k   ]   = conj(EBξⱼₖℓ⃗[Jℓ])
-                EB▫[ℓ].data[j+nθ,k+nθ]   = conj(EBγⱼₖℓ⃗[Jℓ])
-
-                ẼB̃▫[ℓ].data[j,   k   ]   = ẼB̃γⱼₖℓ⃗[ℓ]
-                ẼB̃▫[ℓ].data[j,   k+nθ]   = ẼB̃ξⱼₖℓ⃗[ℓ]
-                ẼB̃▫[ℓ].data[j+nθ,k   ]   = conj(ẼB̃ξⱼₖℓ⃗[Jℓ])
-                ẼB̃▫[ℓ].data[j+nθ,k+nθ]   = conj(ẼB̃γⱼₖℓ⃗[Jℓ])
-
-                Beam▫[ℓ][j, k   ]   = real(Beamγⱼₖℓ⃗[ℓ])  * Ω[k]
-                Beam▫[ℓ][j+nθ,k+nθ] = real(Beamγⱼₖℓ⃗[Jℓ]) * Ω[k]
-            end
-
-        end
-        next!(prgss)
-    end
-
-    @show Base.summarysize(EB▫) / 1e9
-    @show Base.summarysize(Phi▫)  / 1e9
-    @show Base.summarysize(Beam▫)  / 1e9
-
-    ẼB̃▪   = CircOp(ẼB̃▫)
-    EB▪   = CircOp(EB▫)
-    Phi▪  = CircOp(Phi▫)
-    NΦN▪  = CircOp(NΦN▫)
-    Beam▪ = CircOp(Beam▫)
-
-    μKᵒn = μK_arcmin / 60
-    σ²   = deg2rad(μKᵒn)^2
-    σ²_Ω = T.(σ² ./ Ω)
-    Nmat = Diagonal(vcat(σ²_Ω,σ²_Ω))
-    N▪   = CircOp([Nmat for ℓ = 1:nφ÷2+1])
-
-    return EB▪, ẼB̃▪, Phi▪, Beam▪, N▪,  NΦN▪
+MWMᵀᵍ = @sblock let W▪, M, nφ, tmUS2
+    ## MWMᵀ_pxl = abs2.(prθφM) .* prθW
+    prθW = diag(W▪[1])[1:end÷2]
+    prθM = M[:][:,end÷2]
+    MWMᵀ_pxl = prθW .* abs2.(prθM) .* ones(1,nφ)
+    DiagOp(Xmap(tmUS2, pinv.(MWMᵀ_pxl)))
 end;
 
-#-
 
-@time Ð▪⁻¹ = map(EB▪, ẼB̃▪, N▪) do EB, ẼB̃, N 
-        sqrt(EB) / sqrt(ẼB̃ + 2*N) # ✓
-        ## ------
-        ## sqrt(EB) / sqrt(Hermitian(ẼB̃ + 2*N,:L))
-        ## ------
-        ## sqrt(EB) * inv(sqrt(ẼB̃ + 2*N))
-        ## ------
-        ## cholesky(Hermitian(Matrix(EB))).L / cholesky(Hermitian(Matrix(ẼB̃ + 2*N))).L
-        ## ------
-        ## L2 = cholesky(EB).L
-        ## M  = Hermitian(ẼB̃ + 2*N,:L)
-        ## L1 = cholesky(M).L
-        ## Matrix(L2 / L1)
-end |> CircOp; # 21.650719 seconds (1.80 M allocations: 13.858 GiB, 63.80% gc time, 0.31% compilation time)
+@time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, EB▪½,  N▪⁺ᵍ, W▪, M, MWMᵀᵍ, block_sizesθ, nθ = length(θ)
+    Mθ     = M[:][:,end÷2] |> x->vcat(x,x)
+    MWMᵀᵍθ = MWMᵀᵍ[:][:,end÷2] |> x->vcat(x,x)
+    
+    _A₁₁ᵍ▪ = map(W▪, N▪⁺ᵍ) do W, iN
+        Diagonal(pinv.(Mθ .* MWMᵀᵍθ .* conj.(Mθ) .+ diag(iN)))
+    end |> CircOp
 
-ẼB̃▪ = 0; 
+    _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = map(_A₁₁ᵍ▪, B▪, N▪⁺ᵍ, EB▪½) do iA, Bl, iN, Σ½
+        # iA,  Bl, iN, Σ½ = _A₁₁ᵍ▪[2], B▪[2], N▪⁺ᵍ[2], EB▪½[2]
+        PΣ, RΣ, M½Σ = Σ½[1], inv(Σ½[2]), Σ½[3]
+        invΣ = VF.instantiate_inv(RΣ, M½Σ*M½Σ', PΣ)
 
-GC.gc()
+        PB, RB, MB, matΩ = Bl[1], inv(Bl[2]), Bl[3], Bl[6]
+        invB=VF.instantiate_inv(RB, MB, PB)
+        matB = inv(cholesky(Symmetric(invB)))
 
-#-
+        iN_iNiAiN½ = sqrt(iN - iN*iA*iN)
+        lmul!(iN_iNiAiN½, matB)
+        rmul!(matB, matΩ)
+        invΣ += matB'*matB  
+        ## X    = invΣ + matΩ'*(matB'*(iN - iN*iA*iN)*matB)*matΩ
+        invX = inv(cholesky(Hermitian(invΣ))) 
+        return VF.vecchia(invX, 
+                    2 .* block_sizesθ,  
+                    ## VF.block_split(2nθ, 250),
+                    1:2nθ |> x->(reshape(x,nθ,2)')[:] 
+                )
+    end |> CircOp
 
-# Preconditioner
-@time Precon▪⁻¹ = map(EB▪, Beam▪, N▪) do EB, B, N 
-    L    = cholesky(Hermitian(B * EB * B' + N,:L)).L
-    Linv = inv(L)
-    Hermitian(Linv' * Linv, :L)
-end |> CircOp; # 96.132494 seconds (9.88 M allocations: 16.964 GiB, 10.45% gc time, 2.50% compilation time)
-
-#-
-
-# Gradients Set sparse increment matrices for non-FFT lensing
-# ==================================================
-
-## ∇!,  ∇!_ϕ = generate_∇!∇!ϕ(θ, φ;uniformΔθ=true) 
-∇!,  ∇!_ϕ = CMBrings.generate_∇!∇!ϕ(θ, φ; uniformΔθ = (grid_type == :equiθ) ? true : false); 
-
-Ł, ϕ2v!, ϕ2vᴴ!, ∇! = CMBrings.generate_lense(;
-        θ, mv1x=Mϕ[:], mv2x=Mϕ[:], ∇!,  ∇!_ϕ, 
-        nsteps_lensing=14
-);
-
-# simulation
-# ==============================
-
-@time ϕ = map(Phi▪, Xmap(tmUS0,randn(Float64,nθ,nφ))) do Σ,v
-## @time ϕ = map(Phi▪, Xfourier(Xmap(tmUS0,randn(Float64,nθ,nφ)))) do Σ,v
-    ## sqrt(Σ)*v
-    Matrix(cholesky(Σ).L)*v
-end 
-
-@time qu = map(EB▪, Xmap(tmUS2,randn(ComplexF64,nθ,nφ))) do Σ,v
-## @time qu = map(EB▪, Xfourier(Xmap(tmUS2,randn(ComplexF64,nθ,nφ)))) do Σ,v
-    ## sqrt(Σ)*v
-    Matrix(cholesky(Σ).L)*v
-end 
-
-@time no = map(N▪, Xmap(tmUS2,randn(ComplexF64,nθ,nφ))) do Σ,v
-    ## sqrt(Σ)*v
-    Matrix(cholesky(Σ).L)*v
-end 
-
-d = Xfourier(Pr * (Beam▪ * Ł(ϕ) * qu + no))
-
-# d = Xfourier(Beam▪ * qu)
-
-
-#=
-
-
-fig, ax = subplots(2)
-d[:] .|> real |> imshow(-, fig, ax[1]) 
-d[:] .|> imag |> imshow(-, fig, ax[2]) 
+    _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
+end;
 
 
 
-sum(abs2, Xfourier(Xmap(qu))[!] .- qu[!])
-sum(abs2, Xfourier(Xmap(qu))[:] .- qu[:])
-sum(abs2, Xmap(Xfourier(qu))[!] .- qu[!])
-sum(abs2, Xmap(Xfourier(qu))[:] .- qu[:])
 
-=#
+# Try some gradient moves
+# ==============================================
 
-#= β
-lnqu = Ł(ϕ) * qu
-
-@benchmark $(Ł(ϕ)) * qu
-
-
-fig, ax = subplots(2)
-qu[:] .|> real |> imshow(-, fig, ax[1]) 
-qu[:] .|> imag |> imshow(-, fig, ax[2]) 
-
-fig, ax = subplots(2)
-lnqu[:]  .|> real |> imshow(-, fig, ax[1]) 
-lnqu[:]  .|> imag |> imshow(-, fig, ax[2]) 
-
-
-fig, ax = subplots(2)
-(lnqu-qu)[:] .|> real |> imshow(-, fig, ax[1]) 
-(lnqu-qu)[:] .|> imag |> imshow(-, fig, ax[2]) 
-=#
-
-
-
-# Now do some iterations ...
-# ==============================
-
-## ------ initalize 
-gwf  = 0*d 
+# Initalize
 f_cr = 0*d
+g_cr = 0*d
 ϕ_cr = 0*ϕ
+L_cr = DiagOp(Xmap(tmUS2,1)) # Ł(ϕ_cr)
 
-## initial non-lensing WF (updates f_cr and f′_cr)
-@time f_cr, gwf, hst = CMBrings.update_f(
-    DiagOp(Xmap(tmUS2,1)), EB▪; 
-    data=d, Pr=Pr, Qr=Qr, Bm=Beam▪, No=N▪, Pc⁻¹=Precon▪⁻¹,
-    ginit=gwf,
-    pcg_nsteps=350,
-    pcg_rel_tol=1e-10
-);
-@show hst[end] # semilogy(hst)
+_Aᵍ = @sblock let L=L_cr, B▪, N▪⁺ᵍ, _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
+    function (g, f)
+        f1 = _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ * (L'*B▪'*N▪⁺ᵍ*_A₁₁ᵍ▪*g + f)
+        _A₁₁ᵍ▪*(g + N▪⁺ᵍ*B▪*L*f1), f1
+    end
+end;
+b_g, b_f, A = @sblock let d, N▪⁺ᵍ, MWMᵀᵍ, EB▪⁻½, B▪, L=L_cr, M
+    b_g    = M'* MWMᵀᵍ * d 
+    b_f    = 0 * d 
+    A = function (g, f)
+        Afg_g = (M'*MWMᵀᵍ*M*g + N▪⁺ᵍ*g) - (N▪⁺ᵍ*B▪*L*f)
+        Afg_f = - (L'*B▪'*N▪⁺ᵍ*g) + (L'*B▪'*N▪⁺ᵍ*B▪*L*f + EB▪⁻½'*EB▪⁻½*f)
+        Afg_g, Afg_f
+    end
+    b_g, b_f, A
+end;
+g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
+    nsteps=50, 
+    rel_tol=1e-10, 
+    _Aᵍ, A, 
+    b_g, b_f, 
+    x_g=g_cr, x_f=f_cr, 
+)
+
+
+## f_cr[:] .|> imag |> matshow
+## f_cr[:] .|> real |> matshow
+
+
+# Random purturbations for conditional simulations
+## -----------------------
+γ₁ = sqrt(MWMᵀᵍ) * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+γ₂ = map(N▪⁺ᵍ, Xmap(tmUS2,randn(ComplexF64,nθ,nφ))) do Σ,v
+    sqrt(Σ)*v
+end 
+γ₃ = EB▪⁻½' * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+ε₁ = M'*γ₁  +  γ₂ 
+L = DiagOp(Xmap(tmUS2,1))
+ε₂ = γ₃  - L'*B▪'*γ₂ 
+b_g_sim = b_g + ε₁
+b_f_sim = b_f + ε₂
+
+g_cr_sim, f_cr_sim, reshist = CMBrings.pcg_coupled(;
+    nsteps=50, 
+    rel_tol=1e-10, 
+    _Aᵍ, A, 
+    b_g=b_g_sim, b_f=b_f_sim, 
+    x_g=g_cr, x_f=f_cr, 
+)
+## f_cr_sim[:] .|> imag |> matshow
+## f_cr_sim[:] .|> real |> matshow
+## γ₃[:] .|> real |> matshow
+## γ₃[:] .|> imag |> matshow
+## You want fAε to have realistic fluxtuations off the mask.
+## gAε, fAε = _Aᵍ(ε₁, ε₂)
+## fAε[:] |> real |> matshow
+## fAε[:] |> imag |> matshow
+## -----------------------
+
+
+
+
+## semilogy(reshist)
+## f_cr[:] |> imag |> matshow; colorbar()
+## g_cr[:] |> imag |> matshow; colorbar()
+## f_cr[:] .- g_cr[:] |> imag |> matshow; colorbar()
+## _Aᵍv1(A(d, qu)...)[2][:] .- qu[:] |> imag |> matshow; colorbar()
+## _Aᵍv2(A(d, qu)...)[2][:] .- qu[:]  |> imag |> matshow; colorbar()
+## (M*(_Aᵍv1(A(d, qu)...)[1] - d))[:] |> imag |> matshow; colorbar()
+## (M*(_Aᵍv2(A(d, qu)...)[1] - d))[:] |> imag |> matshow; colorbar()
+
+
 f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
 
-## special for this noise
-N▪⁻¹ = map(Nℓ->diagm(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp
+
+
+
+# Now gradient moves
+
+ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
+
+    for otr = 1:10
+
+        ## ------- update ϕ (inputs are updated f′_cr and f_cr)
+        ## ϕ gradient
+        gradϕ = CMBrings.∇ll_ϕf′_usingf(
+            ϕ_cr, f_cr, Phi▪⁻½, EB▪⁻½; 
+            data=d, Ł, Ð⁻¹=Ð▪⁻¹, M=M, B=B▪, N⁻¹=N▪⁻¹, 
+            ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14
+        )
+        ∇ϕ_cr = NΦN▪ * gradϕ 
+        ## linesearch 
+        @time β = CMBrings.linesearch_ϕf′(
+            ∇ϕ_cr, ϕ_cr, f′_cr,  Phi▪⁻½, EB▪⁻½; 
+            data=d, Ł, Ð⁻¹=Ð▪⁻¹, M=M, B=B▪, N⁻¹=N▪⁻¹,
+            eval_max=350, startval=0.001, ftol_abs=20, solver=:LN_COBYLA,  
+        )
+        @show β
+        ## update ϕ_cr
+        ϕ_cr += β * ∇ϕ_cr
+        L_cr = Ł(ϕ_cr)
+
+        ## ------ update f′_cr and f_cr
+        _Aᵍ = @sblock let L=L_cr, B▪, N▪⁺ᵍ, _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
+            function (g, f)
+                f1 = _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ * (L'*B▪'*N▪⁺ᵍ*_A₁₁ᵍ▪*g + f)
+                _A₁₁ᵍ▪*(g + N▪⁺ᵍ*B▪*L*f1), f1
+            end
+        end;
+        b_g, b_f, A = @sblock let d, N▪⁺ᵍ, MWMᵀᵍ, EB▪⁻½, B▪, L=L_cr, M
+            b_g    = M'* MWMᵀᵍ * d 
+            b_f    = 0 * d 
+            A = function (g, f)
+                Afg_g = (M'*MWMᵀᵍ*M*g + N▪⁺ᵍ*g) - (N▪⁺ᵍ*B▪*L*f)
+                Afg_f = - (L'*B▪'*N▪⁺ᵍ*g) + (L'*B▪'*N▪⁺ᵍ*B▪*L*f + EB▪⁻½'*EB▪⁻½*f)
+                Afg_g, Afg_f
+            end
+            b_g, b_f, A
+        end;
+        @time g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
+            nsteps=200, 
+            rel_tol=1e-15, 
+            _Aᵍ, A, 
+            b_g, b_f, 
+            x_g=g_cr, x_f=f_cr, 
+        )
+        f′_cr = L_cr * (Ð▪⁻¹ \ f_cr) 
+
+        @show reshist[end], length(reshist)
+        f′_cr =  Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
+        @show CMBrings.ll_ϕf′(
+            ϕ_cr, f′_cr, Phi▪⁻½, EB▪⁻½; 
+            data=d, Ł, Ð⁻¹=Ð▪⁻¹, M, B=B▪, N⁻¹=N▪⁻¹
+        )
+        
+    end # end for-loop
+
+    ϕ_cr, f_cr,  g_cr, f′_cr, reshist
+end # end let
 
 #-
 
-@showprogress for otr = 1:3 # 10
-
-    global f_cr, gwf, hst
-    global f′_cr, ϕ_cr, ∇ϕ_cr
-    
-    ## ------- update ϕ (inputs are updated f′_cr and f_cr)
-
-    ## ϕ gradient
-    ## @time gradϕ = CMBrings.∇ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=11)
-    @time gradϕ = CMBrings.∇ll_ϕf′_usingf(ϕ_cr, f_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹, ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14)
-    @time ∇ϕ_cr = NΦN▪ * gradϕ 
-    ## linesearch 
-    @time β = CMBrings.linesearch_ϕf′(
-        ∇ϕ_cr, ϕ_cr, f′_cr, Phi▪, EB▪; 
-        data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr=Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹,
-        eval_max=350, startval=0.001, ftol_abs=20, solver=:LN_COBYLA,  
-    )
-    @show β
-    ## update ϕ_cr
-    ϕ_cr += β * ∇ϕ_cr
-
-    ## ------ update f′_cr and f_cr
-
-    @time f_cr, gwf, hst = CMBrings.update_f(
-        Ł(ϕ_cr), EB▪; 
-        data=d, Pr=Pr, Qr=Qr, Bm=Beam▪, No=N▪, Pc⁻¹=Precon▪⁻¹,
-        ginit=gwf,
-        pcg_nsteps=300,
-        pcg_rel_tol=1e-10
-    );
-    @show hst[end]
-    f′_cr =  Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
-    @show CMBrings.ll_ϕf′(ϕ_cr, f′_cr, Phi▪, EB▪; data=d, Ł, Ð⁻¹=Ð▪⁻¹, Pr, Beam_ring=Beam▪, Noise_ring⁻¹=N▪⁻¹)
-    
-end
-
-
-
+## ϕ[:] |> matshow; colorbar()
+## ϕ_cr[:] |> matshow; colorbar()
+## f_cr[:] |> real |> matshow; colorbar()
+## qu[:] |> real |> matshow; colorbar()
+## f_cr[:] |> imag |> matshow; colorbar()
+## qu[:] |> imag |> matshow; colorbar()
+## f_cr[:] .- qu[:] |> real |> matshow; colorbar()
 
 #-
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
     hide_plots && return
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
@@ -610,17 +716,25 @@ end
     end
     imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
     txt  = Dict(1=>L"true $\nabla_\theta \phi$", 2=>L"est $\nabla_\theta \phi$")
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; txt=txt, fontsize=14
-    )
+    
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\theta \phi$")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ## )
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
     return nothing
 end
 
 
 
+
 #-
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
     hide_plots && return
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
@@ -629,9 +743,16 @@ end
     end
     imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
     txt  = Dict(1=>L"true $\nabla_\varphi \phi$", 2=>L"est $\nabla_\varphi \phi$")
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; txt=txt, fontsize=14
-    )
+    
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\varphi \phi$")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ##)
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
     return nothing
 end
 
@@ -639,7 +760,7 @@ end
 #- 
 
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
     hide_plots && return
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
@@ -648,16 +769,24 @@ end
     end
     imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
     txt  = Dict(1=>L"true $\phi$", 2=>L"est $\phi$")
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; txt=txt, fontsize=14
-    )
+    
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle(L"true (top) vrs est (bottom) $\phi$")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ## )
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+
     return nothing
 end
 
 
 #-
 
-@sblock let f_cr, φ, θ, hide_plots
+@sblock let f_cr, φ, θ, hide_plots, save_figures
 
     hide_plots && return
 
@@ -665,313 +794,77 @@ end
     txt  = Dict(
         1=>"unlensed Q est",     2=>"unlensed U est",
     )
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; txt=txt, fontsize=14
-    )
+
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle("unlensed Q (top) and U (bottom)")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ## )
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+
     return nothing
 
 end
 
 
-#-
-
-
-#=
-
-fig, ax = subplots(2)
-ϕ_cr[:]  |> imshow(-, fig, ax[1])
-ϕ[:]     |> imshow(-, fig, ax[2])
-
-fig, ax = subplots(2)
-qu[:] .|> real |> imshow(-, fig, ax[1])
-qu[:] .|> imag |> imshow(-, fig, ax[2])
-
-=#
-
-fig, ax = subplots(2)
-d[:] .|> real |> imshow(-, fig, ax[1]) 
-d[:] .|> imag |> imshow(-, fig, ax[2]) 
-ax[1].set_title("Q data simulation")
-ax[2].set_title("U data simulation")
-
-
-
-fig, ax = subplots(2)
-f_cr[:] .|> real |> imshow(-, fig, ax[1]) 
-f_cr[:] .|> imag |> imshow(-, fig, ax[2]) 
-ax[1].set_title("unlensed Q estimate")
-ax[2].set_title("unlensed U estimate")
-
-
-fig, ax = subplots(2)
-ϕ_cr[:]  |> imshow(-, fig, ax[1]) 
-ϕ[:]     |> imshow(-, fig, ax[2]) 
-ax[1].set_title("phi est")
-ax[2].set_title("phi true")
-
 
 #-
 
-@sblock let d, φ, θ, hide_plots
+@sblock let f_cr, qu, φ, θ, hide_plots, save_figures
 
     hide_plots && return
 
-    imgs = Dict(1=>real(d[:]), 2=>imag(d[:]))
+    imgs = Dict(1=>real(f_cr[:] .- qu[:]), 2=>imag(f_cr[:] .- qu[:]))
     txt  = Dict(
-        1=>"Q data",     2=>"U data",
+        1=>"unlensed Q err",     2=>"unlensed U err",
     )
-    fig, ax = CMBrings.diskplot(
-        imgs, φ', π.-θ; txt=txt, fontsize=14
-    )
+
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle("unlensed err Q (top) and U (bottom)")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ## )
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+
     return nothing
 
 end
 
 
 
+#-
 
-# Some testing 
-# =============================
+@sblock let f_cr, ϕ_cr, ϕ, qu, Ł, M, φ, θ, hide_plots, save_figures
 
-#= ############################################
-
-@benchmark $Phi▪  * $(Xfourier(ϕ))  # 9.953 ms down from 262.847 ms
-@benchmark $Beam▪ * $(Xfourier(qu)) # 27.339 ms
-@benchmark $EB▪   * $(Xfourier(qu)) # 35.575 ms
-@benchmark $N▪    * $(Xfourier(qu)) # 3.036 ms
-@benchmark $Ð▪⁻¹  \ $(Xfourier(qu)) # 2.423 s
-
-=# ############################################
-
-
-
-#= ##################################
-loglog(ℓ, ℓ.^4 .* NΦNℓ)
-loglog(ℓ, ℓ.^4 .* ϕϕℓ)
-=# ##################################
-
-
-
-#= ##################################################### 
-nℓₒ = exp(mean(log.(eeℓ[4:5000])))
-loglog(ℓ, eeℓ)
-loglog(ℓ, bbℓ)
-loglog(ℓ, fill(nℓₒ, length(ℓ)) )
-=# ##################################################### 
-
-
-#= #####################################################
-@time Ðqu = Ð▪⁻¹ \ qu
-@time Ð▪⁻¹Ðqu = Ð▪⁻¹ * Ðqu
-
-qu[:] |> real |> matshow; colorbar()
-Ð▪⁻¹Ðqu[:]|> real |> matshow; colorbar()
-Ð▪⁻¹Ðqu[:] .- qu[:] |> real |> matshow; colorbar()
-Ðqu[:] .- qu[:] |> real |> matshow; colorbar()
-
-qu[!] .|> abs |> matshow; colorbar()
-Ð▪⁻¹Ðqu[!] .|> abs |> matshow; colorbar()
-Ð▪⁻¹Ðqu[!] .- qu[!] .|> abs |> matshow; colorbar()
-qu[!] .|> abs |> matshow; colorbar()
-Ðqu[!] .|> abs |> matshow; colorbar()
-=# #####################################################
-
-
-
-#= #######################################
-Base.summarysize(Precon▪⁻¹) * 1e-9
-Base.summarysize(EB▪) * 1e-9
-=# #######################################
-
-
-
-#= ##################################################### 
-## Tests an azmuthally symmetric mask as part of the preconditioner
-
-Mask_ring = @sblock let pr_col=Pr[:][:,2*end÷10], θ, φ, T = Float64
-    
-    nθ=length(θ)
-    nφ=length(φ)
-
-    Tpr_col = T.(pr_col)
-    Γdb  = typeof(Diagonal(Tpr_col))[Diagonal(Tpr_col) for ℓ = 1:nφ]
-    Cdb  = typeof(false*I(nθ))[false*I(nθ) for ℓ = 1:nφ]
-
-    return CMBrings.ComplexCircRings(Γdb, Cdb)
-
-end;
-
-ei  = Xmap(tmUS2)
-eo  = Xmap(tmUS2)
-ei.fd[:] .= im
-eo.fd[:] .= 1
-
-@time ei′ = Mask_ring * ei;  
-@time eo′ = Mask_ring * eo;  
-
-ei′[:] .|> real |> matshow; colorbar()
-ei′[:] .|> imag |> matshow; colorbar()
-
-eo′[:] .|> real |> matshow; colorbar()
-eo′[:] .|> imag |> matshow; colorbar()
-=# ##################################################### 
-
-#= ####################################
-qu[:] .|> real |> matshow; colorbar()
-qu[:] .|> imag |> matshow; colorbar()
-
-d[:] .|> real |> matshow; colorbar()
-d[:] .|> imag |> matshow; colorbar()
-
-ϕ[:] |> matshow
-Łϕ = Ł(ϕ)
-
-@time Łϕqu   = Łϕ * qu
-@time Łϕquᴴ   = Łϕ' * qu
-@time Beamqu = Beam▪ * qu
-
-Łϕqu[:] .|> real |> matshow; colorbar()
-Łϕqu[:] .|> imag |> matshow; colorbar()
-
-Łϕquᴴ[:] .|> real |> matshow; colorbar()
-Łϕquᴴ[:] .|> imag |> matshow; colorbar()
-
-Łϕqu[:] .- qu[:] .|> real |> matshow; colorbar()
-Łϕqu[:] .- qu[:] .|> imag |> matshow; colorbar()
-=# ####################################
-
-
-#= ############################################
-## for test the WF. 
-semilogy(hst)
-
-fwf[:][:,1:1000] .|> real |> matshow; colorbar()
-fwf[:][:,1:1000] .|> imag |> matshow; colorbar()
-
-(Qr * fwf)[:] .|> real |> matshow; colorbar()
-(Qr * fwf)[:] .|> imag |> matshow; colorbar()
-
-fwf[!] .|> real .|> abs |> matshow; colorbar()
-fwf[!] .|> imag .|> abs |> matshow; colorbar()
-
-qu[!] .|> real .|> abs |> matshow; colorbar()
-qu[!] .|> imag .|> abs |> matshow; colorbar()
-
-(d - fwf)[:][:,1:1000] .|> real .|> abs |> matshow; colorbar()
-(d - fwf)[:][:,1:1000] .|> imag .|> abs |> matshow; colorbar()
-
-@sblock let fwf, φ, θ, hide_plots
     hide_plots && return
-    imgs = Dict(1=>real.(fwf[:]), 2=>imag.(fwf[:]))
-    txt  = Dict(1=>"E(Q|d)", 2=>"E(U|d)")
-    fig, ax = CMBrings.diskplot(imgs, φ', π.-θ; txt=txt, nrows=1, fontsize=14)
+
+    L_cr = Ł(ϕ_cr)
+    L = Ł(ϕ)
+    lnf_cr = M*L_cr*f_cr
+    lnf = M*L*qu
+
+    imgs = Dict(1=>real(lnf_cr[:] .- lnf[:]), 2=>imag(lnf_cr[:] .- lnf[:]))
+    txt  = Dict(
+        1=>"lensed Q err (masked)",     2=>"lensed U err (masked)",
+    )
+
+    fig,ax = subplots(2, figsize=(9,8))
+    imgs[1] |> imshow(-,fig,ax[1])
+    imgs[2] |> imshow(-,fig,ax[2])
+    fig.suptitle("unlensed err Q (top) and U (bottom)")
+    ## fig, ax = CMBrings.diskplot(
+    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
+    ## )
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+
     return nothing
+
 end
-=# ############################################
-
-
-
-#=  ############################################
-@time qu_test =  @sblock let EB▪, wn
-    wnk  = fielddata(FourierField(wn))
-    quk = similar(wnk)
-    wnℓ = collect(eachcol(wnk))
-    quℓ = collect(eachcol(quk))
-    J   = Spectra.Jop(EB▪.nblks)
-    Threads.@threads for ℓ = 1:J.n
-        Ωℓ = sqrt(Hermitian(EB▪[ℓ])) 
-        quℓ[ℓ] .= @view(Ωℓ[1:end÷2,:]) * vcat(wnℓ[ℓ], conj.(wnℓ[J(ℓ)]))
-    end 
-    Xfourier(fieldtransform(wn), quk)
-end;
-
-qu[:][:,1:1000]  .|> real |> matshow; colorbar()
-qu_test[:][:,1:1000]  .|> real |> matshow; colorbar()
-(qu - qu_test)[:][:,1:1000]  .|> real |> matshow; colorbar()
-
-qu[:][:,1:1000]  .|> imag |> matshow; colorbar()
-qu_test[:][:,1:1000]  .|> imag |> matshow; colorbar()
-(qu - qu_test)[:][:,1:1000]  .|> imag |> matshow; colorbar()
-=#  ############################################
-
-
-
-#= ##################################################### 
-## Beam Test 
-
-ei  = Xmap(tmUS2)
-eo  = Xmap(tmUS2)
-ei.fd[350,400] = im
-eo.fd[350,400] = 1
-
-@time ei′ = Beam▪ * ei;  # 10 times faster than EBcov * ei 
-@time eo′ = Beam▪ * eo;  # 10 times faster than EBcov * ei 
-
-ei′[:] .|> real |> matshow; colorbar()
-ei′[:] .|> imag |> matshow; colorbar()
-
-eo′[:] .|> real |> matshow; colorbar()
-eo′[:] .|> imag |> matshow; colorbar()
-
-ei′[!] .|> abs |> matshow; colorbar()
-eo′[!] .|> abs |> matshow; colorbar()
-
-sum(eo′[:]) # ≈ 1
-sum(ei′[:]) # ≈ im*1
-=# ##################################################### 
-
-#=  #####################################################
-## Noise Test 
-
-ei  = Xmap(tmUS2)
-ei.fd[end - 50,100] = 1
-Nei = N▪ * ei
-Nei[:][end - 50,100] # should be approx ...
-deg2rad(μK′n / 60)^2 / Ω[end - 50]
-=# ##################################################### 
-
-#= #####################################################
-d,V = Phi▪[3] |> Symmetric |> eigen
-d,V = Phi▪[100] |> Symmetric |> eigen
-@time Phi▪[100] |> Symmetric |> sqrt
-@time Phi▪[100] |> Symmetric |> cholesky
-=# #####################################################
-
-
-
-#= ############################################
-## Test to make sure the beam has the right size....
-(Beam▪ * qu)[:] .|> real |> matshow; colorbar()
-(Beam▪ * qu)[:] .|> imag |> matshow; colorbar()
-
-@time Beam▪ * qu # beam takes .1 seconds
-=# ############################################
-
-
-
-#= ############################################
-ei  = Xmap(tmUS2)
-ei.fd[end-50,400] = 1
-## ei.fd[150,400] = im * 1
-
-@time ei′ = Lcut * ei;
-@time ei′ = EB▪ * ei;
-@time ei′ = N▪ * ei;
-@time ei′ = Beam▪ * ei;  # 10 times faster than EBcov * ei 
-@time ei′ = Pr * Beam▪ * EBcov * ei; 
-
-ei′[:] .|> real |> matshow; colorbar()
-ei′[:] .|> imag |> matshow; colorbar()
-=# ############################################
-
-
-
-
-
-
-
-
-
-
-
 
