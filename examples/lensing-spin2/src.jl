@@ -1,18 +1,19 @@
 
-## In progress: Test conditional simulations in gradient flows
-## In progress: Test extension of masking mask
-
+## Testing: Test an Asmuthal component to the mask
 ## TODO: Add full simulation to compare with Vecchia
 ## TODO: Try different Vecchia blocks at different ell's
-## TODO: Test an Asmuthal component to the mask
+
 
 
 # Modules
 # ==============================
+## FFTW.set_provider!("mkl")
+## using MKL
 using LinearAlgebra
-## LinearAlgebra.BLAS.set_num_threads(1)
+## LinearAlgebra.BLAS.set_num_threads(4)
+## BLAS.get_config()
 using FFTW 
-## FFTW.set_num_threads(6)
+## FFTW.set_num_threads(7)
 
 using XFields
 using  FFTransforms
@@ -44,7 +45,7 @@ save_figures = false
 # Pixel grid
 # ==============================
 
-θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type = @sblock let 
+θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ = @sblock let 
     ## --------- hi-res
     ## φspan, freq_mult = deg2rad.((-60, 60)), 3
     ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1536, 2048, 1024, 972,  1280
@@ -53,20 +54,28 @@ save_figures = false
     ##  -------- med-res
     ## φspan, freq_mult = deg2rad.((-45, 45)), 4
     ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1024, 972, 1536, 1280
-    ## type, N, θspan  = :equiθ,  500, π/2 .- deg2rad.((-50,-65)) 
+    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-47,-65)) 
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ## bsd_nθ = 150
+    ##  -------- med-res
+    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1024, 972, 1536, 1280
+    ## type, N, θspan  = :equicosθ,  400, π/2 .- deg2rad.((-55,-70)) 
+    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ## bsd_nθ = 100
     ##  -------- low-res
     φspan, freq_mult = deg2rad.((-45, 45)), 4
     φ, φ∂ = CC.φ_grid(;φspan, N=1024)    # N=768 or N=1024, 972, 1536, 1280
     type, N, θspan  = :equiθ,  300, π/2 .- deg2rad.((-57,-69)) 
     θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    bsd_nθ = 100
 
     
     nθ, nφ = length(θ), length(φ)
     Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))
     Δθ = diff(θ∂)
 
-    collect(θ), φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, type
+    collect(θ), φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, type, bsd_nθ
 end 
 
 
@@ -153,18 +162,24 @@ end;
 ## semilogy(ℓ, eeℓ)
 ## semilogy(ℓ, bbℓ)
 
-## can use this to check if we are getting pos definite 
-## EB▫_tail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:150], φ);
-## EB▫_tail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-250:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
 
-## EB▫_tail[1] |> Hermitian |> eigen |> x->x.values
-## EB▫_tail[end] |> Hermitian |> eigen |> x->x.values
+#-
 
-## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
-## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
-## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-2] |> plot
-## EB▫_tail[50] |> Hermitian |> eigen |> x->x.vectors[:,end-3] |> plot
+#=
+EB▫_θhead = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:2*bsd_nθ], φ, ℓrange=nφ÷2-2:nφ÷2+1);
+EB▫_θtail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-2*bsd_nθ:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
 
+EB▫_θhead[1] |> Hermitian |> eigen |> x->x.values
+EB▫_θhead[end] |> Hermitian |> eigen |> x->x.values
+EB▫_θtail[1] |> Hermitian |> eigen |> x->x.values
+EB▫_θtail[end] |> Hermitian |> eigen |> x->x.values
+
+
+EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
+EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
+EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end÷2] |> plot
+EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
+=#
 
 
 
@@ -173,34 +188,35 @@ end;
 
 # kron product mask
 prθ, prφ  =  @sblock let rT=real(T), nθ, nφ, tmUS2
-    ##
-    ▮lθ, ▯lθ = 25, 40 
+
+    ## ▮lθ, ▯lθ = 25, 50 ## this tested good
+    ▮lθ, ▯lθ = 10, 30 
     ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
-    ## ▮lθ, ▯lθ = 40, 70 
     ## ▮rθ, ▯rθ = nθ-10+1, nθ-20+1 
     prθ    = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
-    ## 
-    ## ▮lφ, ▯lφ = 5, 40 
+    
+    ## ---------------------------- 
+    ## ▮lφ, ▯lφ = 30, 60 
     ## ▮rφ, ▯rφ = nφ-▮lφ+1, nφ-▯lφ+1 
     ## prφ    = CMBrings.pixweight.(rT.(1:nφ); ▮l=▮lφ,    ▯l=▯lφ, ▯r=▯rφ, ▮r=▮rφ)
     ## ----- alt ----- ↓↓ No azmuthal mask ↓↓
     prφ = ones(rT,nφ)
-    ##
-    
+    ## ---------------------------- 
+
     prθ, prφ
 end;
 
 # Lensing mask (to keep the lense from transporting off the polar cut)
 Mϕ = @sblock let rT=real(T), nθ, nφ, tmUS0, prθφ = prθ.*prφ'
     
-    ▮lθ, ▯lθ = 5, 25 ### Testing !!!!!
-    ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
-    prθ  = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
-    mϕx = prθ * ones(rT,nφ)'
-    ## ---------- or 
-    ## sqz = 6 # 8
-    ## sft = 0.5
-    ## mϕx = prθφ .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
+    ## ▮lθ, ▯lθ = 2, 20 ### good
+    ## ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
+    ## prθ  = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
+    ## mϕx = prθ * ones(rT,nφ)'
+    ## ---------- alt -------------
+    sqz = 3 # 8
+    sft = 0.5
+    mϕx = prθφ .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
 
     ## make sure it hits zero and 1
     mϕx .-= minimum(mϕx)
@@ -238,7 +254,7 @@ end
 # ==============================
 ## using Primes; factor(length(θ)) # ; @assert nθ÷bks == nθ/bks
 
-permθ, block_sizesθ = @sblock let prθ, nθ, bsd_nθ=100 
+permθ, block_sizesθ = @sblock let prθ, nθ, bsd_nθ=bsd_nθ 
     block_sizesθ = VF.block_split(nθ, bsd_nθ)
     ## block_sizesθ = VF.block_split(nθ, bsd_nθ) |> sort
 
@@ -330,11 +346,11 @@ end;
 @time EB▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
 ## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
 ## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
+
 EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
 
-
-# EB▪½[end-5][3].data[2]
-# EB▪⁻½[end-5][2].data[2]
+## EB▪½[end-5][3].data[2]
+## EB▪⁻½[end-5][2].data[2]
 
 ## EB▫ = CMBrings.az_cov_blks(
 ##     ℓ, eeℓ, bbℓ; θ, φ, 
@@ -347,6 +363,7 @@ EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
 Phi▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
 ## sum(Base.summarysize, Phi▪½) / 1e9 # 1.4 GB, 2.5min construction, high res
 ## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
+
 Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
 
 # Lensing operators
@@ -358,16 +375,6 @@ Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
         θ, mv1x=Mϕ[:], mv2x=Mϕ[:], ∇!,  ∇!_ϕ, 
         nsteps_lensing=14
 );
-
-# Mixflow operator
-# ============================
-
-nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
-
-Ð▪⁻¹ = CMBrings.az_cov½_vecchia_blks(
-   ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
-   block_sizesθ,  permθ; θ, φ
-) |> CircOp;
 
 # simulation
 # ==============================
@@ -387,10 +394,21 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 ## d[:] |> real |> matshow; colorbar()
 ## d[:] |> imag |> matshow; colorbar()
 ## ϕ[:] |> matshow; colorbar()
-## qu[:] |> real |> matshow; colorbar()
+## (Ł(ϕ)*qu - qu)[:] |> real |> matshow; colorbar()
 ## qu[:] |> imag |> matshow; colorbar()
 ## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> real |> matshow; colorbar()
 ## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> imag |> matshow; colorbar()
+
+
+# Mixflow operator
+# ============================
+
+nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
+
+Ð▪⁻¹ = CMBrings.az_cov½_vecchia_blks(
+   ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
+   block_sizesθ,  permθ; θ, φ
+) |> CircOp;
 
 
 # Initalize opps for ϕ gradient
@@ -500,14 +518,17 @@ end |> CircOp;
 MWMᵀᵍ = @sblock let W▪, M, nφ, tmUS2
     ## MWMᵀ_pxl = abs2.(prθφM) .* prθW
     prθW = diag(W▪[1])[1:end÷2]
-    prθM = M[:][:,end÷2]
-    MWMᵀ_pxl = prθW .* abs2.(prθM) .* ones(1,nφ)
+    ## prθM = M[:][:,end÷2]
+    ## MWMᵀ_pxl = prθW .* abs2.(prθM) .* ones(1,nφ)
+    MWMᵀ_pxl = prθW .* abs2.(M[:]) # Testing !!!!!!!!
     DiagOp(Xmap(tmUS2, pinv.(MWMᵀ_pxl)))
 end;
 
 
 @time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, EB▪½,  N▪⁺ᵍ, W▪, M, MWMᵀᵍ, block_sizesθ, nθ = length(θ)
     Mθ     = M[:][:,end÷2] |> x->vcat(x,x)
+    ## Mθ     = mean(eachcol(M[:])) |> x->vcat(x,x)
+
     MWMᵀᵍθ = MWMᵀᵍ[:][:,end÷2] |> x->vcat(x,x)
     
     _A₁₁ᵍ▪ = map(W▪, N▪⁺ᵍ) do W, iN
@@ -515,7 +536,7 @@ end;
     end |> CircOp
 
     _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = map(_A₁₁ᵍ▪, B▪, N▪⁺ᵍ, EB▪½) do iA, Bl, iN, Σ½
-        # iA,  Bl, iN, Σ½ = _A₁₁ᵍ▪[2], B▪[2], N▪⁺ᵍ[2], EB▪½[2]
+        ## iA,  Bl, iN, Σ½ = _A₁₁ᵍ▪[2], B▪[2], N▪⁺ᵍ[2], EB▪½[2]
         PΣ, RΣ, M½Σ = Σ½[1], inv(Σ½[2]), Σ½[3]
         invΣ = VF.instantiate_inv(RΣ, M½Σ*M½Σ', PΣ)
 
@@ -547,27 +568,28 @@ f_cr = 0*d
 g_cr = 0*d
 ϕ_cr = 0*ϕ
 
-b_g, b_f, A, _Aᵍ = let L=DiagOp(Xmap(tmUS2,1)), # d, N▪⁺ᵍ, MWMᵀᵍ, EB▪⁻½, B▪, M, _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
-    
-    b_g    = M'* MWMᵀᵍ * d 
-    b_f    = 0 * d 
-    A = function (g, f)
+let M=M, MWMᵀᵍ=MWMᵀᵍ, N▪⁺ᵍ=N▪⁺ᵍ, B▪=B▪, _A₁₁ᵍ▪=_A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪=_A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪, tmUS2=tmUS2, EB▪⁻½=EB▪⁻½
+
+    global function A(g, f, L)
         Afg_g = (M'*MWMᵀᵍ*M*g + N▪⁺ᵍ*g) - (N▪⁺ᵍ*B▪*L*f)
         Afg_f = - (L'*B▪'*N▪⁺ᵍ*g) + (L'*B▪'*N▪⁺ᵍ*B▪*L*f + EB▪⁻½'*EB▪⁻½*f)
         Afg_g, Afg_f
     end
-    _Aᵍ = function (g, f)
+
+    global function _Aᵍ(g, f, L)
         f1 = _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ * (L'*B▪'*N▪⁺ᵍ*_A₁₁ᵍ▪*g + f)
         _A₁₁ᵍ▪*(g + N▪⁺ᵍ*B▪*L*f1), f1
     end
-    #### these are for conditional simulations
-    ## γ₁ = sqrt(MWMᵀᵍ) * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
-    ## γ₂ = map((Σ,v)->sqrt(Σ)*v, N▪⁺ᵍ, Xmap(tmUS2,randn(ComplexF64,nθ,nφ)))
-    ## γ₃ = EB▪⁻½' * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
-    ## b_g += Xfourier(M'*γ₁ + γ₂)
-    ## b_f += Xfourier(γ₃ - Ł(ϕ_cr)'*B▪'*γ₂) 
 
-    b_g, b_f, A, _Aᵍ
+    global function sim_bg_bf(L)
+        γ₁  = sqrt(MWMᵀᵍ) * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+        γ₂  = map((Σ,v)->sqrt(Σ)*v, N▪⁺ᵍ, Xmap(tmUS2,randn(ComplexF64,nθ,nφ)))
+        γ₃  = EB▪⁻½' * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+        b_g = M'* MWMᵀᵍ * d + Xfourier(M'*γ₁ + γ₂)
+        b_f = Xfourier(γ₃ - L'*B▪'*γ₂)
+        return  b_g, b_f
+    end
+      
 end;
 
 
@@ -576,12 +598,17 @@ end;
 # WF for conditional expected value
 ## -----------------------
 g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
-    nsteps=50, 
+    nsteps=200, # 50 
     rel_tol=1e-15, 
-    _Aᵍ, A, 
-    b_g, b_f, 
-    x_g=0*d, x_f=0*d, 
+    _Aᵍ = (g, f) -> _Aᵍ(g, f, DiagOp(Xmap(tmUS2,1))), 
+    A   = (g, f) ->   A(g, f, DiagOp(Xmap(tmUS2,1))),
+    b_g = M'* MWMᵀᵍ * d, 
+    b_f = 0 * d, 
+    x_g = 0*d, 
+    x_f = 0*d, 
 )
+
+
 ## semilogy(reshist)
 ## f_cr[:] |> imag |> matshow; colorbar()
 ## g_cr[:] |> imag |> matshow; colorbar()
@@ -599,10 +626,10 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:7
+    for otr = 1:30
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
-        gradϕ = CMBrings.∇ll_ϕf′_usingf(
+        @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
             ϕ_cr, f_cr, Phi▪⁻½, EB▪⁻½; 
             data=d, Ł, Ð⁻¹=Ð▪⁻¹, M=M, B=B▪, N⁻¹=N▪⁻¹, 
             ϕ2v!, ϕ2vᴴ!, ∇!, grad_nsteps=14
@@ -615,44 +642,24 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
         )
         @show β
         ϕ_cr += β * ∇ϕ_cr
+        L_cr  = Ł(ϕ_cr)
 
-        ## ------ update _Aᵍ, b_g, b_f, A for WF operators and preconditioner
-        b_g, b_f, A, _Aᵍ = let L=Ł(ϕ_cr), # d, N▪⁺ᵍ, MWMᵀᵍ, EB▪⁻½, B▪, M, _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
-            
-            b_g    = M'* MWMᵀᵍ * d 
-            b_f    = 0 * d 
-            A = function (g, f)
-                Afg_g = (M'*MWMᵀᵍ*M*g + N▪⁺ᵍ*g) - (N▪⁺ᵍ*B▪*L*f)
-                Afg_f = - (L'*B▪'*N▪⁺ᵍ*g) + (L'*B▪'*N▪⁺ᵍ*B▪*L*f + EB▪⁻½'*EB▪⁻½*f)
-                Afg_g, Afg_f
-            end
-            _Aᵍ = function (g, f)
-                f1 = _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ * (L'*B▪'*N▪⁺ᵍ*_A₁₁ᵍ▪*g + f)
-                _A₁₁ᵍ▪*(g + N▪⁺ᵍ*B▪*L*f1), f1
-            end
-            #### these are for conditional simulations
-            ## γ₁ = sqrt(MWMᵀᵍ) * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
-            ## γ₂ = map((Σ,v)->sqrt(Σ)*v, N▪⁺ᵍ, Xmap(tmUS2,randn(ComplexF64,nθ,nφ)))
-            ## γ₃ = EB▪⁻½' * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
-            ## b_g += Xfourier(M'*γ₁ + γ₂)
-            ## b_f += Xfourier(γ₃ - Ł(ϕ_cr)'*B▪'*γ₂) 
-
-            b_g, b_f, A, _Aᵍ
-        end;
-
-        # ------ update f_cr
-        g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
-            nsteps=50, 
+        ## ------ update f_cr
+        @time g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
+            nsteps=200, 
             rel_tol=1e-15, 
-            _Aᵍ, A, 
-            b_g, b_f, 
-            x_g=g_cr, x_f=f_cr,  #### Try turning this back on to see if it helps 
-            ## x_g=0*g_cr, x_f=0*f_cr, #### Testing!!! 
+            _Aᵍ = (g,f) -> _Aᵍ(g,f,L_cr), 
+            A   = (g,f) ->   A(g,f,L_cr),
+            b_g = M'*MWMᵀᵍ*d, 
+            b_f = 0*d, 
+            x_g = g_cr, 
+            x_f = f_cr, 
         )
-        @show reshist
+        hist_tail = isempty(reshist) ? nothing : reshist[end] 
+        @show hist_tail
 
         ## ------ update f′_cr
-        f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr) 
+        f′_cr = L_cr * (Ð▪⁻¹ \ f_cr) 
 
         ## ------ show stats
         @show CMBrings.ll_ϕf′(
@@ -662,7 +669,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
         
     end # end for-loop
 
-    ϕ_cr, f_cr,  g_cr, f′_cr, reshist
+    ϕ_cr, f_cr, g_cr, f′_cr, reshist
 end # end let
 
 
@@ -829,7 +836,7 @@ end
     fig,ax = subplots(2, figsize=(9,8))
     imgs[1] |> imshow(-,fig,ax[1])
     imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle("unlensed err Q (top) and U (bottom)")
+    fig.suptitle("lensed err Q (top) and U (bottom)")
     ## fig, ax = CMBrings.diskplot(
     ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
     ## )
