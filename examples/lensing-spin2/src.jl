@@ -1,9 +1,4 @@
 
-## Testing: Test an Asmuthal component to the mask
-## TODO: Add full simulation to compare with Vecchia
-## TODO: Try different Vecchia blocks at different ell's
-
-
 
 # Modules
 # ==============================
@@ -31,6 +26,8 @@ using PyPlot
 using BenchmarkTools
 using ProgressMeter
 using BlockArrays
+using Dierckx: Spline1D 
+
 
 #- 
 
@@ -166,8 +163,8 @@ end;
 #-
 
 #=
-EB▫_θhead = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:2*bsd_nθ], φ, ℓrange=nφ÷2-2:nφ÷2+1);
-EB▫_θtail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-2*bsd_nθ:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
+EB▫_θhead = CMBrings.spin2_az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:2*bsd_nθ], φ, ℓrange=nφ÷2-2:nφ÷2+1);
+EB▫_θtail = CMBrings.spin2_az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-2*bsd_nθ:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
 
 EB▫_θhead[1] |> Hermitian |> eigen |> x->x.values
 EB▫_θhead[end] |> Hermitian |> eigen |> x->x.values
@@ -284,36 +281,24 @@ end;
 M = DiagOp(Xmap(tmUS2, prθ .* prφ' ));
 
 # ## Beam
-# Conjecturing here that the arclength of the pixel diagonals 
-# is what determines quality of the AzEq beam. 
 
-pix_diag_rad = CC.geoβ.(θ[2:end], θ[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
-beamfwhm_arcmin = maximum(60 .* rad2deg.(pix_diag_rad))
+pix_diag_rad   = CC.geoβ.(θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
+beamfwhm_rad_θ = pix_diag_rad # * 0.95
+σ²θ            = @. CMBrings.fwhmrad2σ²(beamfwhm_rad_θ)
 
-## pixφside = sin.(θ) .* CC.counterclock_Δφ(φ∂[1], φ∂[2])
-## pixθside = Δθ
-## beamfwhm_arcmin = 2.0 * maximum(60 .* rad2deg.(vcat(pixθside, pixφside)))
-##
-## beamfwhm_arcmin = 1.0 * maximum(@. rad2deg(√Ω)*60)
+Γbeam_θ₁θ₂φ₁φ⃗ = let σ²θ_spl = Spline1D(θ,σ²θ,k=2)
+    function (θ₁, θ₂, φ₁, φ⃗)
+        complex.(CMBrings.B̃eam1.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
+    end
+end;
 
-
-beamℓ = @sblock let ℓ, beamfwhm_arcmin
-    beamfwhm_rad = beamfwhm_arcmin |> arcmin -> deg2rad(arcmin/60)
-    σ² = beamfwhm_rad^2 / 8 / log(2)
-    beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
-end 
-
-
-B▪ = @sblock let ℓ, beamℓ, block_sizesθ, permθ, θ, φ, Ω
+B▪ = @sblock let Γbeam_θ₁θ₂φ₁φ⃗, block_sizesθ, permθ, θ, φ, Ω
 
     nθ, nφ = length(θ), length(φ)
     DΩΩ  = Diagonal(vcat(Ω, Ω))
-
-    ## Bspin0▫½ = CMBrings.az_cov½_vecchia_blks(ℓ, beamℓ, block_sizesθ, permθ; θ, φ);
     
-    Bspin0▪ = CMBrings.az_cov_vecchia_blks(
-        ℓ, beamℓ, 
-        block_sizesθ,  permθ; θ, φ
+    Bspin0▪ = CMBrings.spin0_az_cov_vecchia_blks(
+        Γbeam_θ₁θ₂φ₁φ⃗, block_sizesθ,  permθ; θ, φ
     ) |> CircOp;
 
     Bspin2▪ = map(Bspin0▪) do B
@@ -343,7 +328,7 @@ end;
 # Spin 2 signal
 # =================================================
 
-@time EB▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
 ## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
 ## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
 
@@ -360,7 +345,7 @@ EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
 # Spin 0 signal
 # =================================================
 
-Phi▪½ = CMBrings.az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
 ## sum(Base.summarysize, Phi▪½) / 1e9 # 1.4 GB, 2.5min construction, high res
 ## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
 
@@ -405,7 +390,7 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 
 nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
 
-Ð▪⁻¹ = CMBrings.az_cov½_vecchia_blks(
+Ð▪⁻¹ = CMBrings.spin2_az_cov½_vecchia_blks(
    ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
    block_sizesθ,  permθ; θ, φ
 ) |> CircOp;
@@ -417,9 +402,12 @@ nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> ab
 N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
 
 import CMBflat
-import Dierckx
 
-N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamℓ, nnℓ=fill(nnℓ,length(ℓ)) 
+N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamfwhm_rad_θ, nnℓ=fill(nnℓ,length(ℓ)) 
+    
+    σ² = mean(beamfwhm_rad_θ)^2 / 8 / log(2)
+    beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
+
     T_fld   = Float64
     nθ, nφ  = 512, 512   
     periodθ = T_fld(nθ * pix_side_rad)
@@ -480,7 +468,7 @@ N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ
     end
     k      = FT.wavenum(tmΦ)[:,1]
     k4n0ck = k.^4 .* real.(Nϕ[!][:,1])
-    spline_k4n0ck = Dierckx.Spline1D(
+    spline_k4n0ck = Spline1D(
         vcat(2,k[3:end]), vcat(k4n0ck[3], k4n0ck[3:end])
         ; k=1, bc="zero",
     )
@@ -491,7 +479,7 @@ N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ
     N0ℓ, NΦNℓ
 end;
 
-NΦN▪ = CMBrings.az_cov½_vecchia_blks(
+NΦN▪ = CMBrings.spin0_az_cov½_vecchia_blks(
     ℓ, NΦNℓ,  
     block_sizesθ,  permθ; θ, φ
 ) |> x->map(m->m*m',x) |> CircOp;
@@ -626,7 +614,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:30
+    for otr = 1:10
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
