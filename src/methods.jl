@@ -21,7 +21,6 @@ function az_cov_blks(
     return M▫
 end
 
-
 function az_cov_blks(
         ℓ, eeℓ::Vector{rT}, bbℓ::Vector{rT}; 
         θ, φ, ngrid=100_000, ℓrange=1:length(φ)÷2+1) where {rT}

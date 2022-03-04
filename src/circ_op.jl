@@ -55,80 +55,80 @@ Base.parent(az::AdjointCircOp) = az.az.Σ
 # Preping 1-d FFT'd matrices for CircOp argument
 # =======================================
 
-"""
-Real map fields have an implicit pairing with primal and dual frequency
-so we instead construct nφ÷2+1 vectors of length nθ 
-"""
-function ℝfθk2▪(Uf::AbstractArray)
-    return [copy(v) for v ∈ eachcol(Uf)]
-end
+# """
+# Real map fields have an implicit pairing with primal and dual frequency
+# so we instead construct nφ÷2+1 vectors of length nθ 
+# """
+# function ℝfθk2▪(Uf::AbstractArray)
+#     return [copy(v) for v ∈ eachcol(Uf)]
+# end
  
-function ▪2ℝfθk(w::Vector{Vector{To}}) where To 
-    nθ, nφ½₊1 = length(w[1]), length(w)
-    fθk = zeros(To, nθ, nφ½₊1)
-    for i in 1:nφ½₊1 
-        fθk[:,i] = w[i]
-    end
-    fθk
-end
+# function ▪2ℝfθk(w::Vector{Vector{To}}) where To 
+#     nθ, nφ½₊1 = length(w[1]), length(w)
+#     fθk = zeros(To, nθ, nφ½₊1)
+#     for i in 1:nφ½₊1 
+#         fθk[:,i] = w[i]
+#     end
+#     fθk
+# end
 
-"""
-Complex map fields get frequency paired with dual frequency ... to make nφ÷2+1 vectors of length 2nθ 
-"""
-function ℂfθk2▪(Up::AbstractArray{To}) where To
-    nθ, nφ = size(Up)
-    w  = Vector{To}[zeros(To,2nθ) for ℓ = Base.OneTo(nφ÷2+1)]
-    Up_col = collect(eachcol(Up))
-    for ℓ = 1:nφ÷2+1
-        if (ℓ==1) | ((ℓ==nφ÷2+1) & iseven(nφ))
-            w[ℓ][1:nθ]     .= Up_col[ℓ]
-            w[ℓ][nθ+1:2nθ] .= conj.(Up_col[ℓ])
-        else 
-            Jℓ = nφ - ℓ + 2
-            w[ℓ][1:nθ]     .= Up_col[ℓ]
-            w[ℓ][nθ+1:2nθ] .= conj.(Up_col[Jℓ])
-        end
-    end
-    w
-end
+# """
+# Complex map fields get frequency paired with dual frequency ... to make nφ÷2+1 vectors of length 2nθ 
+# """
+# function ℂfθk2▪(Up::AbstractArray{To}) where To
+#     nθ, nφ = size(Up)
+#     w  = Vector{To}[zeros(To,2nθ) for ℓ = Base.OneTo(nφ÷2+1)]
+#     Up_col = collect(eachcol(Up))
+#     for ℓ = 1:nφ÷2+1
+#         if (ℓ==1) | ((ℓ==nφ÷2+1) & iseven(nφ))
+#             w[ℓ][1:nθ]     .= Up_col[ℓ]
+#             w[ℓ][nθ+1:2nθ] .= conj.(Up_col[ℓ])
+#         else 
+#             Jℓ = nφ - ℓ + 2
+#             w[ℓ][1:nθ]     .= Up_col[ℓ]
+#             w[ℓ][nθ+1:2nθ] .= conj.(Up_col[Jℓ])
+#         end
+#     end
+#     w
+# end
 
-function ▪2ℂfθk(w::Vector{Vector{To}}, nφ::Int) where To 
-    nθₓ2, nφ½₊1   = length(w[1]), length(w)
-    @assert nφ½₊1 == nφ÷2+1
-    @assert iseven(nθₓ2)
-    nθ  = nθₓ2÷2
+# function ▪2ℂfθk(w::Vector{Vector{To}}, nφ::Int) where To 
+#     nθₓ2, nφ½₊1   = length(w[1]), length(w)
+#     @assert nφ½₊1 == nφ÷2+1
+#     @assert iseven(nθₓ2)
+#     nθ  = nθₓ2÷2
 
-    pθk = zeros(To, nθ, nφ)
-    for ℓ = 1:nφ½₊1
-        if (ℓ==1) | ((ℓ==nφ½₊1) & iseven(nφ))
-            pθk[:,ℓ] .= w[ℓ][1:nθ] 
-        else 
-            Jℓ = nφ - ℓ + 2
-            pθk[:,ℓ]  .= w[ℓ][1:nθ]      
-            pθk[:,Jℓ] .= conj.(w[ℓ][nθ+1:2nθ])
-        end
-    end 
-    pθk
-end
+#     pθk = zeros(To, nθ, nφ)
+#     for ℓ = 1:nφ½₊1
+#         if (ℓ==1) | ((ℓ==nφ½₊1) & iseven(nφ))
+#             pθk[:,ℓ] .= w[ℓ][1:nθ] 
+#         else 
+#             Jℓ = nφ - ℓ + 2
+#             pθk[:,ℓ]  .= w[ℓ][1:nθ]      
+#             pθk[:,Jℓ] .= conj.(w[ℓ][nθ+1:2nθ])
+#         end
+#     end 
+#     pθk
+# end
 
 # A bit higher level conversion from blk to the format accepted by CircOps
 # =======================================
 
 function field2▪(f::Xf) where {Tm,Ti<:Real,To,Xf<:Xfield{Tm,Ti,To,2}}
-    ℝfθk2▪(fielddata(FourierField(f)))
+    CC.ℝfθk2▪(fielddata(FourierField(f)))
 end
 
 function field2▪(f::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
-    ℂfθk2▪(fielddata(FourierField(f)))
+    CC.ℂfθk2▪(fielddata(FourierField(f)))
 end
 
 function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Real} 
-    Xfourier(tm, ▪2ℝfθk(w))
+    Xfourier(tm, CC.▪2ℝfθk(w))
 end
 
 function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Complex} 
     nφ = size_in(tm)[2] 
-    Xfourier(tm, ▪2ℂfθk(w,nφ))
+    Xfourier(tm, CC.▪2ℂfθk(w,nφ))
 end
 
 # Define map(fun::Function, az::CircOp, f::Xfield)
