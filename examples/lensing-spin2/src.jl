@@ -24,9 +24,8 @@ using Dierckx: Spline1D
 
 using LinearAlgebra
 using FFTW 
-import Random
-Random.seed!(1234)
-
+## import Random
+## Random.seed!(1234)
 
 #- 
 
@@ -36,42 +35,31 @@ else
     hide_plots = true
 end
 save_figures = false 
-
+polar_plots = false
+save_jld2 = false
 
 # Pixel grid
 # ==============================
 
 θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ = @sblock let 
     ## --------- hi-res
-    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1536, 2048, 1024, 972,  1280
-    ## type, N, θspan  = :healpix,  2048, π/2 .- deg2rad.((-41,-70)) 
-    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ##  -------- med-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1024, 972, 1536, 1280
-    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-47,-65)) 
+    ## φspan, freq_mult = deg2rad.((-45, 45)), 4 # deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1280)    
+    ## type, N, θspan  = :healpix,  4096, π/2 .- deg2rad.((-41,-70)) # N=2048, 4096,  8192
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
     ## bsd_nθ = 150
-    ##  -------- med-res
-    φspan, freq_mult = deg2rad.((-60, 60)), 3
-    φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1024, 972, 1536, 1280
-    type, N, θspan  = :equicosθ,  700, π/2 .- deg2rad.((-50,-70)) 
-    θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    bsd_nθ = 150
-    ##  -------- med-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
-    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-50,-68)) 
-    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 150
-    ##  -------- low-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1024)    # N=768 or N=1024, 972, 1536, 1280
-    ## type, N, θspan  = :equiθ,  300, π/2 .- deg2rad.((-57,-69)) 
+    ## --------- hi-res
+    ## φspan, freq_mult = deg2rad.((-45, 45)), 4 # deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    ## type, N, θspan  = :healpix,  2048, π/2 .- deg2rad.((-41,-65)) 
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
     ## bsd_nθ = 100
-
+    ##  -------- med-res
+    φspan, freq_mult = deg2rad.((-45, 45)), 4
+    φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
+    type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-50,-68)) 
+    θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    bsd_nθ = 150
     
     nθ, nφ = length(θ), length(φ)
     Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))
@@ -129,9 +117,9 @@ end;
 θ_approx_nyq = π / minimum(Δθ) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
-approx_lmax += ceil(Int, approx_lmax * 0.3) # for good measure:)
+approx_lmax += ceil(Int, approx_lmax * 0.25) # for good measure:)
 
-ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01
+ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01, T=Float64
     
     l = 0:lmax
     cld = camb_cls(;lmax=lmax, r)
@@ -158,21 +146,38 @@ approx_lmax += ceil(Int, approx_lmax * 0.3) # for good measure:)
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
     ϕϕl[1] =  ϕϕl[2] ### trying to fix a rank degeneracy here ...
 
-    return l, ϕϕl, eel, bbl, ẽel, b̃bl 
+    return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
 
 ## semilogy(ℓ, eeℓ)
 ## semilogy(ℓ, bbℓ)
 
+## ## testing !!!!
+## semilogy(ℓ, bbℓ)
+## numerical_floor_i = findall(bbℓ .< 1e-16)[3]
+## bbℓi = bbℓ[numerical_floor_i]
+## ℓi   = ℓ[numerical_floor_i]
+## for_clamp_ℓ      = @. bbℓi * (ℓi/ℓ)^3
+## for_clamp_ℓ[1:ℓi] .= -Inf
+## semilogy(ℓ, max.(bbℓ, for_clamp_ℓ))
+
+
+## ???? can you do something like set the numerical floor spectra
+## ???? to be a scaled beam 
+## For that matter, what happens if you multiply by a beam to attinuate
+## near grid scale local variation. ??
+
+
 
 #-
 
 #=
-EB▫_θhead = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:2*bsd_nθ], φ, ℓrange=nφ÷2-2:nφ÷2+1);
-EB▫_θtail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-2*bsd_nθ:end], φ, ℓrange=nφ÷2-2:nφ÷2+1);
-
+EB▫_θhead = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[1:2*bsd_nθ], φ, ℓrange=[nφ÷2-5,nφ÷2+1], ngrid=100_000);
 EB▫_θhead[1] |> Hermitian |> eigen |> x->x.values
 EB▫_θhead[end] |> Hermitian |> eigen |> x->x.values
+
+
+EB▫_θtail = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ=θ[end-2*bsd_nθ:end], φ, ℓrange=[nφ÷2-5,nφ÷2+1], ngrid=100_000);
 EB▫_θtail[1] |> Hermitian |> eigen |> x->x.values
 EB▫_θtail[end] |> Hermitian |> eigen |> x->x.values
 
@@ -181,6 +186,24 @@ EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
 EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
 EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,end÷2] |> plot
 EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
+
+
+
+
+nℓ = @. (2ℓ+1)/(4π)
+j0⁺0tℓ = @. ϕϕℓ * nℓ
+f0⁺0t = ((a,b,jℓ)=(0,0,j0⁺0tℓ); CC.Fun(CC.Jacobi(b,a),jℓ))
+f0⁺0t_F64 = ((a,b,jℓ)=(0,0,Float64.(j0⁺0tℓ)); CC.Fun(CC.Jacobi(b,a),jℓ))
+covtt = x-> f0⁺0t(cos(x))
+covtt_F64 = x-> f0⁺0t_F64(cos(x))
+
+@benchmark f0⁺0t($(BigFloat(0.1))) # 43 ms
+@benchmark f0⁺0t_F64(0.1)          # 50 μs
+
+@benchmark cos($(BigFloat(0.1))) # 1.050 μs
+@benchmark cos(0.1)              # 0.875 ns
+
+
 =#
 
 
@@ -190,10 +213,10 @@ EB▫_θtail[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
 # kron product mask
 prθ, prφ  =  @sblock let rT=real(T), nθ, nφ, tmUS2
 
-    ▮lθ, ▯lθ = 20, 60 
-    ## ▮lθ, ▯lθ = 10, 30 
+    ## ▮lθ, ▯lθ = 20, 60 
+    ## ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
+    ▮lθ, ▯lθ = 15, 50 
     ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
-    ## ▮rθ, ▯rθ = nθ-10+1, nθ-20+1 
     prθ    = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
     
     ## ---------------------------- 
@@ -210,13 +233,13 @@ end;
 # Lensing mask (to keep the lense from transporting off the polar cut)
 Mϕ = @sblock let rT=real(T), nθ, nφ, tmUS0, prθφ = prθ.*prφ'
     
-    ## ▮lθ, ▯lθ = 2, 20 ### good
-    ## ▮rθ, ▯rθ = nθ-▮lθ+1, nθ-▯lθ+1 
+    ## ▮lθ, ▯lθ = 1, 10 
+    ## ▮rθ, ▯rθ = nθ-1+1, nθ-10+1 
     ## prθ  = CMBrings.pixweight.(rT.(1:nθ); ▮l=▮lθ,    ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
     ## mϕx = prθ * ones(rT,nφ)'
     ## ---------- alt -------------
-    sqz = 3 # 8
-    sft = 0.5
+    sqz = 4
+    sft = 0.4
     mϕx = prθφ .|> x-> clamp((atan(sqz*(x-sft)) + π/2)/π, .05, .95)
 
     ## make sure it hits zero and 1
@@ -270,7 +293,7 @@ end
 
 # ## Noise
 
-μK_arcmin       = 1.0
+μK_arcmin  = 1.0
 
 N▪ = @sblock let μK_arcmin, Ω, nφ 
     σ²   = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
@@ -455,7 +478,7 @@ N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(@. √Ω), n_iter=5, ℓ, eeℓ
     ## not sure which version of σ² is the best here???
     ## σ² = mean(beamfwhm_rad_θ)^2 / 8 / log(2)
     ## σ² = minimum(beamfwhm_rad_θ)^2 / 8 / log(2)    
-    σ² = maximum(beamfwhm_rad_θ)^2 / 8 / log(2) ## TODO test
+    σ² = maximum(beamfwhm_rad_θ)^2 / 8 / log(2) ## original ...
     beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
 
     T_fld   = Float64
@@ -574,7 +597,6 @@ end;
     end |> CircOp
 
     _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = map(_A₁₁ᵍ▪, B▪, N▪⁺ᵍ, EB▪½) do iA, Bl, iN, Σ½
-        ## iA,  Bl, iN, Σ½ = _A₁₁ᵍ▪[2], B▪[2], N▪⁺ᵍ[2], EB▪½[2]
         PΣ, RΣ, M½Σ = Σ½[1], inv(Σ½[2]), Σ½[3]
         invΣ = VF.instantiate_inv(RΣ, M½Σ*M½Σ', PΣ)
 
@@ -665,7 +687,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:20
+    for otr = 1:15
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -677,25 +699,30 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
         @time β = CMBrings.linesearch_ϕf′(
             ∇ϕ_cr, ϕ_cr, f′_cr,  Phi▪⁻½, EB▪⁻½; 
             data=d, Ł, Ð⁻¹=Ð▪⁻¹, M=M, B=B▪, N⁻¹=N▪⁻¹,
-            eval_max=500, startval=0.0001, ftol_abs=20, solver=:LN_COBYLA,  
+            eval_max=500, startval=0.0001, ftol_abs=100, solver=:LN_COBYLA,  
         )
         @show β
         ϕ_cr += β * ∇ϕ_cr
         L_cr  = Ł(ϕ_cr)
 
         ## ------ update f_cr
+        b_g_sim, b_f_sim = sim_bg_bf(L_cr)
         @time g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
-            nsteps=200, 
-            rel_tol=1e-15, 
+            nsteps  = 50, 
+            rel_tol = 1e-15, 
             _Aᵍ = (g,f) -> _Aᵍ(g,f,L_cr), 
             A   = (g,f) ->   A(g,f,L_cr),
             b_g = M'*MWMᵀᵍ*d, 
             b_f = 0*d, 
             x_g = g_cr, 
             x_f = f_cr, 
+            ## b_g = b_g_sim, 
+            ## b_f = b_f_sim, 
+            ## x_g = 0*g_cr, 
+            ## x_f = 0*f_cr, 
         )
         hist_tail = isempty(reshist) ? nothing : reshist[end] 
-        @show hist_tail
+        @show (hist_tail, length(reshist))
 
         ## ------ update f′_cr
         f′_cr = L_cr * (Ð▪⁻¹ \ f_cr) 
@@ -712,6 +739,33 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 end # end let
 
 
+kappa = function (ϕ0)
+    v   = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
+    tmp = deepcopy(ϕ0[:])
+
+    ∇!_ϕ(tmp, ϕ0[:], Val(2))
+    ∇!_ϕ(v[2], tmp, Val(2))
+    v[2] .*= csc.(θ).^2
+
+
+    ∇!_ϕ(tmp, ϕ0[:], Val(1))
+    tmp .*= sin.(θ)
+    ∇!_ϕ(v[1], tmp, Val(1))
+    v[1] ./= sin.(θ)
+    v[1][1:4,:] .= 0
+    v[1][end-3:end,:] .= 0
+
+    κ = v[1] .+ v[2]
+    κ
+end
+
+## kappa(ϕ_cr) |> matshow
+
+
+if save_jld2
+    include("save_src.jl")
+end
+
 
 #-
 
@@ -723,25 +777,33 @@ end # end let
 ## qu[:] |> imag |> matshow; colorbar()
 ## f_cr[:] .- qu[:] |> real |> matshow; colorbar()
 
+
+
 #-
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, kappa, φ, θ, hide_plots, save_figures, polar_plots
     hide_plots && return
-    viz = function (ϕ0)
-        v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
-        ϕ2v!(v, ϕ0[:])
-        v 
-    end
-    imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
-    txt  = Dict(1=>L"true $\nabla_\theta \phi$", 2=>L"est $\nabla_\theta \phi$")
+
+    imgs = Dict(
+        1=>kappa(ϕtru), 
+        2=>kappa(ϕest)
+    )
+    txt  = Dict(1=>L"true $\kappa$", 2=>L"est $\kappa$")
     
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\theta \phi$")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ## )
+    vmin, vmax = .7 .* extrema(imgs[1])
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1];vmin,vmax)
+        imgs[2] |> imshow(-,fig,ax[2];vmin,vmax)
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
+    
+    ## fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\theta \phi$")
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
     return nothing
@@ -752,7 +814,44 @@ end
 
 #-
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures, polar_plots
+    hide_plots && return
+
+    viz = function (ϕ0)
+        v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
+        ϕ2v!(v, ϕ0[:])
+        v 
+    end
+
+
+    imgs = Dict(1=>viz(ϕtru)[1], 2=>viz(ϕest)[1])
+    txt  = Dict(1=>L"true $\theta$ displacement", 2=>L"est $\theta$ displacement")
+    
+    vmin, vmax = extrema(imgs[1])
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1];vmin,vmax)
+        imgs[2] |> imshow(-,fig,ax[2];vmin,vmax)
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
+    
+    ## fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\theta \phi$")
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+    return nothing
+end
+
+
+
+
+#-
+
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures, polar_plots
     hide_plots && return
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
@@ -760,15 +859,19 @@ end
         v 
     end
     imgs = Dict(1=>viz(ϕtru)[2], 2=>viz(ϕest)[2])
-    txt  = Dict(1=>L"true $\nabla_\varphi \phi$", 2=>L"est $\nabla_\varphi \phi$")
+    txt  = Dict(1=>L"true $\varphi$ displacement", 2=>L"est $\varphi$ displacement")
     
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle(L"true (top) vrs est (bottom) $\nabla_\varphi \phi$")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ##)
+    vmin, vmax = extrema(imgs[1])
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1];vmin,vmax)
+        imgs[2] |> imshow(-,fig,ax[2];vmin,vmax)
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
     return nothing
@@ -778,23 +881,28 @@ end
 #- 
 
 
-@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures
+@sblock let ϕtru = ϕ, ϕest = ϕ_cr, ϕ2v!, φ, θ, hide_plots, save_figures, polar_plots
     hide_plots && return
     viz = function (ϕ0)
         v = (deepcopy(ϕ0[:]), deepcopy(ϕ0[:]))
         ϕ2v!(v, ϕ0[:])
         v 
     end
-    imgs = Dict(1=>ϕtru[:], 2=>ϕest[:])
-    txt  = Dict(1=>L"true $\phi$", 2=>L"est $\phi$")
+    imgs = Dict(1=>ϕtru[:] .- mean(ϕtru[:]), 2=>ϕest[:] .- mean(ϕest[:]))
+    txt  = Dict(1=>"true lensing potential", 2=>"est lensing potential")
     
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle(L"true (top) vrs est (bottom) $\phi$")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ## )
+    vmin, vmax = extrema(imgs[1])
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1];vmin,vmax)
+        imgs[2] |> imshow(-,fig,ax[2];vmin,vmax)
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
 
@@ -802,9 +910,52 @@ end
 end
 
 
+
+
+
+
+
+
 #-
 
-@sblock let f_cr, φ, θ, hide_plots, save_figures
+@sblock let d, φ, θ, hide_plots, save_figures, polar_plots
+
+    hide_plots && return
+
+    imgs = Dict(1=>real(d[:]), 2=>imag(d[:]))
+    txt  = Dict(
+        1=>"data Q",     2=>"data U",
+    )
+
+    vmin, vmax = extrema(imgs[1])
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1])
+        imgs[2] |> imshow(-,fig,ax[2])
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
+    
+    ## fig.suptitle("unlensed Q (top) and U (bottom)")
+
+    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
+
+    return nothing
+
+end
+
+
+
+
+
+
+#-
+
+@sblock let f_cr, φ, θ, hide_plots, save_figures, polar_plots
 
     hide_plots && return
 
@@ -813,13 +964,17 @@ end
         1=>"unlensed Q est",     2=>"unlensed U est",
     )
 
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle("unlensed Q (top) and U (bottom)")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ## )
+
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1])
+        imgs[2] |> imshow(-,fig,ax[2])
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
 
@@ -831,22 +986,25 @@ end
 
 #-
 
-@sblock let f_cr, qu, φ, θ, hide_plots, save_figures
+@sblock let f_cr, qu, φ, θ, hide_plots, save_figures, polar_plots
 
     hide_plots && return
 
     imgs = Dict(1=>real(f_cr[:] .- qu[:]), 2=>imag(f_cr[:] .- qu[:]))
     txt  = Dict(
-        1=>"unlensed Q err",     2=>"unlensed U err",
+        1=>"unlensed Q (est - tru)",     2=>"unlensed U (est - tru)",
     )
 
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle("unlensed err Q (top) and U (bottom)")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ## )
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1])
+        imgs[2] |> imshow(-,fig,ax[2])
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
 
@@ -858,7 +1016,7 @@ end
 
 #-
 
-@sblock let f_cr, ϕ_cr, ϕ, qu, Ł, M, φ, θ, hide_plots, save_figures
+@sblock let f_cr, ϕ_cr, ϕ, qu, Ł, M, φ, θ, hide_plots, save_figures, polar_plots
 
     hide_plots && return
 
@@ -869,20 +1027,27 @@ end
 
     imgs = Dict(1=>real(lnf_cr[:] .- lnf[:]), 2=>imag(lnf_cr[:] .- lnf[:]))
     txt  = Dict(
-        1=>"lensed Q err (masked)",     2=>"lensed U err (masked)",
+        1=>"masked lensed Q (est - tru)",     2=>"masked lensed U (est - tru)",
     )
 
-    fig,ax = subplots(2, figsize=(9,8))
-    imgs[1] |> imshow(-,fig,ax[1])
-    imgs[2] |> imshow(-,fig,ax[2])
-    fig.suptitle("lensed err Q (top) and U (bottom)")
-    ## fig, ax = CMBrings.diskplot(
-    ##     imgs, CC.in_negπ_π.(φ)', π.-θ; txt=txt, fontsize=14
-    ## )
+    if polar_plots
+        fig, ax = CMBrings.diskplot(imgs, CC.in_negπ_π.(φ)', π.-θ, figsize=(6,5))
+    else 
+        fig,ax = subplots(nrows=1, ncols=2, figsize=(6,2))
+        imgs[1] |> imshow(-,fig,ax[1])
+        imgs[2] |> imshow(-,fig,ax[2])
+    end
+    ax[1].set_title(txt[1])
+    ax[2].set_title(txt[2])
+
 
     save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
 
     return nothing
 
 end
+
+
+
+
 
