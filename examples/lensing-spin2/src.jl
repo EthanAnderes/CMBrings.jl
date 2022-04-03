@@ -57,7 +57,7 @@ save_jld2 = false
     ##  -------- med-res
     φspan, freq_mult = deg2rad.((-45, 45)), 4
     φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
-    type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-50,-68)) 
+    type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
     θ, θ∂  = CC.θ_grid(; θspan, N, type)
     bsd_nθ = 150
     
