@@ -49,17 +49,38 @@ save_jld2 = false
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
     ## bsd_nθ = 150
     ## --------- hi-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4 # deg2rad.((-60, 60)), 3
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
-    ## type, N, θspan  = :healpix,  2048, π/2 .- deg2rad.((-41,-65)) 
+    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    ## type, N, θspan  = :healpix,  1024, π/2 .- deg2rad.((-41,-70)) 
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 100
-    ##  -------- med-res
-    φspan, freq_mult = deg2rad.((-45, 45)), 4
-    φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
-    type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
-    θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ## bsd_nθ = 150
+
+    ## --------- hi-res
+    Nside = 8192
+    type  = :healpix
+    ## ...
+    ## ri = (3*Nside+1):4:(4*Nside-1 - 3400) # upper limit should be 4*Nside-1
+    ri = (3*Nside+1):7:(4*Nside-1 - 3500) # upper limit should be 4*Nside-1
+    θ  = CC.θ_healpix(Nside)[ri]
+    θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
+    ## ... Now choose the Az number of grid points
+    ## Make sure the portion of azimuth is a factor of nφ_full
+    ## 4Nside should be largest value for nφ_full
+    nφ_full = 3*Nside÷4 - 512
+    ## nφ_full = 3*Nside        
+    ## nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
+    φ_full = 2 * π * (0:nφ_full-1) / nφ_full .+ π/nφ_full
+    φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
+    φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
     bsd_nθ = 150
+
+    ##  -------- med-res
+    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
+    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
+    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    ## bsd_nθ = 150
     
     nθ, nφ = length(θ), length(φ)
     Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))
@@ -67,6 +88,7 @@ save_jld2 = false
 
     collect(θ), φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, type, bsd_nθ
 end 
+
 
 
 pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg(x)
@@ -77,7 +99,7 @@ pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg
 
 # Plot √Ωpix over ring θ's 
 
-@sblock let θ, φ, Ω, Δθ, hide_plots, save_figures
+@sblock let θ, φ, Ω, Δθ, hide_plots=false, save_figures
     hide_plots && return
 
     pix_diag_rad = CC.geoβ.(θ[2:end], θ[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
@@ -117,7 +139,9 @@ end;
 θ_approx_nyq = π / minimum(Δθ) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
-approx_lmax += ceil(Int, approx_lmax * 0.25) # for good measure:)
+approx_lmax += ceil(Int, approx_lmax * 0.20) # for good measure:)
+
+
 
 ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01, T=Float64
     
@@ -140,7 +164,7 @@ approx_lmax += ceil(Int, approx_lmax * 0.25) # for good measure:)
     ẽel[1] = 0
 
     b̃bsl   = cld[:len_scalar] |> x->(x[:Cbb] ./ x[:factor_on_cl_cmb])
-    b̃bl    = b̃bsl .+ eetl # we only have lensed spectra for scalar
+    b̃bl    = b̃bsl .+ bbtl # we only have lensed spectra for scalar
     b̃bl[1] = 0
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
@@ -151,6 +175,7 @@ end;
 
 ## semilogy(ℓ, eeℓ)
 ## semilogy(ℓ, bbℓ)
+## semilogy(ℓ, b̃b̃ℓ)
 
 ## ## testing !!!!
 ## semilogy(ℓ, bbℓ)
@@ -776,7 +801,6 @@ end
 ## f_cr[:] |> imag |> matshow; colorbar()
 ## qu[:] |> imag |> matshow; colorbar()
 ## f_cr[:] .- qu[:] |> real |> matshow; colorbar()
-
 
 
 #-

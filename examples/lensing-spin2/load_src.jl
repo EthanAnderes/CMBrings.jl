@@ -61,11 +61,12 @@ lmax = 5000
 κ_cr_pwr_out  = HP.sphtfunc.anafast(κ_cr_hpx.arr, lmax=lmax, pol=false)
 
 let 
-	rng = 20:500
+	rng = 20:400
 	ℓ  = (0:lmax)[rng]
 	ρℓ = (κ_cross_out ./ .√(κ_pwr_out .* κ_cr_pwr_out))[rng]
 	figure()
-	semilogx(ℓ, 1 .- ρℓ.^2, label="1 - ρℓ^2,  tru_κ, est_κ")
+	semilogx(ℓ, 1 .- ρℓ.^2, label="1 - ρℓ^2,  tru_κ est_κ")
+	semilogx(ℓ, 1 .- ρℓ, label="1 - ρℓ,  tru_κ, est_κ")
 	xlabel("ℓ")
 	legend()
 end
