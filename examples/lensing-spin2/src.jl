@@ -59,14 +59,15 @@ save_jld2 = false
     Nside = 8192
     type  = :healpix
     ## ...
-    ## ri = (3*Nside+1):4:(4*Nside-1 - 3400) # upper limit should be 4*Nside-1
-    ri = (3*Nside+1):7:(4*Nside-1 - 3500) # upper limit should be 4*Nside-1
+    ri = (3*Nside+1):6:(4*Nside-1 - 3500) # works !!! upper limit should be 4*Nside-1
     θ  = CC.θ_healpix(Nside)[ri]
     θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ... Now choose the Az number of grid points
     ## Make sure the portion of azimuth is a factor of nφ_full
     ## 4Nside should be largest value for nφ_full
-    nφ_full = 3*Nside÷4 - 512
+    ## nφ_full = 3*Nside÷4
+    nφ_full = 1536 * 3
+    ## nφ_full = 3*Nside÷4 - 3*512÷4
     ## nφ_full = 3*Nside        
     ## nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
     φ_full = 2 * π * (0:nφ_full-1) / nφ_full .+ π/nφ_full
@@ -90,13 +91,6 @@ save_jld2 = false
 end 
 
 
-
-pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg(x)
-@show (nθ, nφ)
-@show extrema(@. rad2deg(√Ω)*60) 
-@show extrema(@. rad2deg(Δθ)*60) 
-@show extrema(pix_diag_arcmin) 
-
 # Plot √Ωpix over ring θ's 
 
 @sblock let θ, φ, Ω, Δθ, hide_plots=false, save_figures
@@ -119,6 +113,13 @@ pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg
 end
 
 
+
+pix_diag_arcmin = CC.geoβ.(θ[2:end],θ[1:end-1],φ[1],φ[2]) .|> x->60*rad2deg(x)
+@show (nθ, nφ)
+@show extrema(@. rad2deg(√Ω)*60) 
+@show extrema(@. rad2deg(Δθ)*60) 
+@show extrema(pix_diag_arcmin) 
+
 # Transformations
 # ==============================
 
@@ -139,9 +140,9 @@ end;
 θ_approx_nyq = π / minimum(Δθ) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
-approx_lmax += ceil(Int, approx_lmax * 0.20) # for good measure:)
-
-
+approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
+## override ...
+## approx_lmax = 25_000
 
 ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01, T=Float64
     
@@ -172,6 +173,25 @@ approx_lmax += ceil(Int, approx_lmax * 0.20) # for good measure:)
 
     return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
+
+
+# this is a hack ...
+bbℓ[bbℓ .<= 0] .= 1e-18 # minimum(bbℓ[3:end][bbℓ[3:end] .> 0])
+eeℓ[eeℓ .<= 0] .= 1e-18 # minimum(eeℓ[3:end][eeℓ[3:end] .> 0])
+b̃b̃ℓ[b̃b̃ℓ .<= 0] .= 1e-18 # minimum(bbℓ[3:end][bbℓ[3:end] .> 0])
+ẽẽℓ[ẽẽℓ .<= 0] .= 1e-18 # minimum(eeℓ[3:end][eeℓ[3:end] .> 0])
+b̃b̃ℓ[1] = b̃b̃ℓ[2] = 0
+ẽẽℓ[1] = ẽẽℓ[2] = 0
+bbℓ[1] = bbℓ[2] = 0
+eeℓ[1] = eeℓ[2] = 0
+
+#=
+loglog( ℓ.^2 .* eeℓ)
+loglog( ℓ.^2 .* bbℓ)
+loglog( ℓ.^2 .* ẽẽℓ)
+loglog( ℓ.^2 .* b̃b̃ℓ)
+=#
+
 
 ## semilogy(ℓ, eeℓ)
 ## semilogy(ℓ, bbℓ)
@@ -712,7 +732,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:15
+    for otr = 1:30
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
