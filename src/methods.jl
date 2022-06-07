@@ -2,7 +2,7 @@
 
 function quasi_bandpowers(f;θ, Δℓsph_bin = 15) # can we avoid passing θ??
     tm = fieldtransform(f)
-    k    = FT.freq(tm)[2]
+    k    = FFTransforms.freq(tm)[2]
     ℓsph = k' ./ sin.(θ)
 
     ℓsph_bin∂  = 0:Δℓsph_bin:(maximum(ℓsph)+1)
