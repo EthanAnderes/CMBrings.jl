@@ -1,3 +1,32 @@
+
+
+function quasi_bandpowers(f;θ, Δℓsph_bin = 15) # can we avoid passing θ??
+    tm = fieldtransform(f)
+    k    = FT.freq(tm)[2]
+    ℓsph = k' ./ sin.(θ)
+
+    ℓsph_bin∂  = 0:Δℓsph_bin:(maximum(ℓsph)+1)
+    ℓsph_bin_mid = ℓsph_bin∂[1:end-1] .+ Δℓsph_bin ./ 2
+
+    power_ℓsph_bin_mid = zeros(length(ℓsph_bin_mid))
+
+    raw_power = abs2.(f[!])  
+
+    for i in eachindex(power_ℓsph_bin_mid)
+        ll = ℓsph_bin∂[i]
+        lr = ℓsph_bin∂[i+1]
+        idx  = ll .<= ℓsph .< lr
+        nidx = sum(idx)
+        power_ℓsph_bin_mid[i] = nidx > 0 ? sum(raw_power[idx]) / nidx : 0.0
+    end
+    ℓsph_bin_mid, power_ℓsph_bin_mid
+end
+
+
+
+
+
+
 # Constructors for Block diagonals in AzEqui coordinates
 # ====================================
 
