@@ -4,6 +4,10 @@
 # Modules
 # ==============================
 
+using LinearAlgebra
+using FFTW
+FFTW.set_num_threads(BLAS.get_num_threads())
+
 using XFields
 using  FFTransforms
 import FFTransforms as FT
@@ -22,8 +26,6 @@ using ProgressMeter
 using BlockArrays
 using Dierckx: Spline1D 
 
-using LinearAlgebra
-using FFTW 
 ## import Random
 ## Random.seed!(1234)
 
@@ -36,45 +38,48 @@ else
 end
 save_figures = false 
 polar_plots = false
-save_jld2 = false
+save_jld2 = true # !!!!!!
 
 # Pixel grid
 # ==============================
 
 θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ = @sblock let 
-    ## --------- hi-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4 # deg2rad.((-60, 60)), 3
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1280)    
-    ## type, N, θspan  = :healpix,  4096, π/2 .- deg2rad.((-41,-70)) # N=2048, 4096,  8192
-    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 150
-    ## --------- hi-res
+    
+    ## --------- hi-res, equiθ
     ## φspan, freq_mult = deg2rad.((-60, 60)), 3
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=2048)    # N=768 or N=1536, 2048, 1024, 972,  1280
-    ## type, N, θspan  = :healpix,  1024, π/2 .- deg2rad.((-41,-70)) 
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    ## type, N, θspan  = :equiθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
     ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 150
+    ## bsd_nθ = 161
 
-    ## --------- hi-res
-    Nside = 8192
-    type  = :healpix
-    ## ...
-    ri = (3*Nside+1):6:(4*Nside-1 - 3500) # works !!! upper limit should be 4*Nside-1
-    θ  = CC.θ_healpix(Nside)[ri]
-    θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
-    ## ... Now choose the Az number of grid points
-    ## Make sure the portion of azimuth is a factor of nφ_full
-    ## 4Nside should be largest value for nφ_full
-    ## nφ_full = 3*Nside÷4
-    nφ_full = 1536 * 3
-    ## nφ_full = 3*Nside÷4 - 3*512÷4
-    ## nφ_full = 3*Nside        
-    ## nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
-    φ_full = 2 * π * (0:nφ_full-1) / nφ_full .+ π/nφ_full
+
     φspan, freq_mult = deg2rad.((-60, 60)), 3
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
-    bsd_nθ = 150
+    φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    type, N, θspan  = :equicosθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
+    θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    bsd_nθ = 161
+
+
+    ## --------- hi-res, healpix rings
+    ## Nside = 8192
+    ## type  = :healpix
+    ## ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.805))))
+    ## ri = (3*Nside+1):6:(4*Nside-1 - ri_offset_from_SP) # upper limit should be 4*Nside-1
+    ## θ  = CC.θ_healpix(Nside)[ri]
+    ## θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
+    ## ## ... Now choose the Az number of grid points
+    ## ## Make sure the portion of azimuth is a factor of nφ_full
+    ## ## 4Nside should be largest value for nφ_full
+    ## ## nφ_full = 3*Nside÷4
+    ## nφ_full = 1536 * 3
+    ## ## nφ_full = 3*Nside÷4 - 3*512÷4
+    ## ## nφ_full = 3*Nside        
+    ## ## nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
+    ## φ_full = 2 * π * (0:nφ_full-1) / nφ_full .+ π/nφ_full
+    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
+    ## ## φspan, freq_mult = deg2rad.((-45, 45)), 4
+    ## φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
+    ## bsd_nθ = 161
 
     ##  -------- med-res
     ## φspan, freq_mult = deg2rad.((-45, 45)), 4
@@ -147,7 +152,11 @@ approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
 ℓ, ϕϕℓ, eeℓ, bbℓ, ẽẽℓ, b̃b̃ℓ = @sblock let lmax=approx_lmax, r=0.01, T=Float64
     
     l = 0:lmax
-    cld = camb_cls(;lmax=lmax, r)
+    cld = camb_cls(;lmax=lmax, r,
+        lSampleBoost   = 4.0,
+        lAccuracyBoost = 4.0,
+        KmaxBoost = 4.0,
+        )
     
     eesl = cld[:unlen_scalar] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
     eetl = cld[:unlen_tensor] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
@@ -332,13 +341,47 @@ permθ, block_sizesθ = @sblock let prθ, nθ, bsd_nθ=bsd_nθ
 end
 
 
+# Spin 2 signal
+# =================================================
 
-# Data operators
+## @time EB▪½ = let 
+##     EB▫  = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ ; θ,  φ)
+##     map(EB▫) do M 
+##         Array(sqrt(Hermitian(M)))
+##     end |> CircOp
+## end
+## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
+## -------
+@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
+
+
+## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
+## EB▪½[end-5][3].data[2]
+## EB▪⁻½[end-5][2].data[2]
+
+
+# Spin 0 signal
+# =================================================
+
+## @time Phi▪½ = let 
+##     Phi▫  = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ,  φ)
+##     map(Phi▫) do M 
+##         Array(sqrt(Symmetric(M))) 
+##     end |> CircOp
+## end
+## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
+## -------
+@time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
+Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
+
+## sum(Base.summarysize, Phi▪½) / 1e9 # 1.4 GB, 2.5min construction, high res
+
+
+# Noise
 # ============================
 
-# ## Noise
-
-μK_arcmin  = 1.0
+μK_arcmin  = 5.0 # 1.0
 
 N▪ = @sblock let μK_arcmin, Ω, nφ 
     σ²   = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
@@ -348,11 +391,28 @@ N▪ = @sblock let μK_arcmin, Ω, nφ
     CircOp(N▫)
 end; 
 
-# ## Mask
+N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
+
+# Now add pure BB noise * large factor bb_noise_factor
+
+## N▪ = let bb_noise_factor = 100 
+##     zeroEB▪  = CMBrings.az_cov_blks(ℓ, 0 .* eeℓ, bbℓ ; θ,  φ, ngrid=100_000) |> CircOp
+##     map(N▪, zeroEB▪) do A, B
+##         A + bb_noise_factor * B
+##     end |> CircOp
+## end 
+## 
+## ## N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
+## N▪⁻¹ = map(inv, N▪) |> CircOp;
+
+
+# Mask
+# ============================
 
 M = DiagOp(Xmap(tmUS2, prθ .* prφ' ));
 
-# ## Beam
+# Beam
+# ============================
 
 pix_diag_rad   = CC.geoβ.(θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
 beamfwhm_rad_θ = pix_diag_rad # * 0.95
@@ -397,32 +457,6 @@ end;
 
 
 
-# Spin 2 signal
-# =================================================
-
-@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
-## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
-## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
-
-EB▪⁻½ = map(VF.posdef_inv, EB▪½) |> CircOp;
-
-## EB▪½[end-5][3].data[2]
-## EB▪⁻½[end-5][2].data[2]
-
-## EB▫ = CMBrings.az_cov_blks(
-##     ℓ, eeℓ, bbℓ; θ, φ, 
-##    ℓrange = [1,2,3,4, nφ÷2-1, nφ÷2, nφ÷2+1]
-## );
-
-# Spin 0 signal
-# =================================================
-
-Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(ℓ, ϕϕℓ, block_sizesθ, permθ; θ, φ) |> CircOp;
-## sum(Base.summarysize, Phi▪½) / 1e9 # 1.4 GB, 2.5min construction, high res
-## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
-
-Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
-
 # Lensing operators
 # ============================
 
@@ -436,47 +470,47 @@ Phi▪⁻½ = map(VF.posdef_inv, Phi▪½) |> CircOp;
 # simulation
 # ==============================
 
-ϕ = Phi▪½ * Xmap(tmUS0,randn(Float64,nθ,nφ));
+## ϕ = Phi▪½ * Xmap(tmUS0,randn(Float64,nθ,nφ));
 ## ------ alt: full non-Vecchia approximate simulation
-## @time ϕ = @sblock let ℓ, ϕϕℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS0,randn(Float64,nθ,nφ)) 
-##     nθ, nφ = length(θ), length(φ)
-##     wθ▪    = CMBrings.field2▪(w)
-##     fθ▪    = map(similar, wθ▪)
-##     ℓfull  = 1:nφ÷2+1
-##     ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
-##     for ℓblk in ℓblks
-##         Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ, φ, ℓrange=ℓblk)
-##         for (i,ℓi) in enumerate(ℓblk)
-##             ## L = cholesky(Symmetric(Σ▪_ℓblk[i])).L
-##             ## lmul!(L, fθ▪[ℓi])
-##             M = sqrt(Symmetric(Σ▪_ℓblk[i]))
-##             mul!(fθ▪[ℓi], M, wθ▪[ℓi])
-##         end
-##     end
-##     return CMBrings.▪2field(fieldtransform(w), fθ▪)
-## end;
+@time ϕ = @sblock let ℓ, ϕϕℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS0,randn(Float64,nθ,nφ)) 
+    nθ, nφ = length(θ), length(φ)
+    wθ▪    = CMBrings.field2▪(w)
+    fθ▪    = map(similar, wθ▪)
+    ℓfull  = 1:nφ÷2+1
+    ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
+    for ℓblk in ℓblks
+        Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ, φ, ℓrange=ℓblk)
+        for (i,ℓi) in enumerate(ℓblk)
+            ## L = cholesky(Symmetric(Σ▪_ℓblk[i])).L
+            ## lmul!(L, fθ▪[ℓi])
+            M = sqrt(Symmetric(Σ▪_ℓblk[i]))
+            mul!(fθ▪[ℓi], M, wθ▪[ℓi])
+        end
+    end
+    return CMBrings.▪2field(fieldtransform(w), fθ▪)
+end;
 
 #-
 
-qu = EB▪½ * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+## qu = EB▪½ * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
 ## ------ alt: full non-Vecchia approximate simulation
-## qu = @sblock let ℓ, eeℓ, bbℓ, blksiz=nφ÷10, θ, φ, w=Xmap(tmUS2,randn(ComplexF64,nθ,nφ)) 
-##     nθ, nφ = length(θ), length(φ)
-##     wθ▪    = CMBrings.field2▪(w)
-##     fθ▪    = map(similar, wθ▪)
-##     ℓfull  = 1:nφ÷2+1
-##     ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
-##     for ℓblk in ℓblks
-##         Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ, φ, ℓrange=ℓblk)
-##         for (i,ℓi) in enumerate(ℓblk)
-##             ## L = cholesky(Hermitian(Σ▪_ℓblk[i])).L
-##             ## lmul!(L, fθ▪[ℓi]) ## This leads to striations in U for some reason
-##             M = sqrt(Hermitian(Σ▪_ℓblk[i]))
-##             mul!(fθ▪[ℓi], M, wθ▪[ℓi])
-##         end
-##     end
-##     return CMBrings.▪2field(fieldtransform(w), fθ▪)
-## end;
+qu = @sblock let ℓ, eeℓ, bbℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS2,randn(ComplexF64,nθ,nφ)) 
+    nθ, nφ = length(θ), length(φ)
+    wθ▪    = CMBrings.field2▪(w)
+    fθ▪    = map(similar, wθ▪)
+    ℓfull  = 1:nφ÷2+1
+    ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
+    for ℓblk in ℓblks
+        Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ, φ, ℓrange=ℓblk)
+        for (i,ℓi) in enumerate(ℓblk)
+            ## L = cholesky(Hermitian(Σ▪_ℓblk[i])).L
+            ## lmul!(L, fθ▪[ℓi]) ## This leads to striations in U for some reason
+            M = sqrt(Hermitian(Σ▪_ℓblk[i]))
+            mul!(fθ▪[ℓi], M, wθ▪[ℓi])
+        end
+    end
+    return CMBrings.▪2field(fieldtransform(w), fθ▪)
+end;
 
 #-
 
@@ -514,7 +548,6 @@ nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> ab
 # Initalize opps for ϕ gradient
 # ==============================================
 
-N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
 
 import CMBflat
 
@@ -732,7 +765,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:30
+    for otr = 1:40
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -810,6 +843,51 @@ end
 if save_jld2
     include("save_src.jl")
 end
+
+
+# Plots
+# ================================
+
+log₊(x::T) where T = x > 0 ? log(x) : T(-Inf)
+
+log_clip = function (x)
+    lx = log₊.(x)
+    finite_idx = @. isfinite(lx)
+    lx[.!(finite_idx)] .= minimum(lx[finite_idx])
+    lx 
+end
+
+#- 
+
+
+CMBrings.fourier_power(
+    f_cr; 
+    θ, φ,
+    x->log_clip(abs2.(x)) ,
+    ## ℓs = [1000, 3000], 
+    title1=L"$|P\,(\theta,\ell_\varphi)|^2$ where $P=Q+iU$, lmax_cut",
+)
+
+#-
+
+ℓbin, f_cr_power = CMBrings.quasi_bandpowers(f_cr; θ, Δℓsph_bin = 15)
+ℓbin, f_power    = CMBrings.quasi_bandpowers(qu; θ, Δℓsph_bin = 15)
+figure()
+semilogy(ℓbin, ℓbin.^2 .* f_cr_power)
+semilogy(ℓbin, ℓbin.^2 .* f_power)
+
+
+#- 
+using ImageFiltering
+blur     = 2
+imag_fun = x -> imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
+CMBrings.map_plot_QU(
+    f_cr;
+    θ, φ,
+    #imag_fun,
+    title1=L"$Q(\theta,\varphi)$ w/small Gaussian blur",
+    title2=L"$U(\theta,\varphi)$ w/small Gaussian blur",
+)
 
 
 #-

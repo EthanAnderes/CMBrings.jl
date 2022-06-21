@@ -1,3 +1,205 @@
+
+
+# map space view
+# ==============================
+
+function map_plot_QU(
+    QU; 
+    θ, φ,
+    imag_fun = x->x,
+    title1 = L"Q(\theta,\varphi)", 
+    title2 = L"U(\theta,\varphi)",
+    )
+
+    Q, U = QU[:] |> x->(real(x), imag(x))
+    
+    nθ = length(θ)
+    nφ = length(φ)
+
+    f1k = Q |> imag_fun
+    f2k = U |> imag_fun
+    
+    fig, ax = subplots(2,1) # , figsize=(8,5))
+    ax[1].set_aspect("auto") # , adjustable="box")
+    ax[2].set_aspect("auto") # , adjustable="box")
+    ax[1].set_xlim(1, length(φ))
+    ax[2].set_xlim(1, length(φ))
+
+    vmin, vmax = f1k |> extrema .|> x->0.9*abs(x)
+    img1 = ax[1].imshow(f1k, vmin=-max(vmin, vmax), vmax=max(vmin, vmax), origin="upper")
+    
+    vmin, vmax = f2k |> extrema .|> x->0.9*abs(x)
+    img2 = ax[2].imshow(f2k, vmin=-max(vmin, vmax), vmax=max(vmin, vmax),  origin="upper")
+    
+    θ_trng = round.(Int,range(1, nθ, 7))
+    # push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
+    # sort!(θ_trng)
+    for axx in ax
+        axx.set_yticks(θ_trng)
+        axx.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=6)
+        axx.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
+    end 
+
+    φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    φi0 = length(φ′)÷2 + 1
+    tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
+    φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
+
+    for axx in ax
+        axx.set_xticks(φ_trng)
+        axx.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=6)
+        axx.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=7)
+    end 
+
+    ax[1].set_title(title1, fontsize=8)  
+    ax[2].set_title(title2, fontsize=8)  
+
+    cbar1 = fig.colorbar(img1, ax=ax[1]) #, fraction=0.046*(nθ/nφ))
+    cbar2 = fig.colorbar(img2, ax=ax[2]) # , fraction=0.046*(nθ/nφ))
+    cbar1.ax.tick_params(labelsize=6)
+    cbar2.ax.tick_params(labelsize=6)
+
+    fig.tight_layout()
+
+    ## save_fig && savefig(save_fig_filename, dpi=250, bbox_inches="tight")
+
+    return fig, ax
+end
+
+
+function map_plot_I(
+    Ifield;
+    θ, φ, 
+    imag_fun = x->x,
+    title1 = L"I(\theta,\varphi)", 
+    )
+
+    nθ = length(θ)
+    nφ = length(φ)
+
+    fx = Ifield[:] |> imag_fun
+    
+    fig, ax = subplots(1) # , figsize=(8,5))
+    ax.set_aspect("auto") # , adjustable="box")
+    ax.set_xlim(1, length(φ))
+
+    vmin, vmax = fx |> extrema .|> x->0.9*abs(x)
+    img1 = ax.imshow(fx, vmin=-max(vmin, vmax), vmax=max(vmin, vmax), origin="upper")
+
+    θ_trng = round.(Int,range(1, nθ, 7))
+    ## push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
+    ## sort!(θ_trng)
+    ax.set_yticks(θ_trng)
+    ax.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=6)
+    ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
+
+    φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    φi0 = length(φ′)÷2 + 1
+    tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
+    φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
+    ax.set_xticks(φ_trng)
+    ax.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=6)
+    ax.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=7)
+
+    ax.set_title(title1, fontsize=8)  
+
+    cbar1 = fig.colorbar(img1, ax=ax, fraction=0.046*(nθ/nφ), pad=0.04)
+    cbar1.ax.tick_params(labelsize=6)
+
+    fig.tight_layout()
+
+    return fig, ax
+end
+
+
+
+# for example 
+# using ImageFiltering
+# imag_fun = x -> imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
+function fourier_power(
+    T; 
+    θ, φ, 
+    imag_fun = x->x,
+    ℓs = Int[], 
+    vmin=nothing, vmax=nothing, 
+    title1=L"$|I\,(\theta,\ell_\varphi)|$", 
+    )
+
+    nφ = length(φ)
+    nθ = length(θ)
+
+    if eltype_in(fieldtransform(T)) <: Real
+        k = FFTransforms.freq(fieldtransform(T))[2]
+        f1k = T[!] |> imag_fun
+    else 
+        k = FFTransforms.freq(fieldtransform(T))[2] |> fftshift
+        k[1] *= -1 # the nyquist should be negative here
+        f1k = T[!] |> x->fftshift(x,2) |> imag_fun 
+    end
+
+    fig, ax = subplots(1)
+
+    if isnothing(vmax)
+        vmax = maximum(f1k[isfinite.(f1k)])
+    end
+    if isnothing(vmin)
+        vmin = minimum(f1k[isfinite.(f1k)])
+    end
+    img = ax.imshow(f1k, cmap="viridis", 
+        vmin=vmin, vmax=vmax, 
+        extent=[k[1], k[end], θ[end], θ[1]],
+        origin="upper"
+    )
+    ax.set_aspect("auto") 
+
+    
+    ms_trng = round.(Int,range(1, length(k), 10)[2:end])
+    ms = Int.(k[ms_trng])
+    if isempty(ℓs)
+        ℓs1 = round.(Int, ms[ms .> 0] * csc.(θ[end÷4]))
+        ℓs2 = round.(Int, ms[ms .> 0] * csc.(θ[3*end÷4]))
+        ℓs = vcat(ℓs1, ℓs2[ℓs2 .> maximum(ℓs1)])
+    end
+    for ℓₒ in ℓs
+        mv = 1:ℓₒ
+        θv = π .- acsc.(ℓₒ ./ mv)
+        rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
+        if any(rng)   
+            ax.plot(mv[rng], θv[rng], c="0.5")
+            ax.plot(.- mv[rng], θv[rng], c="0.5")
+            if !(eltype_in(fieldtransform(T)) <: Real)
+                ax.annotate(L"\ell=%$ℓₒ", xy=(mv[rng][end], θv[rng][end]),  xycoords="data", fontsize=7)
+                ax.annotate(L"\ell=%$ℓₒ", xy=(.-mv[rng][end], θv[rng][end]),  xycoords="data", fontsize=7)
+            end
+        end
+    end
+
+    cbar = fig.colorbar(img, ax=ax, location="bottom", shrink = 0.5) #, fraction=0.046*(nθ/nφ))
+    cbar.ax.tick_params(labelsize=7)
+
+    # ax.set_yticklabels(ax.get_yticklabels(),fontsize=7)
+    # ax.set_xticklabels(ax.get_xticklabels(),fontsize=7)
+    ax.tick_params(axis="x", labelsize=7)
+    ax.tick_params(axis="y", labelsize=7)
+    ax.set_ylabel("θ",fontsize=7)
+    ax.set_xlabel(L"azmuthal frequency $m$",fontsize=7)
+
+    ax.set_title(title1, fontsize=8)
+
+    fig.tight_layout()
+
+    return fig, ax
+end
+
+
+
+
+
+####################
+## TODO: update these and merge with above
+
+
+
 # The following allows 
 # fig, ax = subplots(2)
 # A |> imshow(-, fig, ax[1])
