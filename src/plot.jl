@@ -113,6 +113,7 @@ end
 
 
 
+
 # for example 
 # using ImageFiltering
 # imag_fun = x -> imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
@@ -127,6 +128,7 @@ function fourier_power(
 
     nφ = length(φ)
     nθ = length(θ)
+    Δθₒ = abs(θ[2] - θ[1]) 
 
     if eltype_in(fieldtransform(T)) <: Real
         k = FFTransforms.freq(fieldtransform(T))[2]
@@ -166,10 +168,20 @@ function fourier_power(
         rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
         if any(rng)   
             ax.plot(mv[rng], θv[rng], c="0.5")
-            ax.plot(.- mv[rng], θv[rng], c="0.5")
+            ax.annotate(
+                L"$\,\,\ell=%$ℓₒ\,\,$", 
+                xy=(mv[rng][end], θv[rng][end]),  
+                xycoords="data", ha="center", va="bottom",
+                fontsize=7
+            )
             if !(eltype_in(fieldtransform(T)) <: Real)
-                ax.annotate(L"\ell=%$ℓₒ", xy=(mv[rng][end], θv[rng][end]),  xycoords="data", fontsize=7)
-                ax.annotate(L"\ell=%$ℓₒ", xy=(.-mv[rng][end], θv[rng][end]),  xycoords="data", fontsize=7)
+                ax.plot(.- mv[rng], θv[rng], c="0.5")
+                ax.annotate(
+                    L"$\,\,\ell=%$ℓₒ\,\,$", 
+                    xy=(.-mv[rng][end], θv[rng][end]),  
+                    xycoords="data", ha="center", va="bottom",
+                    fontsize=7
+                )            
             end
         end
     end
@@ -177,14 +189,12 @@ function fourier_power(
     cbar = fig.colorbar(img, ax=ax, location="bottom", shrink = 0.5) #, fraction=0.046*(nθ/nφ))
     cbar.ax.tick_params(labelsize=7)
 
-    # ax.set_yticklabels(ax.get_yticklabels(),fontsize=7)
-    # ax.set_xticklabels(ax.get_xticklabels(),fontsize=7)
     ax.tick_params(axis="x", labelsize=7)
     ax.tick_params(axis="y", labelsize=7)
     ax.set_ylabel("θ",fontsize=7)
     ax.set_xlabel(L"azmuthal frequency $m$",fontsize=7)
 
-    ax.set_title(title1, fontsize=8)
+    ax.set_title(title1, fontsize=8, pad=20)
 
     fig.tight_layout()
 
