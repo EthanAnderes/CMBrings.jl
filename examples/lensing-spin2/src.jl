@@ -45,13 +45,12 @@ save_jld2 = true # !!!!!!
 
 θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ = @sblock let 
     
-    ## --------- hi-res, equiθ
-    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
-    ## type, N, θspan  = :equiθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
-    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 161
-
+    # --------- hi-res, equiθ
+    # φspan, freq_mult = deg2rad.((-60, 60)), 3
+    # φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
+    # type, N, θspan  = :equiθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
+    # θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    # bsd_nθ = 161
 
     φspan, freq_mult = deg2rad.((-60, 60)), 3
     φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
@@ -59,34 +58,35 @@ save_jld2 = true # !!!!!!
     θ, θ∂  = CC.θ_grid(; θspan, N, type)
     bsd_nθ = 161
 
+    #  -------- med-res
+    # φspan, freq_mult = deg2rad.((-45, 45)), 4
+    # φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
+    # type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
+    # θ, θ∂  = CC.θ_grid(; θspan, N, type)
+    # bsd_nθ = 150
 
-    ## --------- hi-res, healpix rings
-    ## Nside = 8192
-    ## type  = :healpix
-    ## ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.805))))
-    ## ri = (3*Nside+1):6:(4*Nside-1 - ri_offset_from_SP) # upper limit should be 4*Nside-1
-    ## θ  = CC.θ_healpix(Nside)[ri]
-    ## θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
-    ## ## ... Now choose the Az number of grid points
-    ## ## Make sure the portion of azimuth is a factor of nφ_full
-    ## ## 4Nside should be largest value for nφ_full
-    ## ## nφ_full = 3*Nside÷4
-    ## nφ_full = 1536 * 3
-    ## ## nφ_full = 3*Nside÷4 - 3*512÷4
-    ## ## nφ_full = 3*Nside        
-    ## ## nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
-    ## φ_full = 2 * π * (0:nφ_full-1) / nφ_full .+ π/nφ_full
-    ## φspan, freq_mult = deg2rad.((-60, 60)), 3
-    ## ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
-    ## bsd_nθ = 161
+    # --------- hi-res, healpix rings
+    # Nside = 8192
+    # type  = :healpix
+    # ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.805))))
+    # ri = (3*Nside+1):6:(4*Nside-1 - ri_offset_from_SP) # upper limit should be 4*Nside-1
+    # θ  = CC.θ_healpix(Nside)[ri]
+    # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
+    # # ... Now choose the Az number of grid points
+    # # Make sure the portion of azimuth is a factor of nφ_full
+    # # 4Nside should be largest value for nφ_full
+    # # nφ_full = 3*Nside÷4
+    # nφ_full = 1536 * 3
+    # # nφ_full = 3*Nside÷4 - 3*512÷4
+    # # nφ_full = 3*Nside        
+    # # nφ_full = 4*(Nside-1) # 2^3 * 3^2 * 5 * 7 * 13 
+    # φ_full = 2 * π * (0:nφ_full-1) / nφ_full
+    # φspan, freq_mult = deg2rad.((-60, 60)), 3
+    # φspan, freq_mult = deg2rad.((0, 360)), 1
+    # # φspan, freq_mult = deg2rad.((-45, 45)), 4
+    # φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
+    # bsd_nθ = 161
 
-    ##  -------- med-res
-    ## φspan, freq_mult = deg2rad.((-45, 45)), 4
-    ## φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
-    ## type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
-    ## θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    ## bsd_nθ = 150
     
     nθ, nφ = length(θ), length(φ)
     Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))

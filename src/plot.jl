@@ -9,6 +9,7 @@ function map_plot_QU(
     imag_fun = x->x,
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
+    vmin = nothing, vmax = nothing,
     )
 
     Q, U = QU[:] |> x->(real(x), imag(x))
@@ -25,11 +26,9 @@ function map_plot_QU(
     ax[1].set_xlim(1, length(φ))
     ax[2].set_xlim(1, length(φ))
 
-    vmin, vmax = f1k |> extrema .|> x->0.9*abs(x)
-    img1 = ax[1].imshow(f1k, vmin=-max(vmin, vmax), vmax=max(vmin, vmax), origin="upper")
+    img1 = ax[1].imshow(f1k, vmin=vmin, vmax=vmax, origin="upper")
     
-    vmin, vmax = f2k |> extrema .|> x->0.9*abs(x)
-    img2 = ax[2].imshow(f2k, vmin=-max(vmin, vmax), vmax=max(vmin, vmax),  origin="upper")
+    img2 = ax[2].imshow(f2k, vmin=vmin, vmax=vmax,  origin="upper")
     
     θ_trng = round.(Int,range(1, nθ, 7))
     # push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
@@ -54,14 +53,12 @@ function map_plot_QU(
     ax[1].set_title(title1, fontsize=8)  
     ax[2].set_title(title2, fontsize=8)  
 
-    cbar1 = fig.colorbar(img1, ax=ax[1]) #, fraction=0.046*(nθ/nφ))
-    cbar2 = fig.colorbar(img2, ax=ax[2]) # , fraction=0.046*(nθ/nφ))
+    cbar1 = fig.colorbar(img1, ax=ax[1], fraction=0.046*(nθ/nφ), pad=0.04)
+    cbar2 = fig.colorbar(img2, ax=ax[2], fraction=0.046*(nθ/nφ), pad=0.04)
     cbar1.ax.tick_params(labelsize=6)
     cbar2.ax.tick_params(labelsize=6)
 
     fig.tight_layout()
-
-    ## save_fig && savefig(save_fig_filename, dpi=250, bbox_inches="tight")
 
     return fig, ax
 end
@@ -72,6 +69,7 @@ function map_plot_I(
     θ, φ, 
     imag_fun = x->x,
     title1 = L"I(\theta,\varphi)", 
+    vmin = nothing, vmax = nothing,
     )
 
     nθ = length(θ)
@@ -83,8 +81,7 @@ function map_plot_I(
     ax.set_aspect("auto") # , adjustable="box")
     ax.set_xlim(1, length(φ))
 
-    vmin, vmax = fx |> extrema .|> x->0.9*abs(x)
-    img1 = ax.imshow(fx, vmin=-max(vmin, vmax), vmax=max(vmin, vmax), origin="upper")
+    img1 = ax.imshow(fx, vmin=vmin, vmax=vmax, origin="upper")
 
     θ_trng = round.(Int,range(1, nθ, 7))
     ## push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
