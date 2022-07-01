@@ -117,7 +117,7 @@ end
 function fourier_power(
     T; 
     θ, φ, 
-    imag_fun = x->x,
+    imag_fun = x->abs2.(x),
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
     title1=L"$|I\,(\theta,\ell_\varphi)|$", 
