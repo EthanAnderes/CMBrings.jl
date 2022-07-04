@@ -132,7 +132,7 @@ function fourier_power(
         f1k = T[!] |> imag_fun
     else 
         k = FFTransforms.freq(fieldtransform(T))[2] |> fftshift
-        k[1] *= -1 # the nyquist should be negative here
+        k[1] *= iseven(nφ) ? -1 : 1 # the nyquist should signflip to negative when nφ is even
         f1k = T[!] |> x->fftshift(x,2) |> imag_fun 
     end
 

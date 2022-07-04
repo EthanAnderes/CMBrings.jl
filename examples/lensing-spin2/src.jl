@@ -470,47 +470,47 @@ end;
 # simulation
 # ==============================
 
-## ϕ = Phi▪½ * Xmap(tmUS0,randn(Float64,nθ,nφ));
+ϕ = Phi▪½ * Xmap(tmUS0,randn(Float64,nθ,nφ));
 ## ------ alt: full non-Vecchia approximate simulation
-@time ϕ = @sblock let ℓ, ϕϕℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS0,randn(Float64,nθ,nφ)) 
-    nθ, nφ = length(θ), length(φ)
-    wθ▪    = CMBrings.field2▪(w)
-    fθ▪    = map(similar, wθ▪)
-    ℓfull  = 1:nφ÷2+1
-    ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
-    for ℓblk in ℓblks
-        Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ, φ, ℓrange=ℓblk)
-        for (i,ℓi) in enumerate(ℓblk)
-            ## L = cholesky(Symmetric(Σ▪_ℓblk[i])).L
-            ## lmul!(L, fθ▪[ℓi])
-            M = sqrt(Symmetric(Σ▪_ℓblk[i]))
-            mul!(fθ▪[ℓi], M, wθ▪[ℓi])
-        end
-    end
-    return CMBrings.▪2field(fieldtransform(w), fθ▪)
-end;
+# @time ϕ = @sblock let ℓ, ϕϕℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS0,randn(Float64,nθ,nφ)) 
+#     nθ, nφ = length(θ), length(φ)
+#     wθ▪    = CMBrings.field2▪(w)
+#     fθ▪    = map(similar, wθ▪)
+#     ℓfull  = 1:nφ÷2+1
+#     ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
+#     for ℓblk in ℓblks
+#         Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ, φ, ℓrange=ℓblk)
+#         for (i,ℓi) in enumerate(ℓblk)
+#             ## L = cholesky(Symmetric(Σ▪_ℓblk[i])).L
+#             ## lmul!(L, fθ▪[ℓi])
+#             M = sqrt(Symmetric(Σ▪_ℓblk[i]))
+#             mul!(fθ▪[ℓi], M, wθ▪[ℓi])
+#         end
+#     end
+#     return CMBrings.▪2field(fieldtransform(w), fθ▪)
+# end;
 
 #-
 
-## qu = EB▪½ * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
+qu = EB▪½ * Xmap(tmUS2,randn(ComplexF64,nθ,nφ))
 ## ------ alt: full non-Vecchia approximate simulation
-qu = @sblock let ℓ, eeℓ, bbℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS2,randn(ComplexF64,nθ,nφ)) 
-    nθ, nφ = length(θ), length(φ)
-    wθ▪    = CMBrings.field2▪(w)
-    fθ▪    = map(similar, wθ▪)
-    ℓfull  = 1:nφ÷2+1
-    ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
-    for ℓblk in ℓblks
-        Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ, φ, ℓrange=ℓblk)
-        for (i,ℓi) in enumerate(ℓblk)
-            ## L = cholesky(Hermitian(Σ▪_ℓblk[i])).L
-            ## lmul!(L, fθ▪[ℓi]) ## This leads to striations in U for some reason
-            M = sqrt(Hermitian(Σ▪_ℓblk[i]))
-            mul!(fθ▪[ℓi], M, wθ▪[ℓi])
-        end
-    end
-    return CMBrings.▪2field(fieldtransform(w), fθ▪)
-end;
+# qu = @sblock let ℓ, eeℓ, bbℓ, blksiz=nφ÷5, θ, φ, w=Xmap(tmUS2,randn(ComplexF64,nθ,nφ)) 
+#     nθ, nφ = length(θ), length(φ)
+#     wθ▪    = CMBrings.field2▪(w)
+#     fθ▪    = map(similar, wθ▪)
+#     ℓfull  = 1:nφ÷2+1
+#     ℓblks  = blocks(PseudoBlockArray(ℓfull, VF.block_split(length(ℓfull), blksiz)))
+#     for ℓblk in ℓblks
+#         Σ▪_ℓblk = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ; θ, φ, ℓrange=ℓblk)
+#         for (i,ℓi) in enumerate(ℓblk)
+#             ## L = cholesky(Hermitian(Σ▪_ℓblk[i])).L
+#             ## lmul!(L, fθ▪[ℓi]) ## This leads to striations in U for some reason
+#             M = sqrt(Hermitian(Σ▪_ℓblk[i]))
+#             mul!(fθ▪[ℓi], M, wθ▪[ℓi])
+#         end
+#     end
+#     return CMBrings.▪2field(fieldtransform(w), fθ▪)
+# end;
 
 #-
 
@@ -848,25 +848,52 @@ end
 # Plots
 # ================================
 
+using ImageFiltering
+
 log₊(x::T) where T = x > 0 ? log(x) : T(-Inf)
 
-log_clip = function (x)
+function log_clip(x)
     lx = log₊.(x)
     finite_idx = @. isfinite(lx)
-    lx[.!(finite_idx)] .= minimum(lx[finite_idx])
-    lx 
+    if !any(finite_idx)
+        return lx
+    else
+        lx[.!(finite_idx)] .= minimum(lx[finite_idx])
+        return lx
+    end
 end
+
+
+imag_logabs2clip(x) = log_clip(abs2.(x))
+
+function imag_blur(x;blur=0)
+    nθ, nφ = size(x)
+    imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
+end
+
+
+
 
 #- 
 
 
+
+
+
+## different sign for e and b....this is noted in healpix doc 
+CMBrings.map_plot_I(
+    # Xmap(tmUS0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
+    Xmap(tmUS0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
+    θ, φ, imag_fun=x->imag_blur(x;blur=0),
+);
+
+
 CMBrings.fourier_power(
-    f_cr; 
-    θ, φ,
-    x->log_clip(abs2.(x)) ,
-    ## ℓs = [1000, 3000], 
-    title1=L"$|P\,(\theta,\ell_\varphi)|^2$ where $P=Q+iU$, lmax_cut",
-)
+    est_low_pass_e_rings;  title1=L"EAZ generated pseudo-scalar low pass $E$", vmin=-80, vmax=10,
+    # est_low_pass_b_rings;  title1=L"EAZ generated pseudo-scalar low pass $B$", 
+    θ, φ, ℓs = [low_pass_cut, lmax_cut], 
+    imag_fun=LM.imag_logabs2clip,
+);
 
 #-
 
