@@ -20,7 +20,7 @@ function map_plot_QU(
     f1k = Q |> imag_fun
     f2k = U |> imag_fun
     
-    fig, ax = subplots(2,1) # , figsize=(8,5))
+    fig, ax = subplots(2,1,dpi=147) # , figsize=(8,5))
     ax[1].set_aspect("auto") # , adjustable="box")
     ax[2].set_aspect("auto") # , adjustable="box")
     ax[1].set_xlim(1, length(φ))
@@ -77,7 +77,7 @@ function map_plot_I(
 
     fx = Ifield[:] |> imag_fun
     
-    fig, ax = subplots(1) # , figsize=(8,5))
+    fig, ax = subplots(1,dpi=147) # , figsize=(8,5))
     ax.set_aspect("auto") # , adjustable="box")
     ax.set_xlim(1, length(φ))
 
@@ -121,6 +121,7 @@ function fourier_power(
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
     title1=L"$|I\,(\theta,\ell_\varphi)|$", 
+    xaxis_units = :Hz, # or :m
     )
 
     nφ = length(φ)
@@ -136,17 +137,19 @@ function fourier_power(
         f1k = T[!] |> x->fftshift(x,2) |> imag_fun 
     end
 
-    fig, ax = subplots(1)
+    if xaxis_units == :Hz
+        Hz_or_m = m -> deg2rad(1) / (2π / m)
+        xlabel_hz_or_m = L"f [Hz] (for scan rate of $1^o$ per second)"
+        # (every second the telescope traverses deg2rad(1) rad) / (wave length of k)
+    elseif xaxis_units == :m 
+        Hz_or_m = m -> m
+        xlabel_hz_or_m = L"azmuthal frequency $m$"
+    end
 
-    if isnothing(vmax)
-        vmax = maximum(f1k[isfinite.(f1k)])
-    end
-    if isnothing(vmin)
-        vmin = minimum(f1k[isfinite.(f1k)])
-    end
+    fig, ax = subplots(1,dpi=147)
     img = ax.imshow(f1k, cmap="viridis", 
         vmin=vmin, vmax=vmax, 
-        extent=[k[1], k[end], θ[end], θ[1]],
+        extent=[Hz_or_m(k[1]), Hz_or_m(k[end]), θ[end], θ[1]],
         origin="upper"
     )
     ax.set_aspect("auto") 
@@ -164,18 +167,18 @@ function fourier_power(
         θv = π .- acsc.(ℓₒ ./ mv)
         rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
         if any(rng)   
-            ax.plot(mv[rng], θv[rng], c="0.5")
+            ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5")
             ax.annotate(
                 L"$\,\,\ell=%$ℓₒ\,\,$", 
-                xy=(mv[rng][end], θv[rng][end]),  
+                xy=(Hz_or_m(mv[rng][end]), θv[rng][end]),  
                 xycoords="data", ha="center", va="bottom",
                 fontsize=7
             )
             if !(eltype_in(fieldtransform(T)) <: Real)
-                ax.plot(.- mv[rng], θv[rng], c="0.5")
+                ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5")
                 ax.annotate(
                     L"$\,\,\ell=%$ℓₒ\,\,$", 
-                    xy=(.-mv[rng][end], θv[rng][end]),  
+                    xy=(.-Hz_or_m(mv[rng][end]), θv[rng][end]),  
                     xycoords="data", ha="center", va="bottom",
                     fontsize=7
                 )            
@@ -189,7 +192,7 @@ function fourier_power(
     ax.tick_params(axis="x", labelsize=7)
     ax.tick_params(axis="y", labelsize=7)
     ax.set_ylabel("θ",fontsize=7)
-    ax.set_xlabel(L"azmuthal frequency $m$",fontsize=7)
+    ax.set_xlabel(xlabel_hz_or_m,fontsize=7)
 
     ax.set_title(title1, fontsize=8, pad=20)
 
@@ -208,12 +211,12 @@ end
 
 
 # The following allows 
-# fig, ax = subplots(2)
+# fig, ax = subplots(2,dpi=147)
 # A |> imshow(-, fig, ax[1])
 # A |> imshow(-, fig, ax[2])
 #
 # ... or ...
-# fig, ax = subplots(2)
+# fig, ax = subplots(2,dpi=147)
 # imshow(A, fig, ax[1])
 # imshow(A, fig, ax[2])
 
@@ -246,7 +249,7 @@ function brickplot(imgs::Dict{Int,T};
     nr = size(imgs[nimg])[1]
     nc = size(imgs[nimg])[2] * fφ |> x->round(Int,x)
 
-    fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt))
+    fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt),dpi=147)
     ax = nimg==1 ? [ax] : ax
 
     for (i,f) ∈ imgs
@@ -291,7 +294,8 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
     fig, ax = subplots(
         nrows, ncols, 
         figsize= length(figsize)==0 ? (sz*(4.5*ncols), sz*(5*nrows)) : figsize,
-        subplot_kw=Dict(:projection=>"polar")
+        subplot_kw=Dict(:projection=>"polar"),
+        dpi=147
     )
 
     ax = nimg==1 ? [ax] : ax
