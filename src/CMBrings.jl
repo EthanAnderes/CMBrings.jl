@@ -1,8 +1,17 @@
 module CMBrings
 
-using XFields
+using EAZTransforms
+using EAZTransforms: pix, freq, nyq, Ωpix # these work for FFTransforms too
+import EAZTransforms as EZ 
+
 using FFTransforms
+import FFTransforms as FT
+
+using XFields
 using FieldLensing
+import CirculantCov as CC
+import VecchiaFactorization as VF
+using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
 
 using LinearAlgebra
 using FFTW
@@ -14,12 +23,6 @@ using ProgressMeter
 using PyCall
 using PyPlot 
 using NLopt
-
-import CirculantCov as CC
-import VecchiaFactorization as VF
-using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
-
-using SphereTransforms # there is some strange interaction: need this after PyPlot
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
@@ -33,7 +36,6 @@ const module_dir  = joinpath(@__DIR__, "..") |> normpath
 #     return C
 # end
 
-
 function LinearAlgebra.:*(A::Symmetric{T,Matrix{T}}, x::AbstractVector{Complex{T}}) where T <: LinearAlgebra.BlasReal
     complex.(A*real(x), A*imag(x))
 end
@@ -41,7 +43,6 @@ end
 # TODO: you may also want to do something similar for triangular matrices:
 # trmv, Triangular matrix-vector multiplication
 
-## TODO: add method for checking the FFTransforms transform is the right one for CMBrings
 
 # Extras on SphereTransforms like simulation, getindex etc. 
 include("transformations.jl")

@@ -5,12 +5,13 @@
 
 function map_plot_QU(
     QU; 
-    θ, φ,
+    θ=pix(fieldtransform(QU))[1], 
+    φ=pix(fieldtransform(QU))[2],
     imag_fun = x->x,
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
-    )
+    ) 
 
     Q, U = QU[:] |> x->(real(x), imag(x))
     
@@ -66,7 +67,8 @@ end
 
 function map_plot_I(
     Ifield;
-    θ, φ, 
+    θ=pix(fieldtransform(Ifield))[1], 
+    φ=pix(fieldtransform(Ifield))[2],
     imag_fun = x->x,
     title1 = L"I(\theta,\varphi)", 
     vmin = nothing, vmax = nothing,
@@ -116,7 +118,8 @@ end
 # imag_fun = x -> imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
 function fourier_power(
     T; 
-    θ, φ, 
+    θ=pix(fieldtransform(T))[1], 
+    φ=pix(fieldtransform(T))[2],
     imag_fun = x->abs2.(x),
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
@@ -129,17 +132,17 @@ function fourier_power(
     Δθₒ = abs(θ[2] - θ[1]) 
 
     if eltype_in(fieldtransform(T)) <: Real
-        k = FFTransforms.freq(fieldtransform(T))[2]
+        k = freq(fieldtransform(T))[2]
         f1k = T[!] |> imag_fun
     else 
-        k = FFTransforms.freq(fieldtransform(T))[2] |> fftshift
+        k = freq(fieldtransform(T))[2] |> fftshift
         k[1] *= iseven(nφ) ? -1 : 1 # the nyquist should signflip to negative when nφ is even
         f1k = T[!] |> x->fftshift(x,2) |> imag_fun 
     end
 
     if xaxis_units == :Hz
         Hz_or_m = m -> deg2rad(1) / (2π / m)
-        xlabel_hz_or_m = L"f [Hz] (for scan rate of $1^o$ per second)"
+        xlabel_hz_or_m = L"$f$ [Hz] (for scan rate of $1^o$ per second)"
         # (every second the telescope traverses deg2rad(1) rad) / (wave length of k)
     elseif xaxis_units == :m 
         Hz_or_m = m -> m
@@ -201,79 +204,8 @@ function fourier_power(
     return fig, ax
 end
 
-
-
-
-
 ####################
-## TODO: update these and merge with above
-
-
-
-# The following allows 
-# fig, ax = subplots(2,dpi=147)
-# A |> imshow(-, fig, ax[1])
-# A |> imshow(-, fig, ax[2])
-#
-# ... or ...
-# fig, ax = subplots(2,dpi=147)
-# imshow(A, fig, ax[1])
-# imshow(A, fig, ax[2])
-
-function PyPlot.imshow(A::Matrix, fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015, tight_layout=true)
-    PyPlot.imshow(-, fig, ax; vmin, vmax, shrink, pad, tight_layout)(A)
-end
-
-
-function PyPlot.imshow(::typeof(-), fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015, tight_layout=true)
-    function (A::Matrix)
-        img = ax.imshow(A, vmin=vmin, vmax=vmax)
-        ax.axis("off")
-        fig.colorbar(img, ax=ax, shrink=shrink, pad=pad)
-        tight_layout && fig.tight_layout()
-        img
-    end
-end
-
-
-
-function brickplot(imgs::Dict{Int,T};
-            txt  = Dict{Int,String}(), # overlay text
-            ctxt = Dict{Int,String}(), # color of text
-            fφ = 1/2,     # fraction of azimuth 
-            sz = 2,       # Overall size scale
-            hmlt = 0.875, # Hight adjust
-        ) where T
-
-    nimg = maximum(keys(imgs))
-    nr = size(imgs[nimg])[1]
-    nc = size(imgs[nimg])[2] * fφ |> x->round(Int,x)
-
-    fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt),dpi=147)
-    ax = nimg==1 ? [ax] : ax
-
-    for (i,f) ∈ imgs
-        img = ax[i].imshow(f[:,1:nc]) 
-        fig.colorbar(img, ax=ax[i], shrink=0.8, extend="both", pad=0.015)
-    end
-    for i=1:nimg-1
-        ax[i].set_xticklabels([])
-        ax[i].set_yticklabels([])
-    end
-    for (i,s) ∈ txt
-        ax[i].text(
-            nc*0.98, nr*0.95, s, 
-            color=i ∈ keys(ctxt) ? ctxt[i] : "k",
-            horizontalalignment = "right",
-            fontsize=14,
-        )
-    end
-    fig.subplots_adjust(hspace=0.01, bottom = 0.1, top = 0.98, left = 0.05, right=0.98)
-    
-    fig, ax
-end
-
-
+# TODO: update this ...
 
 function diskplot(imgs::Dict{Int,T}, φ, θ;
             txt  = Dict{Int,String}(), # overlay text
@@ -342,4 +274,75 @@ function diskplot(imgs::Dict{Int,T}, φ, θ;
     
     fig, ax
 end
+
+
+
+####################
+# Slated for removal ...
+
+
+# The following allows 
+# fig, ax = subplots(2,dpi=147)
+# A |> imshow(-, fig, ax[1])
+# A |> imshow(-, fig, ax[2])
+#
+# ... or ...
+# fig, ax = subplots(2,dpi=147)
+# imshow(A, fig, ax[1])
+# imshow(A, fig, ax[2])
+
+function PyPlot.imshow(A::Matrix, fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015, tight_layout=true)
+    PyPlot.imshow(-, fig, ax; vmin, vmax, shrink, pad, tight_layout)(A)
+end
+
+
+function PyPlot.imshow(::typeof(-), fig::Figure, ax; vmin=nothing, vmax=nothing, shrink=0.7, pad=0.015, tight_layout=true)
+    function (A::Matrix)
+        img = ax.imshow(A, vmin=vmin, vmax=vmax)
+        ax.axis("off")
+        fig.colorbar(img, ax=ax, shrink=shrink, pad=pad)
+        tight_layout && fig.tight_layout()
+        img
+    end
+end
+
+
+
+function brickplot(imgs::Dict{Int,T};
+            txt  = Dict{Int,String}(), # overlay text
+            ctxt = Dict{Int,String}(), # color of text
+            fφ = 1/2,     # fraction of azimuth 
+            sz = 2,       # Overall size scale
+            hmlt = 0.875, # Hight adjust
+        ) where T
+
+    nimg = maximum(keys(imgs))
+    nr = size(imgs[nimg])[1]
+    nc = size(imgs[nimg])[2] * fφ |> x->round(Int,x)
+
+    fig, ax = subplots(nimg,1,figsize=(sz*(nc/nr), sz*nimg*hmlt),dpi=147)
+    ax = nimg==1 ? [ax] : ax
+
+    for (i,f) ∈ imgs
+        img = ax[i].imshow(f[:,1:nc]) 
+        fig.colorbar(img, ax=ax[i], shrink=0.8, extend="both", pad=0.015)
+    end
+    for i=1:nimg-1
+        ax[i].set_xticklabels([])
+        ax[i].set_yticklabels([])
+    end
+    for (i,s) ∈ txt
+        ax[i].text(
+            nc*0.98, nr*0.95, s, 
+            color=i ∈ keys(ctxt) ? ctxt[i] : "k",
+            horizontalalignment = "right",
+            fontsize=14,
+        )
+    end
+    fig.subplots_adjust(hspace=0.01, bottom = 0.1, top = 0.98, left = 0.05, right=0.98)
+    
+    fig, ax
+end
+
+
 

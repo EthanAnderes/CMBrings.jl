@@ -5,8 +5,6 @@
 # 2. Define some gradient methods
 
 
-
-
 # 1. Specify how lensing lensing acts on the array storage fields
 # ===================================================
 
@@ -80,14 +78,15 @@ function LinearAlgebra.adjoint(∇!::Pix1dFFTNabla!{Tθ,TW,Tik,Tx}) where {Tθ,T
 end
 
 function Pix1dFFTNabla!(∂θ, ::Type{Tf}, nφ, periodφ) where Tf
-    wφ = FFTransforms.:⊗(FFTransforms.𝕀(size(∂θ,1)), FFTransforms.𝕎(Tf, nφ, periodφ))
+    # wφ = FT.:⊗(FT.𝕀(size(∂θ,1)), FT.𝕎(Tf, nφ, periodφ))
+    wφ = 𝕀(size(∂θ,1)) ⊗ 𝕎(Tf, nφ, periodφ)
     planW = plan(wφ)
     c_forFFTNabla = Tf(planW.scale_forward * planW.scale_inverse)
 
     ∇! = Pix1dFFTNabla!(
         ∂θ,
         planW, 
-        im .* FFTransforms.fullfreq(wφ)[2] .* c_forFFTNabla,
+        im .* FT.fullfreq(wφ)[2] .* c_forFFTNabla,
         Array{eltype_out(wφ)}(undef,size_out(wφ)),
         Array{eltype_in(wφ)}(undef,size_in(wφ)),
     )

@@ -1,8 +1,12 @@
 
 
-function quasi_bandpowers(f; θ, Δℓsph_bin = 15) # can we avoid passing θ??
-    tm = fieldtransform(f)
-    k    = FFTransforms.freq(tm)[2]
+function quasi_bandpowers(
+        f; 
+        θ=pix(fieldtransform(f))[1], 
+        Δℓsph_bin = 15
+    )
+    tm   = fieldtransform(f)
+    k    = freq(tm)[2]
     ℓsph = k' ./ sin.(θ)
 
     ℓsph_bin∂  = 0:Δℓsph_bin:(maximum(ℓsph)+1)
@@ -24,9 +28,13 @@ end
 
 
 
-function quasi_bandpowers(f, g; θ, Δℓsph_bin = 15) # can we avoid passing θ??
-    tm = fieldtransform(f)
-    k    = FFTransforms.freq(tm)[2]
+function quasi_bandpowers(
+        f, g; 
+        θ=pix(fieldtransform(f))[1], 
+        Δℓsph_bin = 15
+    ) 
+    tm   = fieldtransform(f)
+    k    = freq(tm)[2]
     ℓsph = k' ./ sin.(θ)
 
     ℓsph_bin∂  = 0:Δℓsph_bin:(maximum(ℓsph)+1)
@@ -439,7 +447,7 @@ end
 function pcg_coupled(;
         _Aᵍ::Function, # preconditioner 
         A::Function,   # operator we want to invert
-        b_g, b_f,      # solution we want is A⁻¹*vcat(b_g, f_g)
+        b_g, b_f,      # solution we want is A⁻¹*vcat(b_g, b_f)
         x_g, x_f,      # warm start for solution
         nsteps=30, rel_tol = 0.0,
         reshist=Vector{Float64}() 
