@@ -3,21 +3,21 @@
 # map space view
 # ==============================
 
-function map_plot_QU(
-    QU; 
-    θ=pix(fieldtransform(QU))[1], 
-    φ=pix(fieldtransform(QU))[2],
+function map_plot(
+    QU::Xfield{<:EAZ2}; 
     imag_fun = x->x,
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
     ) 
 
-    Q, U = QU[:] |> x->(real(x), imag(x))
-    
+    tm   = fieldtransform(QU)
+    θ, φ = pix(tm)
     nθ = length(θ)
     nφ = length(φ)
 
+    Q, U = QU[:] |> x->(real(x), imag(x))
+    
     f1k = Q |> imag_fun
     f2k = U |> imag_fun
     
@@ -28,7 +28,6 @@ function map_plot_QU(
     ax[2].set_xlim(1, length(φ))
 
     img1 = ax[1].imshow(f1k, vmin=vmin, vmax=vmax, origin="upper")
-    
     img2 = ax[2].imshow(f2k, vmin=vmin, vmax=vmax,  origin="upper")
     
     θ_trng = round.(Int,range(1, nθ, 7))
@@ -65,15 +64,16 @@ function map_plot_QU(
 end
 
 
-function map_plot_I(
-    Ifield;
-    θ=pix(fieldtransform(Ifield))[1], 
-    φ=pix(fieldtransform(Ifield))[2],
+function map_plot(
+    Ifield::Xfield{<:EAZ0}; 
     imag_fun = x->x,
-    title1 = L"I(\theta,\varphi)", 
+    title1 = L"Q(\theta,\varphi)", 
+    title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
-    )
+    ) 
 
+    tm   = fieldtransform(Ifield)
+    θ, φ = pix(tm)
     nθ = length(θ)
     nφ = length(φ)
 
@@ -110,8 +110,43 @@ function map_plot_I(
     return fig, ax
 end
 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# these are slated for removal in the future
+# keeping them around to allow these methods when the 
+# ... transform is from FFTransform.jl
+
+function map_plot_QU(
+        QU; 
+        θ, φ,
+        imag_fun = x->x,
+        title1 = L"Q(\theta,\varphi)", 
+        title2 = L"U(\theta,\varphi)",
+        vmin = nothing, vmax = nothing,
+    ) 
+    Tin = real(eltype_in(fieldtransform(QU))) 
+    tm  = EAZ2(Tin, θ, φ)
+    QUeaz = Xmap(tm, QU[:])
+    map_plot(QUeaz; imag_fun, title1, title2, vmin, vmax)
+end
+
+function map_plot_I(
+        Ifield;
+        θ, φ,
+        imag_fun = x->x,
+        title1 = L"I(\theta,\varphi)", 
+        vmin = nothing, vmax = nothing,
+    )
+    Tin = real(eltype_in(fieldtransform(Ifield)))
+    tm  = EAZ0(Tin, θ, φ)
+    Ieaz = Xmap(tm, Ifield[:])
+    map_plot(Ieaz; imag_fun, title1, vmin, vmax)
+end
 
 
+
+
+# fourier_power
+# ===================================
 
 # for example 
 # using ImageFiltering

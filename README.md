@@ -2,13 +2,8 @@
 
 # TODO:
 
-Try pre-laplace transform (+identity), or something else, to help with positive definiteness of az blocks
+* Add map_plot and fourier_plot versions for EAZ02
 
-Complex covariance functions with p = q + i*u.
+* Now that we are transitioning to EAZ transformations, perhaps the best way to signal that is by exporting EAZ, EAZ0 ... from CMBrings. The corresponding FFTransforms will not be exported as they eventually will be just for internal usage. 
 
-
-Also check these ...
-# Scratch/2020-05pre/note-04-08-2020.jl
-# Scratch/2020-05pre/note-04-12-2020.jl
-# Scratch/2020-05pre/note-04-15-2020.jl
-# Scratch/2020-05pre/note-04-20-2020.jl
+* Try pre-laplace transform (+identity), or something else, to help with positive definiteness of az blocks
