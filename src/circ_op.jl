@@ -64,13 +64,14 @@ function field2▪(f::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
     CC.ℂfθk2▪(fielddata(FourierField(f)))
 end
 
-function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Real} 
-    Xfourier(tm, CC.▪2ℝfθk(w))
-end
-
-function ▪2field(tm::Transform{Ti,2}, w::Vector{Vector{To}}) where {To, Ti<:Complex} 
-    nφ = size_in(tm)[2] 
-    Xfourier(tm, CC.▪2ℂfθk(w,nφ))
+# It would be nice to replace the else-if with dispatch
+function ▪2field(tm::Transform, w::Vector{Vector{To}}) where {To} 
+    if eltype_in(tm) <: Real 
+        return Xfourier(tm, CC.▪2ℝfθk(w))
+    elseif eltype_in(tm) <: Complex
+        nφ = size_in(tm)[2]  
+        return Xfourier(tm, CC.▪2ℂfθk(w,nφ))
+    end
 end
 
 # Define map(fun::Function, az::CircOp, f::Xfield)

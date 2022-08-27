@@ -6,11 +6,11 @@ using CMBLensing
 using PyPlot
 import CirculantCov as CC
 import JLD2
-
-gi  = JLD2.jldopen("grid_info.jld2")
-fes = JLD2.jldopen("field_estimates.jld2")
-fdc = JLD2.jldopen("fields_data_components.jld2")
-msk  = JLD2.jldopen("mask.jld2")
+dest_dir = "saved_output"
+gi  = JLD2.jldopen(joinpath(dest_dir, "grid_info.jld2"))
+fes = JLD2.jldopen(joinpath(dest_dir, "field_estimates.jld2"))
+fdc = JLD2.jldopen(joinpath(dest_dir, "fields_data_components.jld2"))
+msk = JLD2.jldopen(joinpath(dest_dir, "mask.jld2"))
 
 
 # import CMBrings
