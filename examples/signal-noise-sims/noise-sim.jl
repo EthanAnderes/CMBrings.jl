@@ -3,14 +3,14 @@
 #####################
 # TODO items
 """
-
-* make some of the filters EAZ transform agnositic
-
-* Make binned versions of the filters to compare bin(filter*field) vrs filter*bin(field)
-* Healpix pixel binner 
-* pixel weights
-* make a master regression fitter??
-* Try out LinearMaps for Xfields ...?
+• make Hpℓ like Hpm
+• remove redunant Modules
+• add polarization noise sim 
+• make some of the filters EAZ transform agnositic and move them to CMBrings
+• Make binned versions of the filters to compare bin(filter*field) vrs filter*bin(field)
+• Healpix pixel binner and put in CMBrings
+• pixel weights and put in CMBrings
+• make a master regression projector and put in CMBrings
 """ 
 #####################
 
@@ -27,7 +27,8 @@ using CMBrings
 using  XFields
 using  EAZTransforms
 using  EAZTransforms: pix, freq, nyq, Ωpix # these work for FFTransforms too
-import EAZTransforms as EZ 
+import EAZTransforms as EZ
+
 import FFTransforms as FT
 import HealpixTransforms as HT
 
@@ -39,24 +40,23 @@ import VecchiaFactorization as VF
 
 using LBblocks: @sblock
 
-using KahanSummation: sum_kbn
 using ClassicalOrthogonalPolynomials
-using DelimitedFiles
-using SparseArrays
-using BenchmarkTools
-using ProgressMeter
-using BlockArrays
-using Dierckx: Spline1D
-using ImageFiltering
-import JLD2
+using KahanSummation: sum_kbn
+# using SparseArrays
+# using BenchmarkTools
+# using ProgressMeter
+# using BlockArrays
+# using Dierckx: Spline1D
+# using Measurements
+# using ImageFiltering
+# import JLD2
 using PyPlot
-import PyCall as PC
-HP = PC.pyimport("healpy")
+# import PyCall as PC
+# HP = PC.pyimport("healpy")
 
 include("LocalMethods.jl")
 import .LocalMethods as LM
 
-# using Measurements
 
 
 
@@ -65,14 +65,13 @@ import .LocalMethods as LM
 
 point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
 
-
 # Set EAZ grid
 # ========================================
 
 
-# tm0 = @sblock let nφ=18000, φspan=deg2rad.((-60,60)) # default
-tm0 = @sblock let nφ=18000÷4, φspan=deg2rad.((-60,60)) # testing
-# tm0 = @sblock let nφ=18000÷2, φspan=deg2rad.((-60,60)) # testing
+tm0, tm2 = @sblock let nφ=18000÷4, φspan=deg2rad.((-60,60)) # default
+# tm0, tm2 = @sblock let nφ=18000÷4, φspan=deg2rad.((-45,45)) 
+# tm0, tm2 = @sblock let nφ=18000, φspan=deg2rad.((-60,60)) 
 
     Nside = 2048 # 8192
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
@@ -81,30 +80,10 @@ tm0 = @sblock let nφ=18000÷4, φspan=deg2rad.((-60,60)) # testing
     θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
 
     tm0 = EAZ0{Float64}(θ, φspan, nφ; θ∂)
-    # tm2 = EAZ2{Float32}(θ, φspan, nφ; θ∂)
+    tm2 = EAZ2{Float32}(θ, φspan, nφ; θ∂)
 
-    return tm0 
-end
-
-#=
-
-φspan=deg2rad.((-60,60))
-EZ.φ2φspan(EZ.φ(tm0))
-
-
-Int(Float32(3.000000941046065))
-
-using Test
-
-@test tm0.φfreq_mult == 3
-@test EZ.nφ_full(tm0) == 3*18000
-@test EZ.φ_full(tm0) == 2*Float32(π)*(0:EZ.nφ_full(tm0)-1) / EZ.nφ_full(tm0)
-@test EZ.φ(tm0) == CC.φ_grid(;φspan=tm0.φspan, N=18000)[1]
-
-# test unitary nature of the transform
-# test pixel area calculation for equal area pix
-
-=# 
+    return tm0, tm2 
+end;
 
 
 # Plot Grid statistics
@@ -132,63 +111,31 @@ end
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
 # =======================================================================
 
-# Mp (point source)
-Mp = @sblock let tm0, point_src_file_ 
+# Mp (point source mask)
+Mp = CMBrings.pix_point_src_mask(tm0, point_src_file_); 
 
-    hole_map = ones(size_in(tm0)) 
-
-    point_src_list = readdlm(point_src_file_, '\t', skipstart=22)
-    point_src_φ  = LM.RA2φ.(point_src_list[:,2])
-    point_src_θ  = LM.Dec2θ.(point_src_list[:,3])
-    point_src_Δβ = deg2rad.(point_src_list[:,4] / 60)
-
-    θ, φ     = EZ.pix(tm0)
-    for (θ₀, φ₀, Δβ₀) in zip(point_src_θ, point_src_φ, point_src_Δβ)
-        radius_hole = Δβ₀
-        radius_ramp = deg2rad(4/60) # Δβ₀/2 #!!! ad hoc choice here !!!
-        radius_tot  = (radius_hole + radius_ramp) * 1.1 # expand this a bit
-
-    
-        θ_idx_cut = findall(@. abs(θ - θ₀) <= radius_tot)
-        φ_idx_cut = findall(@. min(CC.counterclock_Δφ(φ₀, φ), CC.counterclock_Δφ(φ, φ₀)) <= (radius_tot/sin(θ₀+radius_tot)))
-   
-        if !isempty(θ_idx_cut) & !isempty(φ_idx_cut)
-            θ_val_cut = θ[θ_idx_cut]
-            φ_val_cut = φ[φ_idx_cut]
-
-            hole_map_mini = LM.hole_punch.(θ_val_cut, φ_val_cut'; θ₀, φ₀, radius_hole, radius_ramp)
-            # @assert all(hole_map_mini[1,:]   .== 1)
-            # @assert all(hole_map_mini[end,:] .== 1)
-            # @assert all(hole_map_mini[:,end] .== 1)
-            # @assert all(hole_map_mini[:,1]   .== 1)
-            hole_map[θ_idx_cut, φ_idx_cut] .*= hole_map_mini
-        end 
-    end
-
-    DiagOp(Xmap(tm0, hole_map))
-end
-
-# matshow(Mp[:])
-
-# Mu (uniform region)
+# Mu (uniform scan region pixel mask)
 Mu = @sblock let tm0
-
     φ = EZ.φ(tm0)
-
     # lb1, rb1, Δl1, Δr1 = -50, 50, 10, 10
     lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
     mask   = zeros(eltype_in(tm0),size_in(tm0))
-    mask .+= LM.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
+    mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
     DiagOp(Xmap(tm0, mask))
 end
 
-# Combined mask 
+# M (combined mask) 
 M = Mu * Mp
 
-# Hard-cut mask 
+# M_hard (Hard-cut mask, i.e. all observed pixels) 
 M_hard = DiagOp(Xmap(tm0, M[:].>0))
 
-
+# Map plot
+CMBrings.map_plot(
+    Mp.f, title1="point source pixel mask",
+    # Mu.f, title1="uniform scan region pixel mask",
+    # M.f, title1="full pixel mask",
+);
 
 
 
@@ -437,7 +384,7 @@ end
 
 μK′ₒ = 5 
 Ωₒ   = 2.7e-8 # Ω[end÷2] # setting it this way will change the noise levels depending on the ring spacing
-# LM.μKarcmin.(LM.σpix(μK′ₒ, Ωₒ), Ω) # gives the μKarcmin for all other rings.
+# CMBrings.μKarcmin.(CMBrings.σpix(μK′ₒ, Ωₒ), Ω) # gives the μKarcmin for all other rings.
 
 ℓkₒ  = 1500 # 1500 # 1000 # angular scale that  1/f^α noise crosses the noise
 αₒ   = 1 # 3    # power in the 1/f^α noise
@@ -454,7 +401,7 @@ Pₒ= Pfilter # Normalized(Legendre())
 w_eaz, f_eaz, pts_eaz, poly_eaz = @sblock let tm0, μK′ₒ, Ωₒ, αₒ, ℓkₒ, Pₒ, Mp, μK′pnt_srcₒ, poly_order_noiseₒ, poly_σμK_noiseₒ, poly_stitchₒ
 
     # White noise
-    σₒ   = LM.σpix(μK′ₒ, Ωₒ) # pixel noise sd on all rings (=> this isn't white noise)
+    σₒ   = CMBrings.σpix(μK′ₒ, Ωₒ) # pixel noise sd on all rings (=> this isn't white noise)
     w_eaz = σₒ * Xmap(tm0, randn(eltype_in(tm0),size_in(tm0))) # |> Xfourier
 
     # 1/f noise
@@ -472,7 +419,7 @@ w_eaz, f_eaz, pts_eaz, poly_eaz = @sblock let tm0, μK′ₒ, Ωₒ, αₒ, ℓk
 
     # Add noise to masked pixels
     pnt_srcs = DiagOp(Xmap(tm0, (Mp[:] .== 0)))
-    pts_eaz  = LM.σpix(μK′pnt_srcₒ, Ωₒ) * pnt_srcs * Xmap(tm0, randn(eltype_in(tm0),size_in(tm0)))
+    pts_eaz  = CMBrings.σpix(μK′pnt_srcₒ, Ωₒ) * pnt_srcs * Xmap(tm0, randn(eltype_in(tm0),size_in(tm0)))
 
     # TOD polynomial corruption 
     # pords = collect(0:poly_order_noiseₒ)'
@@ -522,8 +469,8 @@ n_eaz = w_eaz + f_eaz + pts_eaz + poly_eaz
 
 CMBrings.fourier_power(
     filt_n_eaz;
-    imag_fun=x->LM.imag_blur(abs2.(x);blur=1),  vmax = 400,
-    # imag_fun=LM.imag_logabs2clip, # vmin = -5, # vmin = -20,
+    imag_fun=x->CMBrings.imag_blur(abs2.(x);blur=1),  vmax = 400,
+    # imag_fun=CMBrings.imag_logabs2clip, # vmin = -5, # vmin = -20,
     title1="pure time-stream noise on each row",  
     # ℓs = [ℓ_Hp_cut, 4000, 10000, ℓ_Lp_cut, Int(2.5*8192 - 1), Int(3*8192 - 1)], 
     ℓs = [300, 4000, 10000, 13000, Int(2.5*8192 - 1), Int(3*8192 - 1)], 
@@ -534,8 +481,8 @@ CMBrings.fourier_power(
 
 CMBrings.map_plot(
     filt_n_eaz,
-    imag_fun=x->LM.imag_blur(x;blur=0), # vmin = -25, vmax = 25,
-    #imag_fun=x->LM.imag_blur(x;blur=3), # vmin = -15, vmax = 15,
+    imag_fun=x->CMBrings.imag_blur(x;blur=0), # vmin = -25, vmax = 25,
+    #imag_fun=x->CMBrings.imag_blur(x;blur=3), # vmin = -15, vmax = 15,
     title1="noise sim",
 );
 
@@ -547,8 +494,8 @@ CMBrings.map_plot(
 # actually not, since in this case with an eaz -> eaz pixel bin, the 
 # output will still be white. 
 
-# f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = w_eaz+f_eaz, f2 = Pbin(w_eaz+f_eaz)
-f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = w_eaz, f2 = Pbin(w_eaz)
+f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = w_eaz+f_eaz, f2 = filt_n_eaz
+# f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = w_eaz, f2 = Pbin(w_eaz)
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = f_eaz, f2 = Pbin(f_eaz)
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 25)
     ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 25)
@@ -560,9 +507,9 @@ end
 
 fig,ax = subplots(1) # , dpi=147)
 ul = findfirst(ℓbn .> 4_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
-# ax.plot(ℓbn[2:ul], f1_kpwr[2:ul])
-# ax.plot(ℓbn[2:ul], f2_kpwr[2:ul])
-ax.plot(ℓbn[2:ul], f2_kpwr[2:ul]./f1_kpwr[2:ul])
+ax.plot(ℓbn[2:ul], f1_kpwr[2:ul])
+ax.plot(ℓbn[2:ul], f2_kpwr[2:ul])
+# ax.plot(ℓbn[2:ul], f2_kpwr[2:ul]./f1_kpwr[2:ul])
 
 X = [ones(ul-1) ;; ℓbn[2:ul] ;; ℓbn[2:ul].^2 ;; ℓbn[2:ul].^3 ;; ℓbn[2:ul].^4]
 # β = X \ (log.(f2_kpwr[2:ul]) .- log.(f1_kpwr[2:ul]))

@@ -4,8 +4,10 @@ using EAZTransforms
 using EAZTransforms: pix, freq, nyq, Ωpix # these work for FFTransforms too
 import EAZTransforms as EZ 
 
-using FFTransforms
+using FFTransforms: 𝕀, ⊗, 𝕎
 import FFTransforms as FT
+
+import HealpixTransforms as HT
 
 using XFields
 using FieldLensing
@@ -13,16 +15,18 @@ import CirculantCov as CC
 import VecchiaFactorization as VF
 using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
 
+# using Distributed
 using LinearAlgebra
 using FFTW
 using Statistics 
 using SparseArrays
-using Distributed
 using JLD2
 using ProgressMeter
 using PyCall
 using PyPlot 
 using NLopt
+using DelimitedFiles: readdlm
+import ImageFiltering as IF
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 
@@ -43,18 +47,24 @@ end
 # TODO: you may also want to do something similar for triangular matrices:
 # trmv, Triangular matrix-vector multiplication
 
-
-# Extras on SphereTransforms like simulation, getindex etc. 
 include("transformations.jl")
 
 include("circ_op.jl")
 export CircOp, field2▪, ▪2field
 
+include("block_diag_construct.jl")
+
+include("filters.jl")
+
 include("lensing.jl")
 
 include("likelihoods.jl")
 
-include("methods.jl")
+include("wf_pcg.jl")
+
+include("alm_from_eaz.jl")
+
+include("misc_methods.jl")
 
 include("plot.jl")
 

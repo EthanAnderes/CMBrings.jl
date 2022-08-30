@@ -1,4 +1,25 @@
 
+# ================================================
+log₊(x::T) where T = x > 0 ? log(x) : T(-Inf)
+
+function log_clip(x)
+    lx = log₊.(x)
+    finite_idx = @. isfinite(lx)
+    if !any(finite_idx)
+        return lx 
+    else 
+        lx[.!(finite_idx)] .= minimum(lx[finite_idx])
+        return lx
+    end  
+end
+
+imag_logabs2clip(x) = log_clip(abs2.(x)) 
+
+function imag_blur(x;blur=0) 
+    nθ, nφ = size(x) 
+    IF.imfilter(x, IF.Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
+end
+
 
 # map space view
 # ==============================

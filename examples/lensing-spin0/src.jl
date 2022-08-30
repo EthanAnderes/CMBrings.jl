@@ -1,4 +1,13 @@
 
+# TODO
+# ==============================
+#=
+
+• Using EAZTransforms for all fields
+
+=#
+
+
 # Modules
 # ==============================
 # using FFTW

@@ -76,9 +76,9 @@ tm0, tm2, grid_type = @sblock let
     # θ  = CC.θ_healpix(Nside)[ri]
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
-    type   = :equicosθ # or :equiθ
-    nθ     = 805
-    θspan  = π/2 .- deg2rad.((-41.78,-70.43)) 
+    type = :equiθ # :equicosθ 
+    nθ     = 600 # 805
+    θspan  = π/2 .- deg2rad.((-51,-69)) # π/2 .- deg2rad.((-41.78,-70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
     tm0 = EAZ0{Float64}(θ, φspan, nφ; θ∂)
@@ -88,71 +88,8 @@ tm0, tm2, grid_type = @sblock let
 end
 
 
-# Coordinate pivot, blocks and queries for Vecchia
-# ==============================
-## using Primes; factor(length(tm0.θ)) # ; @assert nθ÷bks == nθ/bks
-
-bsd_nθ       = 161
-block_sizesθ = VF.block_split(tm0.nθ, bsd_nθ) # |> sort
-permθ        = 1:tm0.nθ
-
-
-# (slated for removal) Pixel grid
-# ==============================
-#= 
-θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ = @sblock let 
-    
-    # --------- hi-res, equiθ
-    # φspan, freq_mult = deg2rad.((-60, 60)), 3
-    # φ, φ∂ = CC.φ_grid(;φspan, N=1536)    # N=768 or N=1536, 2048, 1024, 972,  1280
-    # type, N, θspan  = :equiθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
-    # θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    # bsd_nθ = 161
-
-    φspan, freq_mult = deg2rad.((-60, 60)), 3
-    φ, φ∂ = CC.φ_grid(;φspan, N=1575)    # N=768 or N=1536, 1575, 2048, 1024, 972,  1280
-    type, N, θspan  = :equicosθ,  805, π/2 .- deg2rad.((-41.78,-70.43)) 
-    θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    bsd_nθ = 161
-
-    #  -------- med-res
-    # φspan, freq_mult = deg2rad.((-45, 45)), 4
-    # φ, φ∂ = CC.φ_grid(;φspan, N=1280)    # N=768 or N=1024, 972, 1536, 1280
-    # type, N, θspan  = :equiθ,  600, π/2 .- deg2rad.((-51,-69)) 
-    # θ, θ∂  = CC.θ_grid(; θspan, N, type)
-    # bsd_nθ = 150
-
-    # --------- hi-res, healpix rings
-    # Nside = 8192
-    # type  = :healpix
-    # ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.805))))
-    # ri = (3*Nside+1):6:(4*Nside-1 - ri_offset_from_SP) # upper limit should be 4*Nside-1
-    # θ  = CC.θ_healpix(Nside)[ri]
-    # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
-    # # ... Now choose the Az number of grid points
-    # # Make sure the portion of azimuth is a factor of nφ_full
-    # # 4Nside should be largest value for nφ_full
-    # # nφ_full = 4725 # 4725 == 3^3 * 5^2 * 7
-    # # nφ_full = 5040 # 5040 == 2^4 * 3^2 * 5 * 7       
-    # # nφ_full = 4*(Nside-2) # 2^3 * 3^2 * 5 * 7 * 13 
-    # φ_full = 2 * π * (0:nφ_full-1) / nφ_full
-    # φspan, freq_mult = deg2rad.((-60, 60)), 3
-    # φspan, freq_mult = deg2rad.((0, 360)), 1
-    # # φspan, freq_mult = deg2rad.((-45, 45)), 4
-    # φ, φ∂ = CC.φ_grid(;φspan, N=nφ_full÷freq_mult)  
-    # bsd_nθ = 161
-
-    
-    nθ, nφ = length(θ), length(φ)
-    Ω  = CC.counterclock_Δφ(φ∂[1], φ∂[2]) .* diff(.- cos.(θ∂))
-    Δθ = diff(θ∂)
-
-    collect(θ), φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, type, bsd_nθ
-end 
-=# 
-
 # Plot Grid statistics
-# ========================================
+
 @sblock let tm0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
@@ -173,19 +110,13 @@ end
 @show extrema(EZ.pix_diag_arcmin(tm0));
 
 
-
-# (slated for removal) Transformations
+# Coordinate pivot, blocks and queries for Vecchia
 # ==============================
-#=
-tm2, tm0, T = @sblock let nθ, nφ, freq_mult
-    ## T  = ComplexF32
-    T  = ComplexF64
-    Tr = real(T)
-    tm2 = 𝕀(nθ) ⊗ 𝕌(T, nφ, 2π/freq_mult)
-    tm0 = 𝕀(nθ) ⊗ 𝕌(Tr, nφ, 2π/freq_mult)
-    return tm2, tm0, T
-end;
-=#
+## using Primes; factor(length(tm0.θ)) # ; @assert nθ÷bks == nθ/bks
+
+bsd_nθ       = 150 # 161
+block_sizesθ = VF.block_split(tm0.nθ, bsd_nθ) # |> sort
+permθ        = 1:tm0.nθ
 
 # Spectral densities
 # ==============================
@@ -947,7 +878,7 @@ CMBrings.map_plot(
     # ϕ; title1=L"True $\phi$",
     # Xmap(tm0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
     Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
-    imag_fun=x->LM.imag_blur(x;blur=0),
+    imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
 
@@ -958,7 +889,7 @@ CMBrings.map_plot(
     # qu;  title1=L"Truth unlensed $Q$", title2=L"Truth unlensed $U$", # vmin = -0.15, vmax = 0.15,
     # qu - f_cr;  title1=L"Truth - Estimated unlensed $Q$", title2=L"Truth - Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
     M * (Ł(ϕ)*qu - Ł(ϕ_cr)*f_cr);  title1=L"Truth - Estimated lensed $Q$", title2=L"Truth - Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,
-    imag_fun=x->LM.imag_blur(x;blur=0),
+    imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
 
@@ -969,7 +900,7 @@ CMBrings.fourier_power(
     # Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$",  vmin = -15, # vmax = 0,
     Xmap(tm0, kappa(ϕ_cr - ϕ));  title1=L"truth - est $\kappa$", # vmin = -15, # vmax = 0,
     ℓs = [400, 1000, 3000], 
-    imag_fun=LM.imag_logabs2clip,
+    imag_fun=CMBrings.imag_logabs2clip,
 );
 
 #-
