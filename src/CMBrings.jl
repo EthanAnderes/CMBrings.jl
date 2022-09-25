@@ -1,8 +1,9 @@
 module CMBrings
 
 using EAZTransforms
-using EAZTransforms: pix, freq, nyq, Ωpix # these work for FFTransforms too
+using EAZTransforms: pix, freq, nyq, Ωpix 
 import EAZTransforms as EZ 
+# should we export EZ and pix, freq, nyq, Ωpix ?
 
 using FFTransforms: 𝕀, ⊗, 𝕎
 import FFTransforms as FT
@@ -14,6 +15,7 @@ using FieldLensing
 import CirculantCov as CC
 import VecchiaFactorization as VF
 using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
+using BlockBandedMatrices: BlockBandedMatrix, Zeros, Ones
 
 # using Distributed
 using LinearAlgebra

@@ -22,7 +22,7 @@ function FieldLensing.flow_data(L::AbstractArrayLense, ff::Xmap{TM, TI, TO, d}) 
 end
 
 
-function FieldLensing.flow_reconstruct(L::AbstractFlow, ff::MF, ln_ffd::NTuple{2,<:AbstractArray}) where {n, TM, TI<:Complex, TO, d, MF<:Xfield{TM, TI, TO, d}}
+function FieldLensing.flow_reconstruct(L::AbstractFlow, ff::MF, ln_ffd::NTuple{2,<:AbstractArray}) where {TM, TI<:Complex, TO, d, MF<:Xfield{TM, TI, TO, d}}
     MF(fieldtransform(ff), complex.(ln_ffd[1], ln_ffd[2]))
 end
 

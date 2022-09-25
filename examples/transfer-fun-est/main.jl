@@ -42,14 +42,6 @@ import VecchiaFactorization as VF
 
 using LBblocks: @sblock
 
-# using SparseArrays
-# using BenchmarkTools
-# using ProgressMeter
-# using BlockArrays
-# using Dierckx: Spline1D
-# using Measurements
-# using ImageFiltering
-# import JLD2
 using PyPlot
 import PyCall as PC
 HP = PC.pyimport("healpy")
@@ -93,8 +85,8 @@ point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_ma
 Nside  = 2048*4
 lmax   = Int(2.5*Nside) #  3*Nside-1
 
-tmℍ2 = HT.ℍ2{Float32}(Nside; lmax)
-tmℍ0 = HT.ℍ0{Float32}(Nside; lmax)
+tmℍ2 = HT.ℍ2{Float64}(Nside; lmax)
+tmℍ0 = HT.ℍ0{Float64}(Nside; lmax)
 
 l, m  = HT.lm(lmax);
 
@@ -105,7 +97,7 @@ l, m  = HT.lm(lmax);
 eaz0, eaz2, ring_idx_rng = @sblock let Nside
 
     nφ    = 4 * (Nside-2) ÷ 4 # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    φspan = deg2rad.((-60,60))
+    φspan = (-π/3, π/3) # deg2rad.((-60,60))
 
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
     # ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
@@ -113,8 +105,8 @@ eaz0, eaz2, ring_idx_rng = @sblock let Nside
     θ  = CC.θ_healpix(Nside)[ri]
     θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
 
-    eaz0 = EAZ0{Float32}(θ, φspan, nφ; θ∂)
-    eaz2 = EAZ2{Float32}(θ, φspan, nφ; θ∂)
+    eaz0 = EAZ0{Float64}(θ, φspan, nφ; θ∂)
+    eaz2 = EAZ2{Float64}(θ, φspan, nφ; θ∂)
 
     return eaz0, eaz2, ri 
 end;
@@ -139,20 +131,30 @@ end
 @show extrema(EZ.pix_diag_arcmin(eaz0));
 
 
+# Healpix pwf 
+# =============================
+
+PWF▪ = CMBrings.healpix_pwf▫(eaz0, Nside=2048) |> CircOp 
+
+PWF1▪[1] |> matshow
+
+
+
 
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
 # =======================================================================
 
 # Mp (point source mask)
-Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_); 
+Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; smooth_border_Δ′= 10); 
 Mp2 = DiagOp(Xmap(eaz2, Mp0[:]))
 
 # Mu (uniform scan region pixel mask)
 Mu0 = @sblock let eaz0
     ## parameters ...
+    lb1, rb1, Δl1, Δr1 = -48, 48, 6, 6
     # lb1, rb1, Δl1, Δr1 = -50, 50, 10, 10
-    lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
+    # lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
     
     φ = EZ.φ(eaz0)
     mask   = zeros(eltype_in(eaz0),size_in(eaz0))
@@ -172,16 +174,16 @@ M_hard2 = DiagOp(Xmap(eaz2, M0[:].>0))
 
 # Map plot
 CMBrings.map_plot(
-    Mp0.f, title1="point source pixel mask",
+    # Mp0.f, title1="point source pixel mask",
     # Mu0.f, title1="uniform scan region pixel mask",
-    # M0.f, title1="full pixel mask",
+    M0.f, title1="full pixel mask",
 );
 
 
 # Load pre filtered eaz maps
 # ========================================
 
-qu_eaz, t_eaz = @sblock let  g3_adjust=1, cmb_file_=preTF_cmb_file_, HP, tmℍ0, tmℍ2, eaz0, eaz2, ring_idx_rng
+@time qu_eaz, t_eaz = @sblock let  g3_adjust=1, cmb_file_=preTF_cmb_file_, HP, tmℍ0, tmℍ2, eaz0, eaz2, ring_idx_rng
 
     φ, φ_full = EZ.φ(eaz0), EZ.φ_full(eaz0)
     hpix_map_IQU  = g3_adjust .* HP.read_map(cmb_file_, field=(0,1,2))
@@ -214,14 +216,14 @@ qu_eaz, t_eaz = @sblock let  g3_adjust=1, cmb_file_=preTF_cmb_file_, HP, tmℍ0,
     ) # |> x->Xmap(eaz0, x.*CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb2, rb=rb2, Δl=Δl2, Δr=Δr2))
 
     return Xmap(eaz2, qu_eaz), Xmap(eaz0, t_eaz)
-end
+end;
 
 
 
 # Load filtered eaz maps
 # ========================================
 
-TF_qu_eaz, TF_t_eaz = @sblock let  g3_adjust=1, cmb_file_=TF_cmb_file_, HP, tmℍ0, tmℍ2, eaz0, eaz2, ring_idx_rng
+@time TF_qu_eaz, TF_t_eaz = @sblock let  g3_adjust=1, cmb_file_=TF_cmb_file_, HP, tmℍ0, tmℍ2, eaz0, eaz2, ring_idx_rng
 
     φ, φ_full = EZ.φ(eaz0), EZ.φ_full(eaz0)
     hpix_map_IQU  = g3_adjust .* HP.read_map(cmb_file_, field=(0,1,2))
@@ -252,7 +254,7 @@ TF_qu_eaz, TF_t_eaz = @sblock let  g3_adjust=1, cmb_file_=TF_cmb_file_, HP, tm�
     ) # |> x->Xmap(eaz0, x.*CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb2, rb=rb2, Δl=Δl2, Δr=Δr2))
 
     return Xmap(eaz2, qu_eaz), Xmap(eaz0, t_eaz)
-end
+end;
 
 # approx 2D Tf multiplier
 # =============================
@@ -285,26 +287,31 @@ end
 Tf0  *= B0
 Tf2  *= B2
 
+
+
+
+
 # some plots
 # =============================
 
 CMBrings.map_plot(
     # M0 * TF_t_eaz; title1=L"$Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
-    M0 * Tf0 * t_eaz; title1=L"approximated $Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
+    # M0 * Tf0 * t_eaz; title1=L"approximated $Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
     #
-    # M2 * TF_qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim",  # imag_fun=x->CMBrings.imag_blur(x;blur=25),
+    M2 * TF_qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim",  # imag_fun=x->CMBrings.imag_blur(x;blur=25),
     # M2 * Tf2 * qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim", #  imag_fun=x->CMBrings.imag_blur(x;blur=25),
 );
 
 # %%
 
 CMBrings.fourier_power(
-    # Mu0 * TF_t_eaz; title1=L"log EAZ-fourier power: $Tf * T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
-    Mu0 * Tf0 * t_eaz; title1=L"log EAZ-fourier power: $T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
+    # M0 * TF_t_eaz; title1=L"log EAZ-fourier power: $Tf * T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
+    M0 * Tf0 * t_eaz; title1=L"log EAZ-fourier power: $T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
     #
     # Mu2 * TF_qu_eaz; title1=L"log EAZ-fourier power: $Tf * P$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
     # Mu2 * Tf2 * qu_eaz; title1=L"log EAZ-fourier power: $P$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
     ℓs = [275, 10_000, 13_000, Int(2048*2.5-1)], 
+    xaxis_units = :m # :Hz
 );
 
 
@@ -316,8 +323,8 @@ CMBrings.fourier_power(
 
 
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                   f2 = M0 * Tf0 * t_eaz
-# f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
+                                    f2 = M0 * Tf0 * t_eaz
+#f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 15)
     ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 15)
@@ -342,8 +349,8 @@ ax[2].legend()
 # This allows us to check if the missing filter has ell based contours
 
 CMBrings.fourier_power(
-    Xfourier(eaz0, (Mu0 * TF_t_eaz)[!] ./ (Mu0 * Tf0 * t_eaz)[!]),
-    vmin = 0.8, vmax=1.2,
+    Xfourier(eaz0, (M0 * TF_t_eaz)[!] ./ (M0 * Tf0 * t_eaz)[!]),
+    vmin = 0.5, vmax=2.0,
     ℓs = [275, 10_000, 13_000, Int(2048*2.5-1)], 
 );
 
@@ -352,6 +359,10 @@ CMBrings.fourier_power(
 From this picture it does appear that the missing filter is isotropic. 
 Could this be the beam?  
 """
+
+
+
+
 
 
 

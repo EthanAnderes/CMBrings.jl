@@ -3,7 +3,7 @@
 # Mp:  construct point source pixel mask from pnt src list 
 # ==========================================
 
-function pix_point_src_mask(tm0::EAZ, point_src_file_) 
+function pix_point_src_mask(tm0::EAZ, point_src_file_; smooth_border_Δ′ = 4.0) 
 
     hole_map = ones(size_in(tm0)) 
 
@@ -15,7 +15,7 @@ function pix_point_src_mask(tm0::EAZ, point_src_file_)
     θ, φ     = EZ.pix(tm0)
     for (θ₀, φ₀, Δβ₀) in zip(point_src_θ, point_src_φ, point_src_Δβ)
         radius_hole = Δβ₀
-        radius_ramp = deg2rad(4/60) # Δβ₀/2 #!!! ad hoc choice here !!!
+        radius_ramp = arcmin2rad(smooth_border_Δ′) 
         radius_tot  = (radius_hole + radius_ramp) * 1.1 # expand this a bit
 
     
@@ -59,3 +59,99 @@ function hole_punch(θ, φ; θ₀, φ₀, radius_hole, radius_ramp)
     end
 end
 
+
+
+# Healpix pixel window function 
+# ===============================================
+# healpix_pwf▫ constructs the block diagonals for the 
+# conv operator
+
+
+function healpix_pwf_Γ(Nside::Int)
+    θhpx, φhpx, idxhpx, Δφhpx, nφhpx = HT.θ_φ_idx_4_rings(Nside)
+    function (θ₁, θ₂, φ₁, φ⃗)
+        # we need find an approx θ spacing to the nearest healpix rings
+        # to the north and south of θ₁
+        ic = findfirst(θhpx .> θ₁) # index of the nearest ring to θ₁
+        Δθ_north  = abs(θhpx[ic] - θhpx[ic-1])
+        Δθ_south  = abs(θhpx[ic+1] - θhpx[ic])
+        Δφ_center = Δφhpx[ic]
+        pixtf = HT.pixel.(
+            θ₂, φ⃗;
+            φ_center = φ₁, 
+            Δφ_center, 
+            θ_center = θ₁,
+            θ_north  = θ₁ - Δθ_north, 
+            θ_south  = θ₁ + Δθ_south,
+        )
+        return complex.(1.0.*pixtf,0)
+    end
+end
+
+
+function healpix_count_θ(eaz::EAZ, Nside::Int)
+    θ = EZ.θ(eaz)
+    φ = EZ.φ(eaz)
+    θhpx, φhpx, idxhpx, Δφhpx, nφhpx = HT.θ_φ_idx_4_rings(Nside)
+    npixel_at_θ = fill(0, length(θ))
+
+    for i in eachindex(θ)
+
+        θᵢ = θ[i]
+        ic = findfirst(θhpx .> θᵢ) # index of the nearest ring to θ₁
+        Δθ_north  = abs(θhpx[ic] - θhpx[ic-1])
+        Δθ_south  = abs(θhpx[ic+1] - θhpx[ic])
+        θ_center = θᵢ
+        θ_north  = θᵢ - Δθ_north 
+        θ_south  = θᵢ + Δθ_south
+
+        φ_center  = φ[3end÷4] # this needs to be in the interior ...
+        Δφ_center = Δφhpx[ic]
+
+        θs = θ[θ_north .≤ θ .≤ θ_south]
+        φs = φ[φ_center-Δφ_center .≤ φ .≤ φ_center+Δφ_center]
+
+
+        pixel_at_dec = HT.pixel.(θs, φs'; φ_center, Δφ_center, θ_center, θ_north, θ_south)
+        npixel_at_θ[i] = sum(pixel_at_dec)
+
+    end
+
+    return npixel_at_θ
+end
+
+
+function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int) where {T}
+    # Nside determines the size of the healpix pixels
+    # eaz0 determines the grid that will get healpix conv
+
+    θ  = EZ.θ(eaz0)
+    nθ = length(θ)
+
+    # Figure out bandwidths ...
+    θhpx, φhpx, idxhpx, Δφhpx, nφhpx = HT.θ_φ_idx_4_rings(Nside)
+    θhpx_obs = θhpx[minimum(θ) .≤ θhpx .≤ maximum(θ)]
+    max2Δθ   = 2*maximum(diff(θhpx_obs)) 
+    # this ↑ is the max bandwidth of the pixel along the pole.
+
+    # compute the sparsity pattern
+    # tile a block banded matrix to cover it.
+    sparse_pattern  = @. abs(θ - θ') ≤ max2Δθ
+    nrow_each_block = ceil(Int, maximum(map(sum, eachcol(sparse_pattern)))/2)
+    bnθs′           = VF.block_split(nθ, nrow_each_block) 
+    bnθs            = vcat(bnθs′[1:end-2], sum(bnθs′[end-1:end]))
+    @assert sum(bnθs) == nθ
+    # bnθs is a vector of block sizes.
+
+    Σ▫ = block_tridiag_Σ▫(eaz0, healpix_pwf_Γ(Nside), bnθs)
+
+    # DΩ    = Diagonal(EZ.Ωpix(eaz0))
+    # return map(Σ▫i -> Σ▫iDΩ, Σ▫)
+
+    Dnpix⁻¹ = Diagonal(1 ./ healpix_count_θ(eaz0, Nside))
+    return map(Σ▫i -> Dnpix⁻¹*Σ▫i, Σ▫)
+end
+
+
+
+# ===============================================

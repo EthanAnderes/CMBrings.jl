@@ -78,7 +78,7 @@ tm0, tm2, grid_type = @sblock let
     ## ---- option
     type = :equiθ # :equicosθ 
     nθ     = 600 # 805
-    θspan  = π/2 .- deg2rad.((-51,-69)) # π/2 .- deg2rad.((-41.78,-70.43))
+    θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
     tm0 = EAZ0{Float64}(θ, φspan, nφ; θ∂)

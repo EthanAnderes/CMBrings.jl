@@ -1,53 +1,81 @@
-
-
 # Constructors for Block diagonals in AzEqui coordinates
 # ====================================
 
-# TODO: replace the body of az_cov_blks with the similar methods from CirculantCov
+function az_cov_blks(Γ; θ, φ, ℓrange=1:length(φ)÷2+1)
+    CC.Γ2cov_blks(Γ; θ, φ, ℓrange)
+end
 
-function az_cov_blks(
-        ℓ, ffℓ::Vector{rT}; 
-        θ, φ, ngrid=100_000, ℓrange=1:length(φ)÷2+1) where {rT}
-    nθ, nφ = length(θ), length(φ)
-    ptmW   = FFTW.plan_fft(Vector{complex(rT)}(undef, nφ))
-    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
-    M▫     = Matrix{rT}[zeros(rT,nθ,nθ) for ℓ′ in ℓrange]
-    prgss  = Progress(nθ, dt=1, desc="Computing Block Diagonals")
-    for k = 1:nθ
-        for j = 1:nθ
-            Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ,  ptmW)
-            for (i,ℓ′) in enumerate(ℓrange)
-                M▫[i][j,k] = real(Mγⱼₖℓ⃗[ℓ′])
-            end
-        end
-        next!(prgss)
-    end
-    return M▫
+function az_cov_blks(Γ, C; θ, φ, ℓrange=1:length(φ)÷2+1)
+    CC.ΓC2cov_blks(Γ, C; θ, φ, ℓrange)
 end
 
 function az_cov_blks(
-        ℓ, eeℓ::Vector{rT}, bbℓ::Vector{rT}; 
-        θ, φ, ngrid=100_000, ℓrange=1:length(φ)÷2+1) where {rT}
-    T      = complex(rT)
-    nθ, nφ = length(θ), length(φ)
-    ptmW   = FFTW.plan_fft(Vector{T}(undef, nφ))
+        ℓ::AbstractVector, ffℓ::Vector; 
+        θ, φ, 
+        ℓrange=1:length(φ)÷2+1,
+        ngrid=100_000, 
+    )
+    Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    CC.Γ2cov_blks(Γ; θ, φ, ℓrange)
+end
+
+function az_cov_blks(
+        ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector; 
+        θ, φ, 
+        ℓrange=1:length(φ)÷2+1, 
+        ngrid=100_000,
+    )
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
-    M▫     = Matrix{T}[zeros(T,2nθ,2nθ) for ℓ′ in ℓrange]
-    prgss  = Progress(nθ, dt=1, desc="Computing Block Diagonals")
-    for k = 1:nθ
-        for j = 1:nθ
-            Mγⱼₖℓ⃗, Mξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, C, ptmW)
+    CC.ΓC2cov_blks(Γ, C; θ, φ, ℓrange)
+end
+
+
+# New tridiagonal spin0 constructor 
+# ====================================
+# TODO: add spin2 and tests
+
+function block_tridiag_Σ▫(
+        eaz0::EAZ0{T}, 
+        Γ,
+        bnθs::AbstractVector{<:Integer};
+        ℓrange=1:size_out(eaz0)[2],
+    ) where {T}
+    # bnθs looks like this [20, 10, 5, 5, ...]
+    # which means the first diag block is 20x20, 
+    # next diag block is 10x10, ... 
+
+    θ, φ, nθ, nφ = EZ.θ(eaz0), EZ.φ(eaz0), eaz0.nθ, eaz0.nφ
+    ptmW   = FFTW.plan_fft(Vector{Complex{T}}(undef, nφ))
+
+    @assert sum(bnθs) == nθ
+    Σ▫ = [BlockBandedMatrix{T}(Zeros(nθ, nθ), bnθs, bnθs, (1,1)) for ℓ′ in ℓrange]
+    # Σ▫ = [zeros(Float64, nθ, nθ) for ℓ′ in ℓrange]
+
+    # just to make it easier lets create a bool to record the support
+    # of the blockedBanded array.
+    Supp = BlockBandedMatrix{Bool}(Ones(nθ, nθ), bnθs, bnθs, (1,1))
+
+    setΣ! = function (M▫,j,k)
+        if Supp[j,k]
+            Mγⱼₖℓ⃗  = CC.γθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, ptmW)
             for (i,ℓ′) in enumerate(ℓrange)
-                Jℓ′ = CC.Jperm(ℓ′, nφ)
-                M▫[i][j,   k   ] = Mγⱼₖℓ⃗[ℓ′]
-                M▫[i][j,   k+nθ] = Mξⱼₖℓ⃗[ℓ′]
-                M▫[i][j+nθ,k   ] = conj(Mξⱼₖℓ⃗[Jℓ′])
-                M▫[i][j+nθ,k+nθ] = conj(Mγⱼₖℓ⃗[Jℓ′])
+                M▫[i][j,k] = real(Mγⱼₖℓ⃗[ℓ′])
             end
+            return nothing
+        else
+            return nothing
+        end
+    end
+    
+    prgss  = Progress(nθ, dt=1, desc="Constructing block diagonals")
+    for k in 1:nθ # loop over column block
+        for j in 1:nθ
+            setΣ!(Σ▫, j, k)
         end
         next!(prgss)
-    end
-    return M▫
+    end 
+
+    return Σ▫
 end
 
 
@@ -196,7 +224,7 @@ end
 
 # ------------------------------------------
 
-
+# TODO: Harded coded Float64 in these cases. Fix it.
 
 # Spin0
 function spin0_az_bidiagΣ▫_P(
