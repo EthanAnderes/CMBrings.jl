@@ -133,13 +133,14 @@ end
 
 # Healpix pwf 
 # =============================
+PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
 
-PWF▪ = CMBrings.healpix_pwf▫(eaz0, Nside=2048) |> CircOp 
+PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048) |> CircOp 
 
-PWF1▪[1] |> matshow
+# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0, 2048)
+# plot(nhpx_θ)
 
-
-
+PWF▪[1] |> matshow
 
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu

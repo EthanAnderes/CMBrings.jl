@@ -89,7 +89,7 @@ function healpix_pwf_Γ(Nside::Int)
 end
 
 
-function healpix_count_θ(eaz::EAZ, Nside::Int)
+function healpix_count_θ(eaz::EAZ; Nside::Int)
     θ = EZ.θ(eaz)
     φ = EZ.φ(eaz)
     θhpx, φhpx, idxhpx, Δφhpx, nφhpx = HT.θ_φ_idx_4_rings(Nside)
@@ -121,7 +121,7 @@ function healpix_count_θ(eaz::EAZ, Nside::Int)
 end
 
 
-function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int) where {T}
+function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalize_row_ave = true) where {T}
     # Nside determines the size of the healpix pixels
     # eaz0 determines the grid that will get healpix conv
 
@@ -145,13 +145,39 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int) where {T}
 
     Σ▫ = block_tridiag_Σ▫(eaz0, healpix_pwf_Γ(Nside), bnθs)
 
-    # DΩ    = Diagonal(EZ.Ωpix(eaz0))
-    # return map(Σ▫i -> Σ▫iDΩ, Σ▫)
-
-    Dnpix⁻¹ = Diagonal(1 ./ healpix_count_θ(eaz0, Nside))
-    return map(Σ▫i -> Dnpix⁻¹*Σ▫i, Σ▫)
+    # now we normalize
+    if normalize_row_ave
+        ## Adjust so row mean of the pixel kernel is 1
+        dnpix   = healpix_count_θ(eaz0; Nside)
+        Dnpix⁻¹ = 0 * Σ▫[1] # faster mult if its the same block type
+        for i in axes(Dnpix⁻¹, 1)
+            Dnpix⁻¹[i,i] = 1 / dnpix[i]
+        end
+        return map(Σ▫i -> Dnpix⁻¹ * Σ▫i, Σ▫)
+    else
+        ## Adjust so left mult behaves like an integral operator
+        dΩ = EZ.Ωpix(eaz0)
+        DΩ = 0 * Σ▫[1]
+        for i in axes(DΩ, 1)
+            DΩ[i,i] = dΩ[i]
+        end
+        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+    end
 end
 
-
+function healpix_pwf▫(eaz2::EAZ2{T}; Nside::Int, normalize_row_ave = true) where {T}
+    Σ0▫   = healpix_pwf▫(EZ.spin0(eaz2); Nside, normalize_row_ave)
+    bnθs0 = blocksizes(Σ0▫[1],1)
+    bnθs2 = vcat(bnθs0, bnθs0)
+    nθ    = eaz2.nθ
+    Σ2▫   = [BlockBandedMatrix{T}(Zeros(2nθ, 2nθ), bnθs2, bnθs2, (1,1)) for i in eachindex(Σ0▫)]
+    for i in eachindex(Σ2▫)    
+        for J = blockaxes(Σ0▫[i],2), K = blockcolsupport(Σ0▫[i],J)
+            view(Σ2▫[i], K, J)       .= Σ0▫[i][K, J]
+            view(Σ2▫[i], K+nθ, J+nθ) .= Σ0▫[i][K, J]
+        end
+    end
+    return Σ2▫
+end
 
 # ===============================================

@@ -14,7 +14,9 @@ using XFields
 using FieldLensing
 import CirculantCov as CC
 import VecchiaFactorization as VF
-using BlockArrays: Block, BlockArray, PseudoBlockArray, blocks, undef_blocks
+using BlockArrays: Block, BlockArray, PseudoBlockArray, 
+                    blocks, undef_blocks, blocksizes,
+                    blockaxes, blockcolsupport
 using BlockBandedMatrices: BlockBandedMatrix, Zeros, Ones
 
 # using Distributed
