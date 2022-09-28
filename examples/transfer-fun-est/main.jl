@@ -292,7 +292,7 @@ Tf0  *= DiagOp(Xfourier(eaz0, exp.(.- (abs.(EZ.ell(eaz0))./ℓ_Lp).^6) ))
 Tf2  *= DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
 
 # add beam 
-fwhm′  = 0.7 # 1.5 # 1.7
+fwhm′  = 1.0 # 1.5 # 1.7
 B0, B2 = @sblock let eaz0, eaz2, fwhm′
     fwhmrad = CMBrings.arcmin2rad(fwhm′)
     σ²      = CMBrings.fwhmrad2σ²(fwhmrad)
@@ -358,7 +358,8 @@ CMBrings.fourier_power(
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
                                     # f2 = M0 * Tf0 * t_eaz
                                     # f2 = M0 * PWF0▪ * Tf0 * t_eaz
-                                    f2 = M0  * PWF0▪ * PWF0▪ * PWF0▪ * Tf0 * t_eaz
+                                    # f2 = M0  * PWF0▪ * PWF0▪ * PWF0▪ * Tf0 * t_eaz
+                                    f2 = M0  * PWF0▪ * PWF0▪ * Tf0 * t_eaz
 #f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
