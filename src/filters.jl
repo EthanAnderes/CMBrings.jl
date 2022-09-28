@@ -72,7 +72,8 @@ function healpix_pwf_Γ(Nside::Int)
     function (θ₁, θ₂, φ₁, φ⃗)
         # we need find an approx θ spacing to the nearest healpix rings
         # to the north and south of θ₁
-        ic = findfirst(θhpx .> θ₁) # index of the nearest ring to θ₁
+        # ic = findfirst(θhpx .> θ₁) # index of the nearest ring to θ₁
+        ic = findmin(abs2.(θhpx .- θ₁))[2] # index of the nearest ring to θ₁
         Δθ_north  = abs(θhpx[ic] - θhpx[ic-1])
         Δθ_south  = abs(θhpx[ic+1] - θhpx[ic])
         Δφ_center = Δφhpx[ic]
@@ -98,7 +99,8 @@ function healpix_count_θ(eaz::EAZ; Nside::Int)
     for i in eachindex(θ)
 
         θᵢ = θ[i]
-        ic = findfirst(θhpx .> θᵢ) # index of the nearest ring to θ₁
+        # ic = findfirst(θhpx .> θᵢ) # index of the nearest ring to θ₁
+        ic = findmin(abs2.(θhpx .- θᵢ))[2] # index of the nearest ring to θ₁
         Δθ_north  = abs(θhpx[ic] - θhpx[ic-1])
         Δθ_south  = abs(θhpx[ic+1] - θhpx[ic])
         θ_center = θᵢ
@@ -121,7 +123,7 @@ function healpix_count_θ(eaz::EAZ; Nside::Int)
 end
 
 
-function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalize_row_ave = true) where {T}
+function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :none) where {T}
     # Nside determines the size of the healpix pixels
     # eaz0 determines the grid that will get healpix conv
 
@@ -146,7 +148,9 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalize_row_ave = true) whe
     Σ▫ = block_tridiag_Σ▫(eaz0, healpix_pwf_Γ(Nside), bnθs)
 
     # now we normalize
-    if normalize_row_ave
+    if normalizeθ == :none
+        return Σ▫ 
+    elseif normalizeθ == :row_ave
         ## Adjust so row mean of the pixel kernel is 1
         dnpix   = healpix_count_θ(eaz0; Nside)
         Dnpix⁻¹ = 0 * Σ▫[1] # faster mult if its the same block type
@@ -154,7 +158,7 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalize_row_ave = true) whe
             Dnpix⁻¹[i,i] = 1 / dnpix[i]
         end
         return map(Σ▫i -> Dnpix⁻¹ * Σ▫i, Σ▫)
-    else
+    elseif normalizeθ == :Ω
         ## Adjust so left mult behaves like an integral operator
         dΩ = EZ.Ωpix(eaz0)
         DΩ = 0 * Σ▫[1]
@@ -162,11 +166,14 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalize_row_ave = true) whe
             DΩ[i,i] = dΩ[i]
         end
         return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+    else 
+        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
     end
+
 end
 
-function healpix_pwf▫(eaz2::EAZ2{T}; Nside::Int, normalize_row_ave = true) where {T}
-    Σ0▫   = healpix_pwf▫(EZ.spin0(eaz2); Nside, normalize_row_ave)
+function healpix_pwf▫(eaz2::EAZ2{T}; Nside::Int, normalizeθ = :none) where {T}
+    Σ0▫   = healpix_pwf▫(EZ.spin0(eaz2); Nside, normalizeθ)
     bnθs0 = blocksizes(Σ0▫[1],1)
     bnθs2 = vcat(bnθs0, bnθs0)
     nθ    = eaz2.nθ

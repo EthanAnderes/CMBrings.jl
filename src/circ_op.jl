@@ -65,7 +65,7 @@ function field2▪(f::Xf) where {Tm,Ti<:Complex,To,Xf<:Xfield{Tm,Ti,To,2}}
 end
 
 # It would be nice to replace the else-if with dispatch
-function ▪2field(tm::Transform, w::Vector{Vector{To}}) where {To} 
+function ▪2field(tm::Transform, w::Vector{V}) where {V<:AbstractVector} 
     if eltype_in(tm) <: Real 
         return Xfourier(tm, CC.▪2ℝfθk(w))
     elseif eltype_in(tm) <: Complex

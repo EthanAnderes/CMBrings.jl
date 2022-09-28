@@ -96,11 +96,13 @@ l, m  = HT.lm(lmax);
 
 eaz0, eaz2, ring_idx_rng = @sblock let Nside
 
-    nφ    = 4 * (Nside-2) ÷ 4 # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    ## nφ    = 4 * (Nside-2) ÷ 4 # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    nφ    = 4 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    ## nφ    = 2 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
     φspan = (-π/3, π/3) # deg2rad.((-60,60))
 
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
-    # ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
+    ## ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
     ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
     θ  = CC.θ_healpix(Nside)[ri]
     θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
@@ -133,14 +135,27 @@ end
 
 # Healpix pwf 
 # =============================
-PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
 
-PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048) |> CircOp 
+#PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=512, normalizeθ=:row_ave) |> CircOp 
+PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:row_ave) |> CircOp 
+# PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:Ω)       |> CircOp 
+# PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:none)    |> CircOp 
 
-# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0, 2048)
+## The following needs fixing ...
+# PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
+
+# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0; Nside=2048)
 # plot(nhpx_θ)
 
-PWF▪[1] |> matshow
+# PWF0▪[1] |> matshow
+# PWF0▪[end÷2] |> matshow
+
+#=
+figure()
+plot(diag(PWF0▪[1]))
+plot(diag(PWF0▪[100]))
+plot(diag(PWF0▪[1000]))
+=#
 
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
@@ -288,8 +303,18 @@ end
 Tf0  *= B0
 Tf2  *= B2
 
+# add PWF
+
+# Tf0  *= PWF0▪
+# Tf2  *= B2
 
 
+# test ...
+# t′ = PWF0▪ * t_eaz
+# matshow(t′[:]); colorbar()
+# matshow(t_eaz[:]); colorbar()
+# w = field2▪(t_eaz)
+# Pw1 = PWF0▪[1] * w[1]
 
 
 # some plots
@@ -298,8 +323,9 @@ Tf2  *= B2
 CMBrings.map_plot(
     # M0 * TF_t_eaz; title1=L"$Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
     # M0 * Tf0 * t_eaz; title1=L"approximated $Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
+    M0 * PWF0▪ * Tf0 * t_eaz; title1=L"approximated $Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
     #
-    M2 * TF_qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim",  # imag_fun=x->CMBrings.imag_blur(x;blur=25),
+    # M2 * TF_qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim",  # imag_fun=x->CMBrings.imag_blur(x;blur=25),
     # M2 * Tf2 * qu_eaz; title1=L"$Tf * Q$ mock-sim", title2=L"$Tf * U$ mock-sim", #  imag_fun=x->CMBrings.imag_blur(x;blur=25),
 );
 
@@ -307,7 +333,8 @@ CMBrings.map_plot(
 
 CMBrings.fourier_power(
     # M0 * TF_t_eaz; title1=L"log EAZ-fourier power: $Tf * T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
-    M0 * Tf0 * t_eaz; title1=L"log EAZ-fourier power: $T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
+    # M0 * Tf0 * t_eaz; title1=L"log EAZ-fourier power: $T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
+    M0 * PWF0▪ * Tf0 * t_eaz; title1=L"log EAZ-fourier power: $T$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
     #
     # Mu2 * TF_qu_eaz; title1=L"log EAZ-fourier power: $Tf * P$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
     # Mu2 * Tf2 * qu_eaz; title1=L"log EAZ-fourier power: $P$ mock-sim", imag_fun=CMBrings.imag_logabs2clip,
@@ -324,7 +351,8 @@ CMBrings.fourier_power(
 
 
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                    f2 = M0 * Tf0 * t_eaz
+                                    # f2 = M0 * Tf0 * t_eaz
+                                    f2 = M0 * PWF0▪ * Tf0 * t_eaz
 #f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 15)
@@ -333,7 +361,7 @@ f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
 end
 
 fig,ax = subplots(2, dpi=147)
-ul = findfirst(ℓbn .> 10_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ul = findfirst(ℓbn .> 3_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ll = findfirst(ℓ_Hp .< ℓbn) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].semilogy(ℓbn[ll:ul], f1_kpwr[ll:ul], label="spt filtered sim sky")
 ax[1].plot(ℓbn[ll:ul], f2_kpwr[ll:ul], label="2d filtered sim sky")
@@ -360,6 +388,11 @@ CMBrings.fourier_power(
 From this picture it does appear that the missing filter is isotropic. 
 Could this be the beam?  
 """
+
+
+
+
+
 
 
 
