@@ -113,7 +113,7 @@ eaz0, eaz2, ring_idx_rng = @sblock let Nside
     return eaz0, eaz2, ri 
 end;
 
-
+#=
 @sblock let eaz0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
@@ -125,6 +125,7 @@ end;
     ax.legend()
     return nothing
 end
+=#
 
 @show (eaz0.nθ, eaz0.nφ)
 @show extrema(rad2deg.(.√(EZ.Ωpix(eaz0)).*60))
@@ -189,12 +190,13 @@ M_hard0 = DiagOp(Xmap(eaz0, M0[:].>0))
 M_hard2 = DiagOp(Xmap(eaz2, M0[:].>0))
 
 # Map plot
+#=
 CMBrings.map_plot(
     # Mp0.f, title1="point source pixel mask",
     # Mu0.f, title1="uniform scan region pixel mask",
     M0.f, title1="full pixel mask",
 );
-
+=#
 
 # Load pre filtered eaz maps
 # ========================================
@@ -290,7 +292,7 @@ Tf0  *= DiagOp(Xfourier(eaz0, exp.(.- (abs.(EZ.ell(eaz0))./ℓ_Lp).^6) ))
 Tf2  *= DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
 
 # add beam 
-fwhm′  = 1.5 # 1.7
+fwhm′  = 0.7 # 1.5 # 1.7
 B0, B2 = @sblock let eaz0, eaz2, fwhm′
     fwhmrad = CMBrings.arcmin2rad(fwhm′)
     σ²      = CMBrings.fwhmrad2σ²(fwhmrad)
@@ -319,6 +321,7 @@ Tf2  *= B2
 
 # some plots
 # =============================
+#=
 
 CMBrings.map_plot(
     # M0 * TF_t_eaz; title1=L"$Tf * T$", # imag_fun=x->CMBrings.imag_blur(x;blur=25),
@@ -343,20 +346,23 @@ CMBrings.fourier_power(
 );
 
 
-
+=#
 
 
 # EAZ quasi bandpowers
 # =============================
 
+# TODO:  try PWF0▪^2 ... but no beam ...
+
 
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
                                     # f2 = M0 * Tf0 * t_eaz
-                                    f2 = M0 * PWF0▪ * Tf0 * t_eaz
+                                    # f2 = M0 * PWF0▪ * Tf0 * t_eaz
+                                    f2 = M0  * PWF0▪ * PWF0▪ * PWF0▪ * Tf0 * t_eaz
 #f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
-    ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 15)
-    ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 15)
+    ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
+    ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 20)
     f1_kpwr, f2_kpwr, ℓbn
 end
 
