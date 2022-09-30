@@ -1,63 +1,110 @@
 # TOD like filters on the rows of EAZ fourier
 
-# Mp:  construct point source pixel mask from pnt src list 
+
+
+# Beam operator
 # ==========================================
 
-function pix_point_src_mask(tm0::EAZ, point_src_file_; smooth_border_Δ′ = 4.0) 
+# pix_diag_rad   = CC.geoβ.(tm0.θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
 
-    hole_map = ones(size_in(tm0)) 
 
-    point_src_list = readdlm(point_src_file_, '\t', skipstart=22)
-    point_src_φ  = RA2φ.(point_src_list[:,2])
-    point_src_θ  = Dec2θ.(point_src_list[:,3])
-    point_src_Δβ = deg2rad.(point_src_list[:,4] / 60)
-
-    θ, φ     = EZ.pix(tm0)
-    for (θ₀, φ₀, Δβ₀) in zip(point_src_θ, point_src_φ, point_src_Δβ)
-        radius_hole = Δβ₀
-        radius_ramp = arcmin2rad(smooth_border_Δ′) 
-        radius_tot  = (radius_hole + radius_ramp) * 1.1 # expand this a bit
-
-    
-        θ_idx_cut = findall(@. abs(θ - θ₀) <= radius_tot)
-        φ_idx_cut = findall(@. min(CC.counterclock_Δφ(φ₀, φ), CC.counterclock_Δφ(φ, φ₀)) <= (radius_tot/sin(θ₀+radius_tot)))
-   
-        if !isempty(θ_idx_cut) & !isempty(φ_idx_cut)
-            θ_val_cut = θ[θ_idx_cut]
-            φ_val_cut = φ[φ_idx_cut]
-
-            hole_map_mini = hole_punch.(θ_val_cut, φ_val_cut'; θ₀, φ₀, radius_hole, radius_ramp)
-            # @assert all(hole_map_mini[1,:]   .== 1)
-            # @assert all(hole_map_mini[end,:] .== 1)
-            # @assert all(hole_map_mini[:,end] .== 1)
-            # @assert all(hole_map_mini[:,1]   .== 1)
-            hole_map[θ_idx_cut, φ_idx_cut] .*= hole_map_mini
-        end 
-    end
-
-    DiagOp(Xmap(tm0, hole_map))
+function beam_Γ(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0)) where {T}
+    σ²θ = @. fwhmrad2σ².(fwhmθ_rad)
+    σ²θ_spl = CC.Spline1D(eaz0.θ, σ²θ, k=2)
+    (θ₁, θ₂, φ₁, φ⃗) -> complex.(B̃eam1.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
 end
 
 
-θ2Dec(θ)   = 90 - rad2deg(θ)
-Dec2θ(dec) = deg2rad(90 - dec)
+function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :row_ave) where {T}
 
-φ2RA(φ)   = rad2deg(CC.in_negπ_π(φ))
-RA2φ(ra)  = CC.in_0_2π(deg2rad(ra))
+    Γ = beam_Γ(eaz0; fwhmθ_rad)
 
-function hole_punch(θ, φ; θ₀, φ₀, radius_hole, radius_ramp)
-    β      = CC.geoβ(θ, θ₀, φ, φ₀)
-    r1, r2 = radius_hole, radius_hole + radius_ramp
-    Δr     = r2 - r1
+    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
+    Σ▫     = map(Σ_pre▫) do Σ
+        VF.vecchia(Σ, block_sizesθ)
+    end
 
-    if β <= r1 
-        return zero(β)
-    elseif r1 < β <= r2
-        return (1+cospi((β-r2)/Δr))/2
-    else
-        return one(β)
+    if normalizeθ == :none
+        return Σ▫ 
+    elseif normalizeθ == :row_ave
+        ## Adjust so row mean of the pixel kernel is 1
+        bws  = beamθ_weight_sum(eaz0; fwhmθ_rad)
+        Dw⁻¹ = Diagonal(inv.(bws))
+        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
+    elseif normalizeθ == :Ω
+        ## Adjust so left mult behaves like an integral operator
+        dΩ = EZ.Ωpix(eaz0)
+        DΩ = Diagonal(dΩ)
+        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+    else 
+        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
     end
 end
+
+
+# TODO ...
+# function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :Ω) where {T}
+
+
+#     Σ0▫ = beam▫(EZ.spin0(eaz2); fwhmθ_rad, block_sizesθ, normalizeθ)
+#     Σ2▫ = map(Σ0▫) do B
+#         ## B = Bspin0▫[2]
+#         P = B[1]'
+#         R = inv(B[2])
+#         Mpre = B[3] ## B[3]*B[3]'
+#         M = VF.Midiagonal(Mpre.data) # What is the speed effect here??
+
+#         a1 = 1:2nθ |> x->reshape(x,nθ,2)
+#         P2 = VF.Piv(a1[P.perm,:][:])
+#         M2 = vcat(M.data, M.data) |> VF.Midiagonal
+#         invR2 = vcat(
+#             R.data, 
+#             [zeros(eltype(M.data[1]), size(M.data[1],1), size(M.data[end],2))], 
+#             R.data
+#         ) |> VF.Ridiagonal |> inv
+
+#         P2' * invR2 * M2 * invR2' * P2 * DΩΩ
+#     end
+#     ...
+
+
+#     return Σ2▫
+# end;  
+
+
+function beamθ_weight_sum(eaz::EAZ{T}; fwhmθ_rad) where {T}
+
+    Γ = beam_Γ(eaz; fwhmθ_rad)
+
+    # use fwhmθ_rad to give an approximate sub-grid for computing the sum..
+    θ  = EZ.θ(eaz)
+    Δθ = EZ.Δθ(eaz)
+
+    Δφᵢ = T(EZ.Δφ(eaz))
+    φᵢ  = T(0)
+    φ   = T(-π/2):Δφᵢ:T(π/2)
+
+    weight_sum_at_θ = fill(T(0), length(θ))
+
+    for i in eachindex(θ)
+
+        θᵢ     = θ[i]
+
+        # create subgrid patch around (θᵢ,φᵢ)
+        fwhmrᵢ = fwhmθ_rad[i]
+        maxΔθᵢ = 3*max(2*fwhmrᵢ, Δθ[i])
+        maxΔφᵢ = 3*max(2*fwhmrᵢ, Δφᵢ)
+        θs     = θ[(θᵢ - maxΔθᵢ) .≤ θ .≤ (θᵢ + maxΔθᵢ)]
+        φs     = φ[(φᵢ - maxΔφᵢ) .≤ φ .≤ (φᵢ + maxΔφᵢ)]
+
+        weights_around_θᵢφᵢ = real.(Γ.(θᵢ, θs, φᵢ, Ref(φs)))
+        weight_sum_at_θ[i]  = EZ.sum_kbn(hcat(weights_around_θᵢφᵢ...))
+
+    end
+
+    return weight_sum_at_θ
+end
+
 
 
 
@@ -123,7 +170,7 @@ function healpix_count_θ(eaz::EAZ; Nside::Int)
 end
 
 
-function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :none) where {T}
+function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :row_ave) where {T}
     # Nside determines the size of the healpix pixels
     # eaz0 determines the grid that will get healpix conv
 
@@ -187,4 +234,66 @@ function healpix_pwf▫(eaz2::EAZ2{T}; Nside::Int, normalizeθ = :none) where {T
     return Σ2▫
 end
 
-# ===============================================
+
+
+
+
+# Point source pixel mask from pnt src list 
+# ==========================================
+
+function pix_point_src_mask(eaz0::EAZ, point_src_file_; smooth_border_Δ′ = 4.0) 
+
+    hole_map = ones(size_in(eaz0)) 
+
+    point_src_list = readdlm(point_src_file_, '\t', skipstart=22)
+    point_src_φ  = RA2φ.(point_src_list[:,2])
+    point_src_θ  = Dec2θ.(point_src_list[:,3])
+    point_src_Δβ = deg2rad.(point_src_list[:,4] / 60)
+
+    θ, φ     = EZ.pix(eaz0)
+    for (θ₀, φ₀, Δβ₀) in zip(point_src_θ, point_src_φ, point_src_Δβ)
+        radius_hole = Δβ₀
+        radius_ramp = arcmin2rad(smooth_border_Δ′) 
+        radius_tot  = (radius_hole + radius_ramp) * 1.1 # expand this a bit
+
+    
+        θ_idx_cut = findall(@. abs(θ - θ₀) <= radius_tot)
+        φ_idx_cut = findall(@. min(CC.counterclock_Δφ(φ₀, φ), CC.counterclock_Δφ(φ, φ₀)) <= (radius_tot/sin(θ₀+radius_tot)))
+   
+        if !isempty(θ_idx_cut) & !isempty(φ_idx_cut)
+            θ_val_cut = θ[θ_idx_cut]
+            φ_val_cut = φ[φ_idx_cut]
+
+            hole_map_mini = hole_punch.(θ_val_cut, φ_val_cut'; θ₀, φ₀, radius_hole, radius_ramp)
+            # @assert all(hole_map_mini[1,:]   .== 1)
+            # @assert all(hole_map_mini[end,:] .== 1)
+            # @assert all(hole_map_mini[:,end] .== 1)
+            # @assert all(hole_map_mini[:,1]   .== 1)
+            hole_map[θ_idx_cut, φ_idx_cut] .*= hole_map_mini
+        end 
+    end
+
+    DiagOp(Xmap(eaz0, hole_map))
+end
+
+
+θ2Dec(θ)   = 90 - rad2deg(θ)
+Dec2θ(dec) = deg2rad(90 - dec)
+
+φ2RA(φ)   = rad2deg(CC.in_negπ_π(φ))
+RA2φ(ra)  = CC.in_0_2π(deg2rad(ra))
+
+function hole_punch(θ, φ; θ₀, φ₀, radius_hole, radius_ramp)
+    β      = CC.geoβ(θ, θ₀, φ, φ₀)
+    r1, r2 = radius_hole, radius_hole + radius_ramp
+    Δr     = r2 - r1
+
+    if β <= r1 
+        return zero(β)
+    elseif r1 < β <= r2
+        return (1+cospi((β-r2)/Δr))/2
+    else
+        return one(β)
+    end
+end
+

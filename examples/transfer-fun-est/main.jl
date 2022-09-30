@@ -49,9 +49,6 @@ HP = PC.pyimport("healpy")
 # include("LocalMethods.jl")
 # import .LocalMethods as LM
 
-
-
-
 # Set files and load healpix files
 # =========================================
 cmb_file_root = "/Users/ethananderes/Downloads/3gmaps/sims"
@@ -94,16 +91,22 @@ l, m  = HT.lm(lmax);
 # Set EAZ grid
 # ========================================
 
+# !!!!!!!
+# setting grid small to allow testing of full conv (vecchia) beam operator
+# !!!!!!!
+
 eaz0, eaz2, ring_idx_rng = @sblock let Nside
 
-    ## nφ    = 4 * (Nside-2) ÷ 4 # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    nφ    = 4 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    ## nφ    = 2 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    nφ    = 4 * (Nside-2) ÷ 3 # Default.  note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    ## nφ    = 4 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    ## nφ    = 4 * (Nside-2) ÷ 6 #  for testing ...
     φspan = (-π/3, π/3) # deg2rad.((-60,60))
 
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
-    ## ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
-    ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
+    ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP) # Default.
+    # ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
+    # ri = (3*Nside+1):3:(4*Nside-1 - ri_offset_from_SP) # for testing ...
+    
     θ  = CC.θ_healpix(Nside)[ri]
     θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
 
@@ -134,29 +137,6 @@ end
 @show extrema(EZ.pix_diag_arcmin(eaz0));
 
 
-# Healpix pwf 
-# =============================
-
-#PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=512, normalizeθ=:row_ave) |> CircOp 
-PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:row_ave) |> CircOp 
-# PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:Ω)       |> CircOp 
-# PWF0▪  = CMBrings.healpix_pwf▫(eaz0; Nside=2048*2, normalizeθ=:none)    |> CircOp 
-
-## The following needs fixing ...
-# PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
-
-# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0; Nside=2048)
-# plot(nhpx_θ)
-
-# PWF0▪[1] |> matshow
-# PWF0▪[end÷2] |> matshow
-
-#=
-figure()
-plot(diag(PWF0▪[1]))
-plot(diag(PWF0▪[100]))
-plot(diag(PWF0▪[1000]))
-=#
 
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
@@ -274,10 +254,10 @@ end;
     return Xmap(eaz2, qu_eaz), Xmap(eaz0, t_eaz)
 end;
 
-# approx 2D Tf multiplier
-# =============================
+# initialize approx 2D Tf multiplier with high pass and low pass
+# ===============================================
 
-# initialize
+# initalize
 Tf0 = DiagOp(Xfourier(eaz0,1))
 Tf2 = DiagOp(Xfourier(eaz2,1))
 
@@ -291,8 +271,12 @@ Tf2  *= DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 Tf0  *= DiagOp(Xfourier(eaz0, exp.(.- (abs.(EZ.ell(eaz0))./ℓ_Lp).^6) ))
 Tf2  *= DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
 
-# add beam 
-fwhm′  = 1.0 # 1.5 # 1.7
+# add beam to Tf0 and Tf2 
+# ===============================================
+
+fwhm′  = 1.4 # 1.125 # 1.15 # 1.1 # 1.0 # 1.4  # 1.35 # 1.5 # 1.7
+
+# approx beam
 B0, B2 = @sblock let eaz0, eaz2, fwhm′
     fwhmrad = CMBrings.arcmin2rad(fwhm′)
     σ²      = CMBrings.fwhmrad2σ²(fwhmrad)
@@ -302,15 +286,74 @@ B0, B2 = @sblock let eaz0, eaz2, fwhm′
     bℓ2 = @. exp( - ℓ2 * (ℓ2+1) * σ² / 2)
     DiagOp(Xfourier(eaz0, bℓ0)), DiagOp(Xfourier(eaz2, bℓ2))
 end
-Tf0  *= B0
-Tf2  *= B2
 
-# add PWF
+# full (vecchia) beam 
+B0▪, B2▪ = @sblock let eaz0, eaz2, fwhm′, approx_blk_size = 200
+    fwhmrad   = CMBrings.arcmin2rad(fwhm′)
+    fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
 
-# Tf0  *= PWF0▪
-# Tf2  *= B2
+    block_sizesθ = VF.block_split(eaz0.nθ, approx_blk_size) 
+    B0▫ = CMBrings.beam▫(eaz0; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) # :none, Ω, row_ave
+    B0▪ = CircOp(B0▫)
+
+    # (TODO) ... 
+    # B2▫ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave)
+    B2▪ = 1
+    
+    return B0▪, B2▪
+end
+
+#=
+fwhmrad   = CMBrings.arcmin2rad(fwhm′)
+fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
+bw = CMBrings.beamθ_weight_sum(eaz0; fwhmθ_rad) 
+=#
 
 
+
+# Tf0  = Tf0 * B0
+# Tf2  = Tf2 * B2
+# ----- or...
+# Tf0  = Tf0 * B0▪
+# Tf2  = Tf2 * B2▪
+
+
+# add PWF (TODO: try a conv beam...)
+# ===============================================
+
+# add approximate PWF
+PWF_Nside  = Nside
+PWF0, PWF2 = @sblock let eaz0, eaz2, PWF_Nside, lmax, HP
+
+    S0_hpx_PWFℓ, S2_hpx_PWFℓ = HP.pixwin(PWF_Nside, pol=true, lmax=lmax)
+    # plot(0:lmax, S0_hpx_PWFℓ.^2) # plots the spectra, not the operator multiplier
+    # plot(0:lmax, S2_hpx_PWFℓ.^2)
+
+    ℓ0  = abs.(EZ.ell(eaz0))
+    ℓ2  = abs.(EZ.ell(eaz2))
+    pℓ0 = S0_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ0), lmax)]
+    pℓ2 = S2_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ2), lmax)]
+
+    DiagOp(Xfourier(eaz0, pℓ0)), DiagOp(Xfourier(eaz2, pℓ2))
+end
+
+
+# more accurate Healpix pwf 
+# Default 
+PWF_Nside = Nside
+PWF0▪     = CMBrings.healpix_pwf▫(eaz0; Nside=PWF_Nside, normalizeθ=:row_ave) |> CircOp 
+## The following needs fixing ...
+# PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
+# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0; Nside=2048*4)
+# plot(nhpx_θ)
+# PWF0▪[1] |> matshow
+# PWF0▪[end÷2] |> matshow
+#=
+figure()
+plot(diag(PWF0▪[1]))
+plot(diag(PWF0▪[100]))
+plot(diag(PWF0▪[1000]))
+=#
 # test ...
 # t′ = PWF0▪ * t_eaz
 # matshow(t′[:]); colorbar()
@@ -319,8 +362,17 @@ Tf2  *= B2
 # Pw1 = PWF0▪[1] * w[1]
 
 
+# Tf0  = PWF0 * Tf0
+# Tf2  = PWF2 * Tf2
+# ----- or...
+# Tf0  = PWF0▪ * Tf0
+# Tf2  = PWF2▪ * Tf2
+
+
+
 # some plots
 # =============================
+
 #=
 
 CMBrings.map_plot(
@@ -345,22 +397,17 @@ CMBrings.fourier_power(
     xaxis_units = :m # :Hz
 );
 
-
 =#
 
 
 # EAZ quasi bandpowers
 # =============================
 
-# TODO:  try PWF0▪^2 ... but no beam ...
-
-
+# f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = Mu0 * Tf0 * B0▪ * t_eaz,
+#                                     f2 = Mu0 * Tf0 * B0  * t_eaz
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                    # f2 = M0 * Tf0 * t_eaz
-                                    # f2 = M0 * PWF0▪ * Tf0 * t_eaz
-                                    # f2 = M0  * PWF0▪ * PWF0▪ * PWF0▪ * Tf0 * t_eaz
-                                    f2 = M0  * PWF0▪ * PWF0▪ * Tf0 * t_eaz
-#f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
+                                    f2 = M0 * PWF0▪ * Tf0 * B0▪ * t_eaz
+# f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
     ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 20)
@@ -368,7 +415,7 @@ f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
 end
 
 fig,ax = subplots(2, dpi=147)
-ul = findfirst(ℓbn .> 3_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ul = findfirst(ℓbn .> 8_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ll = findfirst(ℓ_Hp .< ℓbn) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].semilogy(ℓbn[ll:ul], f1_kpwr[ll:ul], label="spt filtered sim sky")
 ax[1].plot(ℓbn[ll:ul], f2_kpwr[ll:ul], label="2d filtered sim sky")
@@ -377,6 +424,13 @@ ax[2].plot(ℓbn[ll:ul], f1_kpwr[ll:ul] ./ f2_kpwr[ll:ul], label="power ratio: s
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
+
+# ax[1].set_title("beam = $fwhm′, PWF^2, PWF = hpix_Nside $PWF_Nside")
+
+
+
+
+
 
 
 
