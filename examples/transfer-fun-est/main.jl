@@ -97,14 +97,13 @@ l, m  = HT.lm(lmax);
 
 eaz0, eaz2, ring_idx_rng = @sblock let Nside
 
-    nφ    = 4 * (Nside-2) ÷ 3 # Default.  note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    ## nφ    = 4 * (Nside-2)  # note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    ## nφ    = 4 * (Nside-2) ÷ 6 #  for testing ...
+    # nφ    = 4 * (Nside-2) ÷ 3 # Default.  note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    nφ    = 4 * (Nside-2) ÷ 6 #  for testing ...
     φspan = (-π/3, π/3) # deg2rad.((-60,60))
 
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
-    ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP) # Default.
-    # ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
+    # ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP) # Default.
+    ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
     # ri = (3*Nside+1):3:(4*Nside-1 - ri_offset_from_SP) # for testing ...
     
     θ  = CC.θ_healpix(Nside)[ri]
@@ -271,52 +270,6 @@ Tf2  *= DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 Tf0  *= DiagOp(Xfourier(eaz0, exp.(.- (abs.(EZ.ell(eaz0))./ℓ_Lp).^6) ))
 Tf2  *= DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
 
-# add beam to Tf0 and Tf2 
-# ===============================================
-
-fwhm′  = 1.4 # 1.125 # 1.15 # 1.1 # 1.0 # 1.4  # 1.35 # 1.5 # 1.7
-
-# approx beam
-B0, B2 = @sblock let eaz0, eaz2, fwhm′
-    fwhmrad = CMBrings.arcmin2rad(fwhm′)
-    σ²      = CMBrings.fwhmrad2σ²(fwhmrad)
-    ℓ0  = abs.(EZ.ell(eaz0))
-    ℓ2  = abs.(EZ.ell(eaz2))
-    bℓ0 = @. exp( - ℓ0 * (ℓ0+1) * σ² / 2)
-    bℓ2 = @. exp( - ℓ2 * (ℓ2+1) * σ² / 2)
-    DiagOp(Xfourier(eaz0, bℓ0)), DiagOp(Xfourier(eaz2, bℓ2))
-end
-
-# full (vecchia) beam 
-B0▪, B2▪ = @sblock let eaz0, eaz2, fwhm′, approx_blk_size = 200
-    fwhmrad   = CMBrings.arcmin2rad(fwhm′)
-    fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
-
-    block_sizesθ = VF.block_split(eaz0.nθ, approx_blk_size) 
-    B0▫ = CMBrings.beam▫(eaz0; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) # :none, Ω, row_ave
-    B0▪ = CircOp(B0▫)
-
-    # (TODO) ... 
-    # B2▫ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave)
-    B2▪ = 1
-    
-    return B0▪, B2▪
-end
-
-#=
-fwhmrad   = CMBrings.arcmin2rad(fwhm′)
-fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
-bw = CMBrings.beamθ_weight_sum(eaz0; fwhmθ_rad) 
-=#
-
-
-
-# Tf0  = Tf0 * B0
-# Tf2  = Tf2 * B2
-# ----- or...
-# Tf0  = Tf0 * B0▪
-# Tf2  = Tf2 * B2▪
-
 
 # add PWF (TODO: try a conv beam...)
 # ===============================================
@@ -369,6 +322,52 @@ plot(diag(PWF0▪[1000]))
 # Tf2  = PWF2▪ * Tf2
 
 
+# add beam to Tf0 and Tf2 
+# ===============================================
+
+fwhm′  = 1.3 # 1.3 # 1.0 # 1.4  # 1.35 # 1.5 # 1.7
+
+# approx beam
+B0, B2 = @sblock let eaz0, eaz2, fwhm′
+    fwhmrad = CMBrings.arcmin2rad(fwhm′)
+    σ²      = CMBrings.fwhmrad2σ²(fwhmrad)
+    ℓ0  = abs.(EZ.ell(eaz0))
+    ℓ2  = abs.(EZ.ell(eaz2))
+    bℓ0 = @. exp( - ℓ0 * (ℓ0+1) * σ² / 2)
+    bℓ2 = @. exp( - ℓ2 * (ℓ2+1) * σ² / 2)
+    DiagOp(Xfourier(eaz0, bℓ0)), DiagOp(Xfourier(eaz2, bℓ2))
+end
+
+# full (vecchia) beam 
+B0▪, B2▪ = @sblock let eaz0, eaz2, fwhm′, approx_blk_size = 150
+    fwhmrad   = CMBrings.arcmin2rad(fwhm′)
+    fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
+
+    block_sizesθ = VF.block_split(eaz0.nθ, approx_blk_size) 
+    B0▫ = CMBrings.beam▫(eaz0; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) # :none, Ω, row_ave
+    B0▪ = CircOp(B0▫)
+
+    # (TODO) ... 
+    # B2▫ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave)
+    B2▪ = 1
+    
+    return B0▪, B2▪
+end
+
+#=
+fwhmrad   = CMBrings.arcmin2rad(fwhm′)
+fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
+bw = CMBrings.beamθ_weight_sum(eaz0; fwhmθ_rad) 
+=#
+
+
+
+# Tf0  = Tf0 * B0
+# Tf2  = Tf2 * B2
+# ----- or...
+# Tf0  = Tf0 * B0▪
+# Tf2  = Tf2 * B2▪
+
 
 # some plots
 # =============================
@@ -406,7 +405,7 @@ CMBrings.fourier_power(
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = Mu0 * Tf0 * B0▪ * t_eaz,
 #                                     f2 = Mu0 * Tf0 * B0  * t_eaz
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                    f2 = M0 * PWF0▪ * Tf0 * B0▪ * t_eaz
+                                    f2 = M0 * PWF0▪ * PWF0 * Tf0 * B0▪ * t_eaz
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
@@ -425,7 +424,7 @@ ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
 
-# ax[1].set_title("beam = $fwhm′, PWF^2, PWF = hpix_Nside $PWF_Nside")
+ax[1].set_title("beam = $fwhm′")
 
 
 
