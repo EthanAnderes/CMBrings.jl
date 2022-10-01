@@ -97,13 +97,13 @@ l, m  = HT.lm(lmax);
 
 eaz0, eaz2, ring_idx_rng = @sblock let Nside
 
-    # nφ    = 4 * (Nside-2) ÷ 3 # Default.  note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
-    nφ    = 4 * (Nside-2) ÷ 6 #  for testing ...
+    nφ    = 4 * (Nside-2) ÷ 3 # Default.  note 4(Nside-2) == 2^3 * 3^2 * 5 * 7
+    # nφ    = 4 * (Nside-2) ÷ 6 #  for testing ...
     φspan = (-π/3, π/3) # deg2rad.((-60,60))
 
     ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
-    # ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP) # Default.
-    ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
+    ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP) # Default.
+    # ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
     # ri = (3*Nside+1):3:(4*Nside-1 - ri_offset_from_SP) # for testing ...
     
     θ  = CC.θ_healpix(Nside)[ri]
@@ -405,7 +405,7 @@ CMBrings.fourier_power(
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = Mu0 * Tf0 * B0▪ * t_eaz,
 #                                     f2 = Mu0 * Tf0 * B0  * t_eaz
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                    f2 = M0 * PWF0▪ * PWF0 * Tf0 * B0▪ * t_eaz
+                                    f2 = M0 * PWF0▪ * Tf0 * B0▪ * t_eaz
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
@@ -426,9 +426,67 @@ ax[2].legend()
 
 ax[1].set_title("beam = $fwhm′")
 
+#=
+fwhm′  = 1.3
+approx_blk_size = 150
+PWF_Nside = 8192
+nφ    = 4 * (Nside-2) ÷ 6 
+φspan = (-π/3, π/3) 
+ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
+ri = (3*Nside+1):2:(4*Nside-1 - ri_offset_from_SP)
+
+M0 * PWF0▪ * PWF0 * Tf0 * B0▪ * t_eaz
+=#
+
+# TODO: create a non-pos def Vecchia constructor, vecchia_no_sqrt
+
+# TODO test this alternative beam construction...
+# ============================
+
+# alternative beam ....
+function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :row_ave) where {T}
+
+    Γ = CMBrings.beam_Γ(eaz0; fwhmθ_rad)
+
+    # Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
+    Σ_pre▫, P = CMBrings.spin0_az_bidiagΣ▫_P(Γ, block_sizesθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0))
+
+    Σ▫     = map(Σ_pre▫) do Σ
+        CMBrings.VF.vecchia(Σ, block_sizesθ)
+    end
+
+    if normalizeθ == :none
+        return Σ▫ 
+    elseif normalizeθ == :row_ave
+        ## Adjust so row mean of the pixel kernel is 1
+        bws  = CMBrings.beamθ_weight_sum(eaz0; fwhmθ_rad)
+        Dw⁻¹ = Diagonal(inv.(bws))
+        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
+    elseif normalizeθ == :Ω
+        ## Adjust so left mult behaves like an integral operator
+        dΩ = EZ.Ωpix(eaz0)
+        DΩ = Diagonal(dΩ)
+        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+    else 
+        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
+    end
+end
 
 
+B0▪, B0′▪ = @sblock let eaz0, eaz2, fwhm′, approx_blk_size = 150
+    fwhmrad   = CMBrings.arcmin2rad(fwhm′)
+    fwhmθ_rad = fill(fwhmrad, eaz0.nθ)
 
+    block_sizesθ = VF.block_split(eaz0.nθ, approx_blk_size) 
+    B0▫ = CMBrings.beam▫(eaz0; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) # :none, Ω, row_ave
+    B0▪ = CircOp(B0▫)
+
+    # alt construction
+    B0′▫ = beam▫(eaz0; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) # :none, Ω, row_ave
+    B0′▪ = CircOp(B0▫)
+    
+    return B0▪, B0′▪
+end
 
 
 
