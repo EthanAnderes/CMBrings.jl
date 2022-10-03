@@ -158,7 +158,7 @@ approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
     b̃bl[1] = 0
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    ϕϕl[1] =  ϕϕl[2] ### trying to fix a rank degeneracy here ...
+    ϕϕl[1] =  ϕϕl[2] = 1e-2 * ϕϕl[3] ### trying to fix a rank degeneracy here ...
 
     return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
@@ -667,6 +667,7 @@ end;
     end |> CircOp
 
     _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = map(_A₁₁ᵍ▪, B▪, N▪⁺ᵍ, EB▪½) do iA, Bl, iN, Σ½
+        # iA, Bl, iN, Σ½ = _A₁₁ᵍ▪[1], B▪[1], N▪⁺ᵍ[1], EB▪½[1]
         PΣ, RΣ, M½Σ = Σ½[1], inv(Σ½[2]), Σ½[3]
         invΣ = VF.instantiate_inv(RΣ, M½Σ*M½Σ', PΣ)
 
@@ -875,9 +876,9 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    # ϕ; title1=L"True $\phi$",
+    ϕ; title1=L"True $\phi$",
     # Xmap(tm0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
-    Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
+    # Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
@@ -886,9 +887,9 @@ CMBrings.map_plot(
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # f_cr;  title1=L"Estimated unlensed $Q$", title2=L"Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
-    # qu;  title1=L"Truth unlensed $Q$", title2=L"Truth unlensed $U$", # vmin = -0.15, vmax = 0.15,
+    qu;  title1=L"Truth unlensed $Q$", title2=L"Truth unlensed $U$", # vmin = -0.15, vmax = 0.15,
     # qu - f_cr;  title1=L"Truth - Estimated unlensed $Q$", title2=L"Truth - Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
-    M * (Ł(ϕ)*qu - Ł(ϕ_cr)*f_cr);  title1=L"Truth - Estimated lensed $Q$", title2=L"Truth - Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,
+    # M * (Ł(ϕ)*qu - Ł(ϕ_cr)*f_cr);  title1=L"Truth - Estimated lensed $Q$", title2=L"Truth - Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,
     imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
