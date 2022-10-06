@@ -77,7 +77,7 @@ tm0, tm2, grid_type = @sblock let
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
     type = :equiθ # :equicosθ 
-    nθ     = 600 # 805
+    nθ     = 600 # 400 # 600 # 805
     θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
@@ -114,7 +114,7 @@ end
 # ==============================
 ## using Primes; factor(length(tm0.θ)) # ; @assert nθ÷bks == nθ/bks
 
-bsd_nθ       = 150 # 161
+bsd_nθ       = 50 # 150 # 161
 block_sizesθ = VF.block_split(tm0.nθ, bsd_nθ) # |> sort
 permθ        = 1:tm0.nθ
 
@@ -158,7 +158,8 @@ approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
     b̃bl[1] = 0
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    ϕϕl[1] =  ϕϕl[2] = 1e-2 * ϕϕl[3] ### trying to fix a rank degeneracy here ...
+    # ϕϕl[1] =  ϕϕl[2] = 1e-2 * ϕϕl[3] ### trying to fix a rank degeneracy here ...
+    ϕϕl[1] =  ϕϕl[2] = 0 ### trying to fix a rank degeneracy here ...
 
     return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
@@ -515,15 +516,34 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 
 #-
 
-## d[:] |> real |> matshow; colorbar()
-## d[:] |> imag |> matshow; colorbar()
-## qu[:] |> real |> matshow; colorbar()
-## qu[:] |> imag |> matshow; colorbar()
-## ϕ[:] |> matshow; colorbar()
-## (Ł(ϕ)*qu - qu)[:] |> real |> matshow; colorbar()
-## qu[:] |> imag |> matshow; colorbar()
-## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> real |> matshow; colorbar()
-## (B▪ * B▪ * B▪ * B▪ * B▪ * no)[:] |> imag |> matshow; colorbar()
+#=
+CMBrings.map_plot(
+    # d,
+    qu,
+    # ϕ,
+    # Ł(ϕ)*qu - qu,
+    # Ł(ϕ)*qu,
+    # no, 
+    # B▪ * B▪ * B▪ * B▪ * B▪ * no,
+    # imag_fun=x->CMBrings.imag_blur(x;blur=0),
+);
+
+
+
+CMBrings.fourier_power(
+    # d,
+    qu,
+    # ϕ,
+    # Ł(ϕ)*qu - qu,
+    # Ł(ϕ)*qu,
+    # no, 
+    # B▪ * B▪ * B▪ * B▪ * B▪ * no,
+    ℓs = [400, 1000, 3000, 4000], 
+    imag_fun=CMBrings.imag_logabs2clip,
+);
+
+
+=#
 
 # Mixflow operator
 # ============================
@@ -673,14 +693,16 @@ end;
 
         PB, RB, MB, matΩ = Bl[1], inv(Bl[2]), Bl[3], Bl[6]
         invB = VF.instantiate_inv(RB, MB, PB)
-        matB = inv(cholesky(Symmetric(invB)))
+        matB = inv(cholesky(Symmetric(invB))) # was default
+        ## matB = inv(factorize(Symmetric(invB))) # !!!!! testing ...
 
         iN_iNiAiN½ = sqrt(iN - iN*iA*iN)
         lmul!(iN_iNiAiN½, matB)
         rmul!(matB, matΩ)
         invΣ += matB'*matB  
         ## X = invΣ + matΩ'*(matB'*(iN - iN*iA*iN)*matB)*matΩ
-        invX = inv(cholesky(Hermitian(invΣ))) 
+        invX = inv(cholesky(Hermitian(invΣ))) # was default
+        ## invX = inv(factorize(Hermitian(invΣ)))    # !!!!! testing ...
         return VF.vecchia(invX, 
                     2 .* block_sizesθ,  
                     ## VF.block_split(2nθ, 250),
@@ -758,7 +780,8 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:50
+    for otr = 1:50 # default
+    # for otr = 1:5
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -876,9 +899,9 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    ϕ; title1=L"True $\phi$",
+    # ϕ; title1=L"True $\phi$",
     # Xmap(tm0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
-    # Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
+    Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
@@ -909,8 +932,8 @@ CMBrings.fourier_power(
 # ℓbin, cr_power = CMBrings.quasi_bandpowers(f_cr; Δℓsph_bin = 15)
 # ℓbin, power    = CMBrings.quasi_bandpowers(qu; Δℓsph_bin = 15)
 
-ℓbin, cr_power = CMBrings.quasi_bandpowers(Xmap(tm0, kappa(ϕ_cr)); Δℓsph_bin = 15)
-ℓbin, power    = CMBrings.quasi_bandpowers(Xmap(tm0, kappa(ϕ)); Δℓsph_bin = 15)
+ℓbin, cr_power = CMBrings.quasi_bandpowers(Xmap(tm0, kappa(ϕ_cr)); Δℓsph_bin = 25)
+ℓbin, power    = CMBrings.quasi_bandpowers(Xmap(tm0, kappa(ϕ)); Δℓsph_bin = 25)
 
 
 fig,ax = subplots(1)

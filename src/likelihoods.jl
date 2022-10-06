@@ -108,7 +108,7 @@ end
 #     # z1   = (Pr' * Noise_ring * Pr) \ estn
 #     z2   = Φ_ring \ ϕ
 #     z3   = EB_ring \ f
-#     rtn =  - FFTransforms.sum_kbn([dot(estn,z1), dot(ϕ,z2), dot(f,z3)]) / 2
+#     rtn =  - EZ.sum_kbn([dot(estn,z1), dot(ϕ,z2), dot(f,z3)]) / 2
 #     return isnan(rtn) ? -inv(zero(rtn)) : rtn
 # end
 # log likelihood and quasi-gibbs and optimization updates
@@ -126,7 +126,7 @@ function ll_ϕf′(
     # z1   = (M' * Noise_ring * M) \ estn
     z2   = Φ⁻½ * ϕ
     z3   = EB⁻½ * f
-    rtn =  - FFTransforms.sum_kbn([dot(estn,z1), dot(z2,z2), dot(z3,z3)]) / 2
+    rtn =  - EZ.sum_kbn([dot(estn,z1), dot(z2,z2), dot(z3,z3)]) / 2
     return isnan(rtn) ? -inv(zero(rtn)) : rtn
 end
 
@@ -275,7 +275,7 @@ function ll_ϕf′(ϕ, f′; data, Ł, Ð, CMBcov, Φcov, Ncov, Pr, Bm, ds...)
     z1   = (Pr' * Ncov * Pr) \ estn
     z2   = Φcov \ ϕ
     z3   = CMBcov \ f
-    return - FFTransforms.sum_kbn([dot(estn,z1), dot(ϕ,z2), dot(f,z3)]) / 2
+    return - EZ.sum_kbn([dot(estn,z1), dot(ϕ,z2), dot(f,z3)]) / 2
 end
 
 #  linesearch updates for ϕ
