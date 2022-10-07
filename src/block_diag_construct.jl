@@ -88,12 +88,12 @@ function spin0_az_cov_vecchia_blks(
     ℓ::AbstractVector, ffℓ::Vector,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Γ = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid=100_100)
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes) * P
+        P' * VF.vecchia(Σ, blk_sizes; atol) * P
     end
     return Σ▫
 end
@@ -101,11 +101,11 @@ function spin0_az_cov_vecchia_blks(
     Γ,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes) * P
+        P' * VF.vecchia(Σ, blk_sizes; atol) * P
     end
     return Σ▫
 end
@@ -117,13 +117,13 @@ function spin2_az_cov_vecchia_blks(
     ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=100_000)
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes′) * P
+        P' * VF.vecchia(Σ, blk_sizes′; atol) * P
     end
     return Σ▫
 end
@@ -131,12 +131,12 @@ function spin2_az_cov_vecchia_blks(
     Γ, C,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes′) * P
+        P' * VF.vecchia(Σ, blk_sizes′; atol) * P
     end
     return Σ▫
 end
@@ -152,12 +152,12 @@ function spin0_az_cov½_vecchia_blks(
     ℓ::AbstractVector, ffℓ::Vector,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Γ = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid=100_100) 
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        R, preM, = VF.R_M_P(Σ, blk_sizes)
+        R, preM, = VF.R_M_P(Σ, blk_sizes; atol)
         M½ = VF.Midiagonal(map(sqrt, preM.data))
         P' * inv(R) * M½ * P 
     end
@@ -167,11 +167,11 @@ function spin0_az_cov½_vecchia_blks(
     Γ,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        R, preM, = VF.R_M_P(Σ, blk_sizes)
+        R, preM, = VF.R_M_P(Σ, blk_sizes; atol)
         M½ = VF.Midiagonal(map(sqrt, preM.data))
         P' * inv(R) * M½ * P 
     end
@@ -184,13 +184,13 @@ function spin2_az_cov½_vecchia_blks(
     ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     )
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=100_000)
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        R, preM, = VF.R_M_P(Σ, blk_sizes′)
+        R, preM, = VF.R_M_P(Σ, blk_sizes′; atol)
         M½ = VF.Midiagonal(map(sqrt, preM.data))
         P' * inv(R) * M½ * P 
     end
@@ -200,12 +200,12 @@ function spin2_az_cov½_vecchia_blks(
     Γ, C,
     blk_sizes::AbstractVector{<:Integer}, 
     perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1
+    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
     ) 
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        R, preM, = VF.R_M_P(Σ, blk_sizes′)
+        R, preM, = VF.R_M_P(Σ, blk_sizes′; atol)
         M½ = VF.Midiagonal(map(sqrt, preM.data))
         P' * inv(R) * M½ * P 
     end
