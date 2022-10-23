@@ -31,6 +31,7 @@ using PyPlot
 using NLopt
 using DelimitedFiles: readdlm
 import ImageFiltering as IF
+import LowRankCholesky as LRC
 
 const module_dir  = joinpath(@__DIR__, "..") |> normpath
 

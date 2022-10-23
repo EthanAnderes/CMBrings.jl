@@ -51,23 +51,27 @@ HP = PC.pyimport("healpy")
 
 # Set files and load healpix files
 # =========================================
-cmb_file_root = "/Users/ethananderes/Downloads/3gmaps/sims"
+cmb_file_root   = "/Users/ethananderes/Downloads/3gmaps/sims"
 noise_file_root = "/Users/ethananderes/Downloads/3gmaps/data"
 
-TF_cmb_file_, preTF_cmb_file_ = @sblock let cmb_file_root, noise_file_root
+TF_cmb_file_, preTF_cmb_file_, ghz = @sblock let cmb_file_root, noise_file_root
 
     preTF_cmb_file_ = joinpath(cmb_file_root, "lensed_planck2018_base_plikHM_TTTEEE_lowl_lowE_lensing_cambphiG_teb1_seed1_lmax17000_nside8192_interp1.6_method1_pol_1_lensedmap.fits")
     
-    # return TF_cmb_file_ =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g90ghz.hpix")
-    TF_cmb_file_ =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g150ghz.hpix")
-    # return TF_cmb_file_ =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g220ghz.hpix")
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g90ghz.hpix") , 90
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g150ghz.hpix"), 150
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g220ghz.hpix"), 220
     
-    # return cmb_file_ =  joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_90.hpix")
-    # return cmb_file_ = joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_150.hpix")
-    # return cmb_file_ = joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_220.hpix")
-    # return cmb_file_ = joinpath(noise_file_root,"wei_signflip/signflip_000_bundle_000_150Ghz.hpx")
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g90ghz.hpix") , 90
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g150ghz.hpix"), 150
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g220ghz.hpix"), 220
+    
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_90ghz.hpix"), 90
+    TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_150ghz.hpix"), 150
+    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_220ghz.hpix"), 220
 
-    return TF_cmb_file_, preTF_cmb_file_
+
+    return TF_cmb_file_, preTF_cmb_file_, ghz
 end
 
 
@@ -261,7 +265,7 @@ Tf0 = DiagOp(Xfourier(eaz0,1))
 Tf2 = DiagOp(Xfourier(eaz2,1))
 
 # add high pass
-ℓ_Hp  = 275
+ℓ_Hp  = 300
 Tf0  *= DiagOp(Xfourier(eaz0, abs.(EZ.ell(eaz0)) .> ℓ_Hp))
 Tf2  *= DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 
@@ -425,6 +429,82 @@ ax[1].legend()
 ax[2].legend()
 
 ax[1].set_title("beam = $fwhm′")
+
+
+
+# compare bandpowers projected to healpix
+# =======================================
+
+import CMBLensing as CMBL
+
+fspt = CMBL.EquiRectMap(
+    (M0 * TF_t_eaz)[:], 
+    Ny=eaz0.nθ, 
+    Nx=eaz0.nφ, 
+    θspan=extrema(eaz0.θ∂), 
+    φspan=eaz0.φspan .|> CC.in_negπ_π,
+)
+
+feaz = CMBL.EquiRectMap(
+    (M0 * PWF0▪ * Tf0 * B0▪ * t_eaz)[:], 
+    Ny=eaz0.nθ, 
+    Nx=eaz0.nφ, 
+    θspan=extrema(eaz0.θ∂), 
+    φspan=eaz0.φspan .|> CC.in_negπ_π,
+)
+
+# CMBL.plot(fspt)
+# CMBL.plot(feaz)
+
+hspt = CMBL.project(fspt => CMBL.ProjHealpix(Nside));
+heaz = CMBL.project(feaz => CMBL.ProjHealpix(Nside));
+
+hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 6000
+    hsptℓ       = HP.sphtfunc.anafast(hspt.arr, lmax=lmax, pol=false)
+    heazℓ       = HP.sphtfunc.anafast(heaz.arr, lmax=lmax, pol=false)
+    heaz_hsptℓ  = HP.sphtfunc.anafast(hspt.arr, heaz.arr, lmax=lmax, pol=false)
+    hsptℓ, heazℓ, heaz_hsptℓ
+end
+
+
+let lmax = 6000
+    ℓ  = (0:lmax)
+
+    rg = 10:4000
+
+    fig,ax = subplots(2, dpi=147)
+    ax[1].semilogy(ℓ[rg], ℓ[rg].^2 .* hsptℓ[rg], label="spt mock sim")
+    ax[1].plot(    ℓ[rg], ℓ[rg].^2 .* heazℓ[rg], label="ECP simulated and filtered")
+    ax[1].set_xlabel("ℓ")
+    ax[1].legend()
+    ax[1].set_title("Bandpowers")
+    
+    ax[2].plot(ℓ[rg], hsptℓ[rg]./heazℓ[rg], label="power ratio: spt filt / 2d filt")
+    ax[2].axhline(y=1, color="black", linestyle="--")
+    ax[2].set_xlabel("ℓ")
+    ax[2].legend()
+    ax[2].set_title("Bandpower ratio: (spt mock sim)_ℓ / (ECP simulated and filtered)_ℓ")
+
+    # ρℓ = (heaz_hsptℓ ./ .√(hsptℓ .* heazℓ))
+    # ax[3].semilogx(ℓ[rg], 1 .- ρℓ[rg].^2, label="1 - ρℓ^2 where ρℓ = cross correlation")
+    # ax[3].semilogx(ℓ[rg], ρℓ[rg], label="cross correlation ρℓ")
+    # ax[3].ylabel("ρℓ")
+    # ax[3].xlabel("ℓ")
+
+end
+
+
+
+
+
+
+
+####### 
+
+
+
+
+
 
 #=
 fwhm′  = 1.3
