@@ -335,6 +335,12 @@ end
 # Spin 2 signal
 # =================================================
 
+@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(
+    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ=EZ.θ(tm0), φ=EZ.φ(tm0), 
+    atol = 0, 
+) |> CircOp;
+
+
 ## @time EB▪½ = let 
 ##     EB▫  = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ ; θ,  φ)
 ##     map(EB▫) do M 
@@ -343,10 +349,6 @@ end
 ## end
 ## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
 ## -------
-@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(
-    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ=EZ.θ(tm0), φ=EZ.φ(tm0), 
-    atol = 0, 
-    ) |> CircOp;
 
 #=
 @time qu = EB▪½ * Xmap(tm2,randn(eltype_in(tm2), size_in(tm2)));
@@ -398,6 +400,11 @@ CMBrings.map_plot(EB▪⁻½ * qu)
 # Spin 0 signal
 # =================================================
 
+@time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(
+    ℓ, ϕϕℓ, block_sizesθ, permθ; θ=EZ.θ(tm0), φ=EZ.φ(tm0)
+) |> CircOp;
+
+
 ## @time Phi▪½ = let 
 ##     Phi▫  = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ,  φ)
 ##     map(Phi▫) do M 
@@ -406,10 +413,6 @@ CMBrings.map_plot(EB▪⁻½ * qu)
 ## end
 ## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
 ## -------
-@time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(
-    ℓ, ϕϕℓ, block_sizesθ, permθ; θ=EZ.θ(tm0), φ=EZ.φ(tm0)
-    ) |> CircOp;
-
 
 
 
@@ -767,11 +770,6 @@ end;
 
     _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = map(_A₁₁ᵍ▪, B▪, N▪⁺ᵍ, EB▪) do iA, Bl, iN, Σ
         # iA, Bl, iN, Σ = _A₁₁ᵍ▪[1], B▪[1], N▪⁺ᵍ[1], EB▪[1]
-        
-        # PΣ, RΣ, M½Σ = Σ½[1], inv(Σ½[2]), Σ½[3]
-        # # M½Σ_M½Σᴴ = VF.Midiagonal(map(x->LRC.LLᴴ(x), M½Σ.data))
-        # M½Σ_M½Σᴴ = VF.Midiagonal(map(x->LRC.low_rank_cov(VF.Sym_or_Hrm(x*x')), M½Σ.data))
-        # invΣ = VF.instantiate_inv(RΣ, M½Σ_M½Σᴴ, PΣ)
 
         PΣ, RΣ, MΣ = Σ[1], inv(Σ[2]), Σ[3]
         invΣ = VF.instantiate_inv(RΣ, MΣ, PΣ)
@@ -779,11 +777,6 @@ end;
         PB, RB, MB, matΩ = Bl[1], inv(Bl[2]), Bl[3], Bl[6]
         invB = VF.instantiate_inv(RB, MB, PB)
         matB = inv(cholesky(VF.Sym_or_Hrm(invB))) # default
-        # default
-        # iN_iNiAiN½ = sqrt(iN - iN*iA*iN)
-        # lmul!(iN_iNiAiN½, matB) 
-        # rmul!(matB, matΩ)
-        # invΣ += matB'*matB
         matB′ = sqrt(iN - iN*iA*iN) * matB * matΩ
 
         invΣ += matB′'*matB′
@@ -798,8 +791,6 @@ end;
                 atol = 0, 
                 )
     end |> CircOp
-
-
 
     _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
 end;
@@ -879,7 +870,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
     # for otr = 1:50 # default
-    for otr = 1:15
+    for otr = 1:5
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1001,8 +992,8 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    # ϕ; title1=L"True $\phi$",
-    Xmap(tm0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
+    ϕ; title1=L"True $\phi$",
+    # Xmap(tm0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
     # Xmap(tm0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );
