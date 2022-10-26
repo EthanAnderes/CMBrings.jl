@@ -329,7 +329,7 @@ plot(diag(PWF0▪[1000]))
 # add beam to Tf0 and Tf2 
 # ===============================================
 
-fwhm′  = 1.3 # 1.3 # 1.0 # 1.4  # 1.35 # 1.5 # 1.7
+fwhm′  = 1.0 # 1.3 # 1.0 # 1.4  # 1.35 # 1.5 # 1.7
 
 # approx beam
 B0, B2 = @sblock let eaz0, eaz2, fwhm′
@@ -409,7 +409,8 @@ CMBrings.fourier_power(
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = Mu0 * Tf0 * B0▪ * t_eaz,
 #                                     f2 = Mu0 * Tf0 * B0  * t_eaz
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
-                                    f2 = M0 * PWF0▪ * Tf0 * B0▪ * t_eaz
+                                    # f2 = M0 * PWF0▪ * Tf0 * B0▪ * t_eaz
+                                    f2 = M0 * PWF0▪ * Tf0 * t_eaz
 # f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M2 * TF_qu_eaz, # ... or Mu2
 #                                     f2 = M2 * Tf2 * qu_eaz                                 
     ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 20)
@@ -417,8 +418,9 @@ f1_kpwr, f2_kpwr, ℓbn = @sblock let f1 = M0 * TF_t_eaz, # ... or Mu0
     f1_kpwr, f2_kpwr, ℓbn
 end
 
+#=
 fig,ax = subplots(2, dpi=147)
-ul = findfirst(ℓbn .> 8_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ul = findfirst(ℓbn .> 4_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ll = findfirst(ℓ_Hp .< ℓbn) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].semilogy(ℓbn[ll:ul], f1_kpwr[ll:ul], label="spt filtered sim sky")
 ax[1].plot(ℓbn[ll:ul], f2_kpwr[ll:ul], label="2d filtered sim sky")
@@ -429,7 +431,7 @@ ax[1].legend()
 ax[2].legend()
 
 ax[1].set_title("beam = $fwhm′")
-
+=#
 
 
 # compare bandpowers projected to healpix
@@ -459,7 +461,7 @@ feaz = CMBL.EquiRectMap(
 hspt = CMBL.project(fspt => CMBL.ProjHealpix(Nside));
 heaz = CMBL.project(feaz => CMBL.ProjHealpix(Nside));
 
-hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 6000
+hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 8000
     hsptℓ       = HP.sphtfunc.anafast(hspt.arr, lmax=lmax, pol=false)
     heazℓ       = HP.sphtfunc.anafast(heaz.arr, lmax=lmax, pol=false)
     heaz_hsptℓ  = HP.sphtfunc.anafast(hspt.arr, heaz.arr, lmax=lmax, pol=false)
@@ -467,7 +469,7 @@ hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 6000
 end
 
 
-let lmax = 6000
+let lmax = 8000
     ℓ  = (0:lmax)
 
     rg = 10:4000
