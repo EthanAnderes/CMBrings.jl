@@ -50,6 +50,9 @@ HP = PC.pyimport("healpy")
 
 
 
+# include(joinpath(CMBrings.module_dir,"examples/elm_blm_projection/LocalMethods.jl"))
+# import .LocalMethods as LM
+
 
 
 # Set Healpix grid

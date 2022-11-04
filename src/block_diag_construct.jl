@@ -158,7 +158,7 @@ function spin0_az_cov½_vecchia_blks(
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
         R, preM, = VF.R_M_P(Σ, blk_sizes; atol)
-        M½ = VF.Midiagonal(map(sqrt, preM.data))
+        M½ = VF.Midiagonal(map(x->sqrt(x;tol=atol), preM.data))
         # M½ = VF.Midiagonal(map(x->LRC.low_rank_cov(sqrt(VF.Sym_or_Hrm(Matrix(x)))), preM.data)) # testing
         P' * inv(R) * M½ * P 
     end
@@ -173,8 +173,7 @@ function spin0_az_cov½_vecchia_blks(
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
         R, preM, = VF.R_M_P(Σ, blk_sizes; atol)
-        M½ = VF.Midiagonal(map(sqrt, preM.data))
-        # M½ = VF.Midiagonal(map(x->LRC.low_rank_cov(sqrt(VF.Sym_or_Hrm(Matrix(x)))), preM.data)) # testing
+        M½ = VF.Midiagonal(map(x->sqrt(x;tol=atol), preM.data))
         P' * inv(R) * M½ * P 
     end
     return Σ▫
@@ -193,8 +192,7 @@ function spin2_az_cov½_vecchia_blks(
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
         R, preM, = VF.R_M_P(Σ, blk_sizes′; atol)
-        M½ = VF.Midiagonal(map(sqrt, preM.data))
-        # M½ = VF.Midiagonal(map(x->LRC.low_rank_cov(sqrt(VF.Sym_or_Hrm(Matrix(x)))), preM.data)) # testing
+        M½ = VF.Midiagonal(map(x->sqrt(x;tol=atol), preM.data))
         P' * inv(R) * M½ * P 
     end
     return Σ▫
@@ -209,8 +207,7 @@ function spin2_az_cov½_vecchia_blks(
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
         R, preM, = VF.R_M_P(Σ, blk_sizes′; atol)
-        M½ = VF.Midiagonal(map(sqrt, preM.data)) 
-        # M½ = VF.Midiagonal(map(x->LRC.low_rank_cov(sqrt(VF.Sym_or_Hrm(Matrix(x)))), preM.data)) # testing
+        M½ = VF.Midiagonal(map(x->sqrt(x;tol=atol), preM.data)) 
         P' * inv(R) * M½ * P 
     end
     return Σ▫

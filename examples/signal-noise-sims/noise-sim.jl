@@ -54,10 +54,8 @@ using PyPlot
 # import PyCall as PC
 # HP = PC.pyimport("healpy")
 
-include("LocalMethods.jl")
+include(joinpath(CMBrings.module_dir,"examples/signal-noise-sims/LocalMethods.jl"))
 import .LocalMethods as LM
-
-
 
 
 # Set point source file

@@ -46,8 +46,9 @@ using PyPlot
 # import PyCall as PC
 # HP = PC.pyimport("healpy")
 
-include("LocalMethods.jl")
+include(joinpath(CMBrings.module_dir,"examples/quasi-bandpwr2parm/LocalMethods.jl"))
 import .LocalMethods as LM
+
 
 
 # EAZ pixel grid

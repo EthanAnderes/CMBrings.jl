@@ -35,8 +35,9 @@ using PyPlot
 import PyCall as PC
 HP = PC.pyimport("healpy")
 
-# include("LocalMethods.jl")
+# include(joinpath(CMBrings.module_dir,"examples/eaz_plots/LocalMethods.jl"))
 # import .LocalMethods as LM
+
 
 # Set files and load healpix files
 # =========================================
@@ -46,19 +47,24 @@ noise_file_root = "/Users/ethananderes/Downloads/3gmaps/data"
 cmb_file_, ghz = @sblock let cmb_file_root, noise_file_root
 
     # cmb_file_, ghz = joinpath(cmb_file_root, "lensed_planck2018_base_plikHM_TTTEEE_lowl_lowE_lensing_cambphiG_teb1_seed1_lmax17000_nside8192_interp1.6_method1_pol_1_lensedmap.fits")
+
+    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_90ghz.hpix"), 90
+    cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_150ghz.hpix"), 150
+    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_220ghz.hpix"), 220
+
+    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_90ghz_seed1_3gpatch.fits"), 90
+    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_150ghz_seed1_3gpatch.fits"), 150
+    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_220ghz_seed1_3gpatch.fits"), 220
     
     # cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g90ghz.hpix"), 90
     # cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g150ghz.hpix"), 150
     # cmb_file_, ghz =  joinpath(cmb_file_root, "Coadd_allfields_lencmbonly_spt3g220ghz.hpix"), 220
     
-    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_90ghz.hpix"), 90
-    cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_150ghz.hpix"), 150
-    # cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_220ghz.hpix"), 220
-
     # cmb_file_, ghz = joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_90.hpix"), 90
     # cmb_file_, ghz = joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_150.hpix"), 150
     # cmb_file_, ghz = joinpath(noise_file_root,"signflip_001_bundle_000.g3.gz_220.hpix"), 220
     # cmb_file_, ghz = joinpath(noise_file_root,"wei_signflip/signflip_000_bundle_000_150Ghz.hpx")
+
 
     return cmb_file_, ghz
 end
@@ -131,7 +137,9 @@ end
     φ, φ_full = EZ.φ(eaz0), EZ.φ_full(eaz0)
     hpix_map_IQU  = g3_adjust .* HP.read_map(cmb_file_, field=(0,1,2))
 
-    qu_hpx  = Xmap(tmℍ2, hcat(hpix_map_IQU[2,:], hpix_map_IQU[3,:]) )
+    # qu_hpx  = Xmap(tmℍ2, hcat(hpix_map_IQU[2,:], hpix_map_IQU[3,:]) )
+    # !!!!! note the signs here
+    qu_hpx  = Xmap(tmℍ2, hcat(.- hpix_map_IQU[2,:], .- hpix_map_IQU[3,:]) )
     t_hpx   = Xmap(tmℍ0, hpix_map_IQU[1,:])
 
     # -- default
@@ -216,11 +224,11 @@ F0 = F2 = 1
 # =============================
 
 CMBrings.map_plot(
-    # M0 * F0 * M0 * t_eaz; title1=L"$T(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", 
-    # M0 * F0 * M0 * t_eaz; title1=L"$T(\theta,\varphi)$  mockobs_v2 (%$ghz Ghz) with Gaussian blur", imag_fun=x->CMBrings.imag_blur(x;blur=5),
+    # F0 * M0 * t_eaz; title1=L"$T(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", 
+    # F0 * M0 * t_eaz; title1=L"$T(\theta,\varphi)$  mockobs_v2 (%$ghz Ghz) with Gaussian blur", imag_fun=x->CMBrings.imag_blur(x;blur=5),
     #
-    M2 * F2 * M2 * qu_eaz; title1=L"$Q(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", title2=L"$U(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", 
-    # M2 * F2 * M2 *  qu_eaz; title1=L"$Q(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz) with Gaussian blur", title2=L"$U(\theta,\varphi)$  mockobs_v2 (%$ghz Ghz) with Gaussian blur", imag_fun=x->CMBrings.imag_blur(x;blur=25),
+    F2 * M2 * qu_eaz; title1=L"$Q(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", title2=L"$U(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz)", 
+    # F2 * M2 *  qu_eaz; title1=L"$Q(\theta,\varphi)$ mockobs_v2 (%$ghz Ghz) with Gaussian blur", title2=L"$U(\theta,\varphi)$  mockobs_v2 (%$ghz Ghz) with Gaussian blur", imag_fun=x->CMBrings.imag_blur(x;blur=25),
 );
 
 # (θ,m) plots
@@ -264,10 +272,10 @@ t_eqR, qu_eqR = @sblock let eaz0, T=Float64, t_eaz, qu_eaz, M0, M2, F0, F2
 	Ny    = eaz0.nθ
 	Nx    = eaz0.nφ
 	proj = CMBL.ProjEquiRect(;Ny, Nx, T, θspan, φspan)
-	t_eqR = CMBL.EquiRectMap((M0 * F0 * M0 * t_eaz)[:], proj)
+	t_eqR = CMBL.EquiRectMap((F0 * M0 * t_eaz)[:], proj)
 	qu_eqR = CMBL.EquiRectQUMap(
-		real((M2 * F2 * M2 * qu_eaz)[:]), 
-		imag((M2 * F2 * M2 * qu_eaz)[:]), 
+		real((F2 * M2 * qu_eaz)[:]), 
+		imag((F2 * M2 * qu_eaz)[:]), 
 		proj,
 	)
 	t_eqR, qu_eqR

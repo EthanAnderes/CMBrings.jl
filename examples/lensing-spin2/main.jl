@@ -66,7 +66,8 @@ tm0, tm2, grid_type = @sblock let
 
     ## set φ grid parameters: φspan and nφ
     φspan = deg2rad.((-60,60)) # deg2rad.((-45, 45))
-    nφ    = 1575 # 2048  # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    nφ    = 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    #nφ    = 1575
 
     ## set θ grid parameters: θ, θ∂
     ## ---- option
@@ -77,10 +78,19 @@ tm0, tm2, grid_type = @sblock let
     # θ  = CC.θ_healpix(Nside)[ri]
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
-    type = :equiθ # :equicosθ 
-    nθ     = 400 # 500 # 800 #  600 # 805
+    type = :equicosθ # :equiθ # 
+    nθ     = 500 #  600 # 800
+    # nθ    = 400
     θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
+
+    ## Good smallish run settings
+    # φspan = deg2rad.((-60,60))
+    # nφ    = 1575
+    # type  = :equiθ
+    # nθ    = 400
+    # θspan = π/2 .+ deg2rad.((51,69))
+
 
     tm0 = EAZ0{Float64}(θ, φspan, nφ; θ∂)
     tm2 = EAZ2{Float64}(θ, φspan, nφ; θ∂)
@@ -91,7 +101,7 @@ end
 
 # Plot Grid statistics
 
-@sblock let tm0, hide_plots
+@sblock let tm0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(tm0.θ, rad2deg.(.√(EZ.Ωpix(tm0)).*60), label="sqrt pixel area")
@@ -126,7 +136,7 @@ permθ        = 1:tm0.nθ
 θ_approx_nyq = π / minimum(EZ.Δθ(tm0)) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
-approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
+approx_lmax += ceil(Int, approx_lmax * 0.05) # for good measure:)
 ## override ...
 ## approx_lmax = 25_000
 
@@ -136,7 +146,7 @@ approx_lmax += ceil(Int, approx_lmax * 0.1) # for good measure:)
     cld = camb_cls(;lmax=lmax, r,
         lSampleBoost   = 4.0,
         lAccuracyBoost = 4.0,
-        KmaxBoost = 4.0,
+        KmaxBoost = 6.0,
         )
     
     eesl = cld[:unlen_scalar] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
@@ -193,16 +203,17 @@ eeℓ[1] = eeℓ[2] = 0
 #=
 EB▫_test = CMBrings.az_cov_blks(
     ℓ, eeℓ, bbℓ; 
-    θ=tm0.θ[1:2*bsd_nθ], # or tm0.θ[end-2*bsd_nθ:end]
+    θ=tm0.θ[end-2*bsd_nθ + 1:end], # tm0.θ[1:2*bsd_nθ], 
     φ=EZ.φ(tm0), 
     ℓrange=[tm0.nφ÷2-5,tm0.nφ÷2+1], 
     ngrid=100_000
 );
 
 Σ = EB▫_test[1]
-blk_sizes = [200,200]
-perm = 1:sum(blk_sizes)
-low_rank_cov(Hermitian(Σ[blk_indices[ic], blk_indices[ic]]);tol=atol).rank
+M = LRC.low_rank_cov(
+    Hermitian(Σ);
+    tol=0
+)
 
 VF.vecchia(EB▫_test[1], [200,200]; atol=1e-15)
 
@@ -334,33 +345,24 @@ end
 
 # Spin 2 signal
 # =================================================
+# TODO: make custom sqrt and LowRankCov/Chol with a clamp...
+
 
 @time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(
-    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ=EZ.θ(tm0), φ=EZ.φ(tm0), 
-    atol = 0, 
+    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
+    θ=EZ.θ(tm0), φ=EZ.φ(tm0), 
+    # atol      = 1e-10, # 1e-14, # for the low rank Chol
 ) |> CircOp;
-
-
-## @time EB▪½ = let 
-##     EB▫  = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ ; θ,  φ)
-##     map(EB▫) do M 
-##         Array(sqrt(Hermitian(M)))
-##     end |> CircOp
-## end
-## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
-## -------
 
 #=
 @time qu = EB▪½ * Xmap(tm2,randn(eltype_in(tm2), size_in(tm2)));
-@time EB▪½ \ Xmap(tm2,randn(eltype_in(tm2), size_in(tm2)));
 CMBrings.map_plot(qu)
-CMBrings.fourier_power( qu, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
+CMBrings.fourier_power(qu, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 
+@time EB▪½ \ Xmap(tm2,randn(eltype_in(tm2), size_in(tm2)));
 CMBrings.fourier_power(EB▪½ \ qu, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 CMBrings.map_plot(EB▪½ \ qu)
 
-CMBrings.fourier_power(EB▪⁻½ * qu, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
-CMBrings.map_plot(EB▪⁻½ * qu)
 =#
 
 ## sum(Base.summarysize, EB▪½) / 1e9 # 7.41 GB, 3.55min construction, high res
@@ -397,6 +399,38 @@ CMBrings.map_plot(EB▪⁻½ * qu)
 
 
 
+#=
+@time EB▪ = CMBrings.spin2_az_cov_vecchia_blks(
+    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
+    θ=EZ.θ(tm0), φ=EZ.φ(tm0), 
+    atol = 0, 
+    atol = 1e-14, # for the low rank Chol
+) |> CircOp;
+
+Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=100_000)
+Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
+blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
+Σ▫ = map(Σ_pre▫) do Σ
+    R, preM, = VF.R_M_P(Σ, blk_sizes′; atol)
+    M½ = VF.Midiagonal(map(x->sqrt(x;tol), preM.data))
+    P' * inv(R) * M½ * P 
+end
+
+=#
+
+
+## @time EB = let 
+##     EB▫  = CMBrings.az_cov_blks(ℓ, eeℓ, bbℓ ; θ,  φ)
+##     map(EB▫) do M 
+##         Array(sqrt(Hermitian(M)))
+##     end |> CircOp
+## end
+## EB▪⁻½ = map(inv, EB▪½) |> CircOp;
+## -------
+
+
+
+
 # Spin 0 signal
 # =================================================
 
@@ -405,23 +439,12 @@ CMBrings.map_plot(EB▪⁻½ * qu)
 ) |> CircOp;
 
 
-## @time Phi▪½ = let 
-##     Phi▫  = CMBrings.az_cov_blks(ℓ, ϕϕℓ; θ,  φ)
-##     map(Phi▫) do M 
-##         Array(sqrt(Symmetric(M))) 
-##     end |> CircOp
-## end
-## Phi▪⁻½ = map(inv, Phi▪½) |> CircOp;
-## -------
-
-
-
 #=
 @time ϕ = Phi▪½ * Xmap(tm0,randn(eltype_in(tm0), size_in(tm0)));
-@time Phi▪½ \ Xmap(tm0,randn(eltype_in(tm0), size_in(tm0)));
 CMBrings.map_plot(ϕ)
 CMBrings.fourier_power(ϕ, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 
+@time Phi▪½ \ Xmap(tm0,randn(eltype_in(tm0), size_in(tm0)));
 CMBrings.fourier_power(Phi▪½ \ϕ, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 CMBrings.map_plot(Phi▪½ \ϕ)
 =#
@@ -433,7 +456,8 @@ CMBrings.map_plot(Phi▪½ \ϕ)
 # Noise
 # ============================
 
-μK_arcmin  = 5.0 # 5.0 # 1.0
+# μK_arcmin  = 5.0 # default 
+μK_arcmin  = 3.0 # testing !!!
 
 N▪ = @sblock let μK_arcmin, tm0
     Ω, nφ = EZ.Ωpix(tm0), tm0.nφ
@@ -584,8 +608,8 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 
 #=
 CMBrings.map_plot(
-    d,
-    # qu,
+    # d,
+    qu,
     # ϕ,
     # Ł(ϕ)*qu - qu,
     # Ł(ϕ)*qu,
@@ -631,9 +655,9 @@ import CMBflat
 N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(.√EZ.Ωpix(tm0)), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamfwhm_rad_θ, nnℓ=fill(nnℓ,length(ℓ)) 
     
     ## not sure which version of σ² is the best here???
-    σ² = mean(beamfwhm_rad_θ)^2 / 8 / log(2)
+    ## σ² = mean(beamfwhm_rad_θ)^2 / 8 / log(2)
     ## σ² = minimum(beamfwhm_rad_θ)^2 / 8 / log(2)    
-    ## σ² = maximum(beamfwhm_rad_θ)^2 / 8 / log(2) ## original ...
+    σ² = maximum(beamfwhm_rad_θ)^2 / 8 / log(2) ## original ...
     beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
 
     T_fld   = Float64
@@ -788,7 +812,7 @@ end;
                 2 .* block_sizesθ,  
                 ## VF.block_split(2nθ, 250),
                 1:2nθ |> x->(reshape(x,nθ,2)')[:],
-                atol = 0, 
+                atol = 1e-10, # !!!! testing 
                 )
     end |> CircOp
 
@@ -870,7 +894,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
     # for otr = 1:50 # default
-    for otr = 1:10
+    for otr = 1:20
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
