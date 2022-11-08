@@ -8,13 +8,13 @@
 # pix_diag_rad   = CC.geoβ.(tm0.θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
 
 
-function beam_Γ(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0)) where {T}
+function beam_Γ(eaz::EAZ{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz)) where {T}
     σ²θ = @. fwhmrad2σ².(fwhmθ_rad)
-    σ²θ_spl = CC.Spline1D(eaz0.θ, σ²θ, k=2)
+    σ²θ_spl = CC.Spline1D(EZ.θ(eaz), σ²θ, k=2)
     (θ₁, θ₂, φ₁, φ⃗) -> complex.(B̃eam1.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
 end
 
-
+# TODO: is it worth it to add perm argument here?
 function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :row_ave) where {T}
 
     Γ = beam_Γ(eaz0; fwhmθ_rad)
@@ -41,35 +41,49 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
     end
 end
 
+# TODO: is it worth it to add perm argument here?
+function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ, normalizeθ = :row_ave) where {T}
 
-# TODO ...
-# function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :Ω) where {T}
+    Σ0▫ = beam▫(EZ.spin0(eaz2); fwhmθ_rad, block_sizesθ, normalizeθ=:none)
 
+    # TODO: either make this so it shares memory with Σ0▫
+    # or allow spin0 operators in fourier to multiply on q,u fields separately
+    nθ = eaz2.nθ
 
-#     Σ0▫ = beam▫(EZ.spin0(eaz2); fwhmθ_rad, block_sizesθ, normalizeθ)
-#     Σ2▫ = map(Σ0▫) do B
-#         ## B = Bspin0▫[2]
-#         P = B[1]'
-#         R = inv(B[2])
-#         Mpre = B[3] ## B[3]*B[3]'
-#         M = VF.Midiagonal(Mpre.data) # What is the speed effect here??
+    Σ2▫ = map(Σ0▫) do B
+        # M -> M2
+        M = B[2]
+        M2 = vcat(M.data, M.data) |> VF.Midiagonal
+        
+        # R -> invR2
+        R = inv(B[1])
+        invR2 = vcat(
+            R.data, 
+            [zeros(eltype(M.data[1]), size(M.data[1],1), size(M.data[end],2))], 
+            R.data
+        ) |> VF.Ridiagonal |> inv
+        # put everything back together
+        invR2 * M2 * invR2'
+    end
 
-#         a1 = 1:2nθ |> x->reshape(x,nθ,2)
-#         P2 = VF.Piv(a1[P.perm,:][:])
-#         M2 = vcat(M.data, M.data) |> VF.Midiagonal
-#         invR2 = vcat(
-#             R.data, 
-#             [zeros(eltype(M.data[1]), size(M.data[1],1), size(M.data[end],2))], 
-#             R.data
-#         ) |> VF.Ridiagonal |> inv
+    if normalizeθ == :none
+        return Σ2▫ 
+    elseif normalizeθ == :row_ave
+        ## Adjust so row mean of the pixel kernel is 1
+        bws     = beamθ_weight_sum(eaz2; fwhmθ_rad)
+        inv_bws = inv.(bws)
+        Dw⁻¹    = Diagonal(vcat(inv_bws,inv_bws))
+        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ2▫)
+    elseif normalizeθ == :Ω
+        ## Adjust so left mult behaves like an integral operator
+        dΩ = EZ.Ωpix(eaz2)
+        DΩ = Diagonal(vcat(dΩ,dΩ))
+        return map(Σ▫i -> Σ▫i * DΩ, Σ2▫)
+    else 
+        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
+    end
 
-#         P2' * invR2 * M2 * invR2' * P2 * DΩΩ
-#     end
-#     ...
-
-
-#     return Σ2▫
-# end;  
+end  
 
 
 function beamθ_weight_sum(eaz::EAZ{T}; fwhmθ_rad) where {T}
