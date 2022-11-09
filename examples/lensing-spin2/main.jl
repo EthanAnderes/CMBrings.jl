@@ -152,25 +152,24 @@ approx_lmax += ceil(Int, approx_lmax * 0.05) # for good measure:)
     eesl = cld[:unlen_scalar] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
     eetl = cld[:unlen_tensor] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
     eel  = eesl .+ eetl
-    eel[1] = 0
+    eel[1] = eel[2] = 0
 
     bbsl = cld[:unlen_scalar] |> x->(x[:Cbb] ./ x[:factor_on_cl_cmb])
     bbtl = cld[:unlen_tensor] |> x->(x[:Cbb] ./ x[:factor_on_cl_cmb])
     ## note: bbsl == 0 
     bbl    = bbsl .+ bbtl
-    bbl[1] = 0
+    bbl[1] = bbl[2] = 0
 
     ẽesl   = cld[:len_scalar] |> x->(x[:Cee] ./ x[:factor_on_cl_cmb])
     ẽel    = ẽesl .+ eetl # we only have lensed spectra for scalar
-    ẽel[1] = 0
+    ẽel[1] = ẽel[2] = 0
 
     b̃bsl   = cld[:len_scalar] |> x->(x[:Cbb] ./ x[:factor_on_cl_cmb])
     b̃bl    = b̃bsl .+ bbtl # we only have lensed spectra for scalar
-    b̃bl[1] = 0
+    b̃bl[1] = b̃bl[2] = 0
 
     ϕϕl    = cld[:phi] |> x->(x[:Cϕϕ] ./ x[:factor_on_cl_phi])
-    # ϕϕl[1] =  ϕϕl[2] = 1e-2 * ϕϕl[3] ### trying to fix a rank degeneracy here ...
-    ϕϕl[1] =  ϕϕl[2] = 0 ### trying to fix a rank degeneracy here ...
+    ϕϕl[1] =  ϕϕl[2] = 0 
 
     return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
@@ -457,7 +456,7 @@ CMBrings.map_plot(Phi▪½ \ϕ)
 # ============================
 
 # μK_arcmin  = 5.0 # default 
-μK_arcmin  = 3.0 # testing !!!
+μK_arcmin  = 1.0 # testing !!!
 
 N▪ = @sblock let μK_arcmin, eaz0
     Ω, nφ = EZ.Ωpix(eaz0), eaz0.nφ
@@ -497,60 +496,8 @@ fwhmθ_rad = EZ.pix_diag_rad(eaz0) # pix_diag_rad # * 0.95
 # fwhm′ = 2.0 
 # fwhmθ_rad = fill(CMBrings.arcmin2rad(fwhm′), eaz0.nθ)
 
-B▪ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ = :row_ave) |> CircOp;
-
-
-#=
-
-# pix_diag_rad   = CC.geoβ.(eaz0.θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
-beamfwhm_rad_θ = EZ.pix_diag_rad(eaz0) # pix_diag_rad # * 0.95
-σ²θ            = @. CMBrings.fwhmrad2σ²(beamfwhm_rad_θ)
-
-Γbeam_θ₁θ₂φ₁φ⃗ = let σ²θ_spl = Spline1D(eaz0.θ, σ²θ, k=2)
-    function (θ₁, θ₂, φ₁, φ⃗)
-        complex.(CMBrings.B̃eam1.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
-    end
-end;
-
-B▪ = @sblock let Γbeam_θ₁θ₂φ₁φ⃗, block_sizesθ, permθ, eaz0 
-
-    θ, φ, Ω = EZ.θ(eaz0), EZ.φ(eaz0), EZ.Ωpix(eaz0)
-
-    nθ, nφ = length(θ), length(φ)
-    DΩΩ  = Diagonal(vcat(Ω, Ω))
-    
-    Bspin0▪ = CMBrings.spin0_az_cov_vecchia_blks(
-        Γbeam_θ₁θ₂φ₁φ⃗, block_sizesθ,  permθ; θ, φ
-    ) |> CircOp;
-
-    Bspin2▪ = map(Bspin0▪) do B
-        # P -> P2
-        P = B[1]'
-        a1 = 1:2nθ |> x->reshape(x,nθ,2)
-        P2 = VF.Piv(a1[P.perm,:][:])
-
-        # M -> M2
-        M = B[3]
-        M2 = vcat(M.data, M.data) |> VF.Midiagonal
-        
-        # R -> invR2
-        R = inv(B[2])
-        invR2 = vcat(
-            R.data, 
-            [zeros(eltype(M.data[1]), size(M.data[1],1), size(M.data[end],2))], 
-            R.data
-        ) |> VF.Ridiagonal |> inv
-
-        # put everything back together
-        P2' * invR2 * M2 * invR2' * P2 * DΩΩ
-    end |> CircOp
-
-    return Bspin2▪
-end;  
-
-=# 
-
-
+normalizeθ = :row_ave
+B▪ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ) |> CircOp;
 
 # Lensing operators
 # ============================
@@ -629,10 +576,10 @@ CMBrings.map_plot(
     # d,
     # qu,
     # ϕ,
-    # Ł(ϕ)*qu - qu,
+    Ł(ϕ)*qu - qu,
     # Ł(ϕ)*qu,
     # no, 
-    B▪ * B▪ * B▪ * B▪ * B▪ * no,
+    # B▪ * B▪ * B▪ * B▪ * B▪ * no,
     # imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
@@ -670,12 +617,13 @@ nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> ab
 
 import CMBflat
 
-N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(.√EZ.Ωpix(eaz0)), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, beamfwhm_rad_θ, nnℓ=fill(nnℓ,length(ℓ)) 
+N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(.√EZ.Ωpix(eaz0)), n_iter=5, ℓ, eeℓ, bbℓ, ϕϕℓ, fwhmθ_rad, nnℓ=fill(nnℓ,length(ℓ)) 
     
     ## not sure which version of σ² is the best here???
-    ## σ² = mean(beamfwhm_rad_θ)^2 / 8 / log(2)
-    ## σ² = minimum(beamfwhm_rad_θ)^2 / 8 / log(2)    
-    σ² = maximum(beamfwhm_rad_θ)^2 / 8 / log(2) ## original ...
+    ## σ² = mean(fwhmθ_rad)^2 / 8 / log(2)
+    ## σ² = minimum(fwhmθ_rad)^2 / 8 / log(2)    
+    ## σ² = maximum(fwhmθ_rad)^2 / 8 / log(2) # default
+    σ² = 1.25 * maximum(fwhmθ_rad)^2 / 8 / log(2) # testing ...
     beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
 
     T_fld   = Float64
@@ -792,7 +740,7 @@ MWMᵀᵍ = @sblock let W▪, M, eaz2
 end;
 
 
-@time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, ℓ, eeℓ, bbℓ, N▪⁺ᵍ, W▪, M, MWMᵀᵍ, block_sizesθ, permθ, eaz0
+@time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, ℓ, eeℓ, bbℓ, N▪⁺ᵍ, W▪, M, MWMᵀᵍ, normalizeθ, block_sizesθ, permθ, eaz0
     
     nθ = eaz0.nθ
     
@@ -816,13 +764,20 @@ end;
         PΣ, RΣ, MΣ = Σ[1], inv(Σ[2]), Σ[3]
         invΣ = VF.instantiate_inv(RΣ, MΣ, PΣ)
 
-        PB, RB, MB, matΩ = Bl[1], inv(Bl[2]), Bl[3], Bl[6]
-        invB = VF.instantiate_inv(RB, MB, PB)
-        matB = inv(cholesky(VF.Sym_or_Hrm(invB))) # default
-        matB′ = sqrt(iN - iN*iA*iN) * matB * matΩ
+        if normalizeθ == :Ω
+            PB, RB, MB, matΩ = Bl[1], inv(Bl[2]), Bl[3], Bl[6]
+            invB = VF.instantiate_inv(RB, MB, PB)
+            matB = inv(cholesky(VF.Sym_or_Hrm(invB)))
+            matB′ = sqrt(iN - iN*iA*iN) * matB * matΩ
+        elseif normalizeθ == :row_ave
+            mat_row_ave, RB, MB = Bl[1], inv(Bl[2]), Bl[3]
+            invB = VF.instantiate_inv(RB, MB)
+            matB = inv(cholesky(VF.Sym_or_Hrm(invB)))
+            matB′ = sqrt(iN - iN*iA*iN) * mat_row_ave * matB
+        end
 
         invΣ += matB′'*matB′
-        # X = invΣ + matΩ'*(matB'*(iN - iN*iA*iN)*matB)*matΩ
+        # X = invΣ + matB′'*(iN - iN*iA*iN)*matB′
         invX = inv(cholesky(VF.Sym_or_Hrm(invΣ))) # default
 
         return VF.vecchia(
@@ -911,8 +866,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    # for otr = 1:50 # default
-    for otr = 1:20
+    for otr = 1:50 # default
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1064,23 +1018,30 @@ CMBrings.fourier_power(
 
 #-
 
-# ℓbin, cr_power = CMBrings.quasi_bandpowers(f_cr; Δℓsph_bin = 15)
-# ℓbin, power    = CMBrings.quasi_bandpowers(qu; Δℓsph_bin = 15)
+ℓbin, cr_power = CMBrings.quasi_bandpowers(
+    Xmap(eaz0, kappa(ϕ_cr)); 
+    Δℓsph_bin = 15
+)
+ℓbin, tu_power    = CMBrings.quasi_bandpowers(
+    Xmap(eaz0, kappa(ϕ)); 
+    Δℓsph_bin = 15
+)
+ℓbin, tu_cr_power = CMBrings.quasi_bandpowers(
+    Xmap(eaz0, kappa(ϕ_cr)), 
+    Xmap(eaz0, kappa(ϕ)); 
+    Δℓsph_bin = 15
+)
 
-ℓbin, cr_power = CMBrings.quasi_bandpowers(Xmap(eaz0, kappa(ϕ_cr)); Δℓsph_bin = 25)
-ℓbin, power    = CMBrings.quasi_bandpowers(Xmap(eaz0, kappa(ϕ)); Δℓsph_bin = 25)
+corr_power = tu_cr_power ./ sqrt.(cr_power) ./ sqrt.(tu_power)
+
+fig,ax = subplots(1, dpi=147)
+ax.plot(ℓbin, abs2.(real.(corr_power)))
+# ax.plot(ℓbin, save_corr_power_sq)
 
 
-fig,ax = subplots(1)
-ax.semilogy(ℓbin, ℓbin.^2 .* cr_power)
-ax.semilogy(ℓbin, ℓbin.^2 .* power)
+hcat(abs2.(real.(corr_power)), save_corr_power_sq)
 
-
-
-
-
-
-
+save_corr_power_sq = abs2.(real.(corr_power))
 
 # TODO: fixup the following ....
 
