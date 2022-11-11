@@ -573,10 +573,10 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 #=
 
 CMBrings.map_plot(
-    # d,
+    d,
     # qu,
     # ϕ,
-    Ł(ϕ)*qu - qu,
+    # Ł(ϕ)*qu - qu,
     # Ł(ϕ)*qu,
     # no, 
     # B▪ * B▪ * B▪ * B▪ * B▪ * no,

@@ -59,7 +59,18 @@ export CircOp, field2▪, ▪2field
 
 include("block_diag_construct.jl")
 
-include("filters.jl")
+include("beam_filters.jl")
+# beam▫
+
+include("masking.jl")
+# pix_point_src_mask
+
+include("pixel_wf_decimation.jl")
+# healpix_pwf▫
+# TODO: add decimation
+
+include("poly_hp_filters.jl")
+# TODO: add the local methods from examples/transfer-fun-est
 
 include("lensing.jl")
 

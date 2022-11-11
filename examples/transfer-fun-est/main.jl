@@ -28,7 +28,7 @@ using PyPlot
 import PyCall as PC
 hp = PC.pyimport("healpy")
 
-include(joinpath(CMBrings.module_dir,"examples/transfer-fun-est/LocalMethods.jl")
+include(joinpath(CMBrings.module_dir,"examples/transfer-fun-est/LocalMethods.jl"))
 import .LocalMethods as LM
 
 
@@ -286,7 +286,7 @@ using BenchmarkTools
 # ============================
 
 # ℓ_Hp  = 300
-ℓ_Hp  = 272
+ℓ_Hp  = 271
 # ℓ_Hp  = 25 creats TF noise out to ell = 3000 ???
 
 # FFT high pass
