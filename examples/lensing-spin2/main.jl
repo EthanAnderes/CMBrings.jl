@@ -66,8 +66,8 @@ eaz0, eaz2, grid_type = @sblock let
 
     ## set φ grid parameters: φspan and nφ
     φspan = deg2rad.((-60,60)) # deg2rad.((-45, 45))
-    #nφ    = 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
-    nφ    = 1575
+    nφ    = 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    # nφ    = 1575
 
     ## set θ grid parameters: θ, θ∂
     ## ---- option
@@ -79,8 +79,8 @@ eaz0, eaz2, grid_type = @sblock let
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
     type = :equicosθ # :equiθ # 
-    # nθ     = 500 #  600 # 800
-    nθ    = 400
+    nθ     = 600 # 800
+    # nθ    = 400
     θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
@@ -350,10 +350,9 @@ end
 @time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(
     ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
-    # atol      = 1e-10, # 1e-14, # for the low rank Chol
     chol_atol=0, 
-    eig_vmin=0, 
-    eig_val=0,
+    eig_vmin=1e-11, 
+    eig_val=0, # note that this is intentionally set to zero, for preconditioners it is set to > 0
 ) |> CircOp;
 
 
@@ -438,10 +437,11 @@ end
 # =================================================
 
 @time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(
-    ℓ, ϕϕℓ, block_sizesθ, permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-    chol_atol=0, 
-    eig_vmin=0, 
-    eig_val=0,
+    ℓ, ϕϕℓ, block_sizesθ, permθ; 
+    θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
+    chol_atol = 0, 
+    eig_vmin  = 0, 
+    eig_val   = 0, 
 ) |> CircOp;
 
 
@@ -580,13 +580,13 @@ d = M * (B▪ * Ł(ϕ) * qu + no) |> Xfourier;
 #=
 
 CMBrings.map_plot(
-    d,
+    # d,
     # qu,
     # ϕ,
     # Ł(ϕ)*qu - qu,
     # Ł(ϕ)*qu,
     # no, 
-    # B▪ * B▪ * B▪ * B▪ * B▪ * no,
+    B▪ * B▪ * B▪ * B▪ * B▪ * no,
     # imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
 
@@ -613,8 +613,12 @@ CMBrings.fourier_power(
 nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
 
 Ð▪⁻¹ = CMBrings.spin2_az_cov½_vecchia_blks(
-   ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
-   block_sizesθ,  permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0)
+    ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
+    block_sizesθ,  permθ ; 
+    θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
+    chol_atol = 0, 
+    eig_vmin  = 1e-11, 
+    eig_val   = 1e-11, 
 ) |> CircOp;
 
 
@@ -710,10 +714,13 @@ end;
 #     block_sizesθ,  permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0)
 # ) |> x->map(m->m*m',x) |> CircOp;
 
-
 NΦN▪ = CMBrings.spin0_az_cov_vecchia_blks(
     ℓ, NΦNℓ,  
-    block_sizesθ,  permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0)
+    block_sizesθ,  permθ ; 
+    θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
+    chol_atol = 0, 
+    eig_vmin  = 0, 
+    eig_val   = 0, 
 ) |> CircOp;
 
 
@@ -757,8 +764,11 @@ end;
     MWMᵀᵍθ = MWMᵀᵍ[:][:,end÷2] |> x->vcat(x,x)
     
     EB▪ = CMBrings.spin2_az_cov_vecchia_blks(
-        ℓ, eeℓ, bbℓ, block_sizesθ, permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
-        atol = 0, 
+        ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
+        θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
+        chol_atol = 0, 
+        eig_vmin  = 1e-11, 
+        eig_val   = 1e-11, 
     ) |> CircOp
 
     _A₁₁ᵍ▪ = map(W▪, N▪⁺ᵍ) do W, iN
@@ -787,13 +797,15 @@ end;
         # X = invΣ + matB′'*(iN - iN*iA*iN)*matB′
         invX = inv(cholesky(VF.Sym_or_Hrm(invΣ))) # default
 
-        return VF.vecchia(
-                invX, 
-                2 .* block_sizesθ,  
-                ## VF.block_split(2nθ, 250),
-                1:2nθ |> x->(reshape(x,nθ,2)')[:],
-                atol = 1e-10, # !!!! testing 
-                )
+        return VF.vecchia_pdeigen(
+            invX, 
+            2 .* block_sizesθ,  
+            ## VF.block_split(2nθ, 250),
+            1:2nθ |> x->(reshape(x,nθ,2)')[:];
+            chol_atol = 0, 
+            eig_vmin  = 1e-11, # testing !!! 
+            eig_val   = 1e-11, # testing !!! 
+        )
     end |> CircOp
 
     _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪
@@ -874,7 +886,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
     # for otr = 1:50 # default
-    for otr = 1:5 # default
+    for otr = 1:30 # default
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1024,7 +1036,7 @@ CMBrings.fourier_power(
     imag_fun=CMBrings.imag_logabs2clip,
 );
 
-#-
+# %%
 
 ℓbin, cr_power = CMBrings.quasi_bandpowers(
     Xmap(eaz0, kappa(ϕ_cr)); 

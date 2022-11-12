@@ -85,27 +85,31 @@ end
 
 # Spin0
 function spin0_az_cov_vecchia_blks(
-    ℓ::AbstractVector, ffℓ::Vector,
-    blk_sizes::AbstractVector{<:Integer}, 
-    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
+        ℓ::AbstractVector, ffℓ::Vector,
+        blk_sizes::AbstractVector{<:Integer}, 
+        perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+        θ, φ, ℓrange=1:length(φ)÷2+1,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Γ = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid=100_100)
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes; atol) * P
+        # P' * VF.vecchia(Σ, blk_sizes; atol) * P
+        P' * VF.vecchia_pdeigen(Σ, blk_sizes; chol_atol, eig_vmin, eig_val) * P
     end
     return Σ▫
 end
 function spin0_az_cov_vecchia_blks(
-    Γ,
-    blk_sizes::AbstractVector{<:Integer}, 
-    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
+        Γ,
+        blk_sizes::AbstractVector{<:Integer}, 
+        perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+        θ, φ, ℓrange=1:length(φ)÷2+1,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes; atol) * P
+        # P' * VF.vecchia(Σ, blk_sizes; atol) * P
+        P' * VF.vecchia_pdeigen(Σ, blk_sizes; chol_atol, eig_vmin, eig_val) * P
     end
     return Σ▫
 end
@@ -114,29 +118,33 @@ end
 
 # Spin2
 function spin2_az_cov_vecchia_blks(
-    ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector,
-    blk_sizes::AbstractVector{<:Integer}, 
-    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
+        ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector,
+        blk_sizes::AbstractVector{<:Integer}, 
+        perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+        θ, φ, ℓrange=1:length(φ)÷2+1,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=100_000)
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes′; atol) * P
+        # P' * VF.vecchia(Σ, blk_sizes′; atol) * P
+        P' * VF.vecchia_pdeigen(Σ, blk_sizes′; chol_atol, eig_vmin, eig_val) * P
     end
     return Σ▫
 end
 function spin2_az_cov_vecchia_blks(
-    Γ, C,
-    blk_sizes::AbstractVector{<:Integer}, 
-    perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
-    θ, φ, ℓrange=1:length(φ)÷2+1, atol=0
+        Γ, C,
+        blk_sizes::AbstractVector{<:Integer}, 
+        perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
+        θ, φ, ℓrange=1:length(φ)÷2+1, 
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
     Σ▫ = map(Σ_pre▫) do Σ
-        P' * VF.vecchia(Σ, blk_sizes′; atol) * P
+        # P' * VF.vecchia(Σ, blk_sizes′; atol) * P
+        P' * VF.vecchia_pdeigen(Σ, blk_sizes′; chol_atol, eig_vmin, eig_val) * P
     end
     return Σ▫
 end
@@ -158,7 +166,8 @@ function spin0_az_cov½_vecchia_blks(
         blk_sizes::AbstractVector{<:Integer}, 
         perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
         # θ, φ, ℓrange=1:length(φ)÷2+1, atol=0 # default
-        θ, φ, ℓrange=1:length(φ)÷2+1, chol_atol=0, eig_vmin=0, eig_val=0, # testing !!!
+        θ, φ, ℓrange=1:length(φ)÷2+1, 
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
 
     Γ = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid=100_100) 
@@ -182,7 +191,8 @@ function spin0_az_cov½_vecchia_blks(
         blk_sizes::AbstractVector{<:Integer}, 
         perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
         # θ, φ, ℓrange=1:length(φ)÷2+1, atol=0 # default
-        θ, φ, ℓrange=1:length(φ)÷2+1, chol_atol=0, eig_vmin=0, eig_val=0, # testing !!!
+        θ, φ, ℓrange=1:length(φ)÷2+1, 
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Σ_pre▫, P = spin0_az_bidiagΣ▫_P(Γ, blk_sizes, perm; θ, φ, ℓrange)
     Σ▫ = map(Σ_pre▫) do Σ
@@ -207,7 +217,8 @@ function spin2_az_cov½_vecchia_blks(
         blk_sizes::AbstractVector{<:Integer}, 
         perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
         # θ, φ, ℓrange=1:length(φ)÷2+1, atol=0 # default
-        θ, φ, ℓrange=1:length(φ)÷2+1, chol_atol=0, eig_vmin=0, eig_val=0, # testing !!!
+        θ, φ, ℓrange=1:length(φ)÷2+1, 
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     )
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid=100_000)
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
@@ -231,7 +242,8 @@ function spin2_az_cov½_vecchia_blks(
         blk_sizes::AbstractVector{<:Integer}, 
         perm::AbstractVector{<:Integer}=1:sum(blk_sizes);
         # θ, φ, ℓrange=1:length(φ)÷2+1, atol=0 # default
-        θ, φ, ℓrange=1:length(φ)÷2+1, chol_atol=0, eig_vmin=0, eig_val=0, # testing !!!
+        θ, φ, ℓrange=1:length(φ)÷2+1, 
+        chol_atol=0, eig_vmin=0, eig_val=0, 
     ) 
     Σ_pre▫, P = spin2_az_bidiagΣ▫_P(Γ, C, blk_sizes, perm; θ, φ, ℓrange)
     blk_sizes′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
