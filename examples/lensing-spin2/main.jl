@@ -351,7 +351,11 @@ end
     ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
     # atol      = 1e-10, # 1e-14, # for the low rank Chol
+    chol_atol=0, 
+    eig_vmin=0, 
+    eig_val=0,
 ) |> CircOp;
+
 
 #=
 @time qu = EB▪½ * Xmap(eaz2,randn(eltype_in(eaz2), size_in(eaz2)));
@@ -434,7 +438,10 @@ end
 # =================================================
 
 @time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(
-    ℓ, ϕϕℓ, block_sizesθ, permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0)
+    ℓ, ϕϕℓ, block_sizesθ, permθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
+    chol_atol=0, 
+    eig_vmin=0, 
+    eig_val=0,
 ) |> CircOp;
 
 
@@ -866,7 +873,8 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:50 # default
+    # for otr = 1:50 # default
+    for otr = 1:5 # default
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
