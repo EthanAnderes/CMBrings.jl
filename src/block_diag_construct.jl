@@ -1,32 +1,39 @@
 # Constructors for Block diagonals in AzEqui coordinates
 # ====================================
 
-function az_cov_blks(Γ; θ, φ, ℓrange=1:length(φ)÷2+1)
+function eaz_cov(
+            eaz0::EAZ0{T}, Γ; 
+            θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), ℓrange=1:eaz0.nφ÷2+1
+        ) where {T}
     CC.Γ2cov_blks(Γ; θ, φ, ℓrange)
 end
 
-function az_cov_blks(Γ, C; θ, φ, ℓrange=1:length(φ)÷2+1)
+function eaz_cov(
+            eaz2::EAZ2{T}, Γ, C; 
+            θ=EZ.θ(eaz2), φ=EZ.φ(eaz2), 
+            ℓrange=1:eaz2.nφ÷2+1
+        ) where {T}
     CC.ΓC2cov_blks(Γ, C; θ, φ, ℓrange)
 end
 
-function az_cov_blks(
-        ℓ::AbstractVector, ffℓ::Vector; 
-        θ, φ, 
-        ℓrange=1:length(φ)÷2+1,
+function eaz_cov(
+        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
+        θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),  
+        ℓrange=1:eaz0.nφ÷2+1, 
         ngrid=100_000, 
-    )
+    ) where {T}
     Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
-    CC.Γ2cov_blks(Γ; θ, φ, ℓrange)
+    eaz_cov(eaz0, Γ; θ, φ, ℓrange)
 end
 
-function az_cov_blks(
-        ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector; 
-        θ, φ, 
-        ℓrange=1:length(φ)÷2+1, 
+function eaz_cov(
+        eaz2::EAZ2{T}, ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector; 
+        θ=EZ.θ(eaz2), φ=EZ.φ(eaz2),  
+        ℓrange=1:eaz2.nφ÷2+1, 
         ngrid=100_000,
-    )
+    ) where {T}
     Γ, C   = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
-    CC.ΓC2cov_blks(Γ, C; θ, φ, ℓrange)
+    eaz_cov(eaz2, Γ, C; θ, φ, ℓrange)
 end
 
 
@@ -79,7 +86,51 @@ function block_tridiag_Σ▫(
 end
 
 
-# az_cov_vecchia_blks is similar to az_cov_blks but the AzEqui blocks
+# New Vecchia constructor with new tridiagonal spin0 constructor 
+# ====================================
+
+function eaz_cov_vecchia(
+        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
+        block_sizesθ,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+    
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
+    
+    Σ▫ = map(Σ_pre▫) do Σ
+        VF.vecchia_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
+    end
+
+    return Σ▫
+end
+
+
+
+function eaz_½cov_vecchia(
+        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
+        block_sizesθ,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
+    
+    Σ▫ = map(Σ_pre▫) do Σ
+        R, preM, = VF.R_M_P_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
+        M½       = VF.Midiagonal(map(sqrt, preM.data)) 
+        inv(R) * M½
+    end
+
+    return Σ▫
+end
+
+# TODO add spin2 constructor.
+# TODO: then remove all the spin0_az_cov_vecchia_blks and spin0_az_cov½_vecchia_blks
+
+# az_cov_vecchia_blks is similar to az_cov but the AzEqui blocks
 # are approximated with Vecchia 
 # ===============================================
 
