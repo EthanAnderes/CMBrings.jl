@@ -482,6 +482,8 @@ CMBrings.fourier_power(Phi▪½' \ (Phi▪½ \ test_wn0), ℓs = [1000, 4000], i
 # μK_arcmin  = 5.0 # default 
 μK_arcmin  = 2.0 # testing !!!
 
+nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
+
 N▪ = @sblock let μK_arcmin, eaz0
     Ω, nφ = EZ.Ωpix(eaz0), eaz0.nφ
     σ²   = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
@@ -635,27 +637,45 @@ CMBrings.fourier_power(
 # the test will be looking at the power change in those coordaintes ... and it should isolate
 # the maximal amount of power change when toggling on/off lensing.
 Ð▪⁻¹ = let 
-    ẼB̃▪ = CMBrings.spin2_az_cov_vecchia_blks(
-        ℓ, ẽẽℓ, b̃b̃ℓ,  
-        block_sizesθ,  permθ ; 
-        θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-        chol_atol = 0, 
-        eig_vmin  = 0, 
-        eig_val   = 0, 
-    ) |> CircOp;
 
+    @time EB▫ = CMBrings.eaz_cov(eaz2, ℓ, eeℓ, bbℓ)
+    @time ẼB̃▫ = CMBrings.eaz_cov(eaz2, ℓ, ẽẽℓ, b̃b̃ℓ)
 
-    Ð▪⁻¹ = map(ẼB̃▪, N▪, EB▪½) do Σ̃, N, Σ½
-        dΣ½   = .√(diag(Matrix(Σ½*Σ½')))
-        dΣ̃2N½ = .√(diag(Matrix(Σ̃)) .+ 2 .* diag(N))
-        Diagonal(dΣ½ ./ dΣ̃2N½)
-    end |> CircOp;
+    # QUESTION: perhaps we should join diagonalize Σ, Σ̃
 
-    Ð▪⁻¹
+    @time Ð▫⁻¹ = map(EB▫, ẼB̃▫, N▪) do Σ, Σ̃, N
+        # Σ, Σ̃, N = EB▫[1], ẼB̃▫[1], N▪[1]
+        λU   = LRC.pdeigen(Σ)
+        λ, U = real(λU.values), λU.vectors
+        λ̃    = real(diag(U' * Σ̃ * U))
+        n    = real(diag(U' * N * U))
+        λD⁻¹ = .√(λ) ./ .√(λ̃ .+ 2 .* n)
+        # re-use λU instead of defining a new D⁻¹  = U * Diagonal(λD⁻¹) * U'
+        LRC.v_view(λU) .= λD⁻¹
+        λU
+    end
+
+    # ẼB̃▪ = CMBrings.spin2_az_cov_vecchia_blks(
+    #     ℓ, ẽẽℓ, b̃b̃ℓ,  
+    #     block_sizesθ,  permθ ; 
+    #     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
+    #     chol_atol = 0, 
+    #     eig_vmin  = 0, 
+    #     eig_val   = 0, 
+    # ) |> CircOp;
+    # Ð▪⁻¹ = map(ẼB̃▪, N▪, EB▪½) do Σ̃, N, Σ½
+    #     dΣ½   = .√(diag(Matrix(Σ½*Σ½')))
+    #     dΣ̃2N½ = .√(diag(Matrix(Σ̃)) .+ 2 .* diag(N))
+    #     Diagonal(dΣ½ ./ dΣ̃2N½)
+    # end |> CircOp;
+
+    CircOp(Ð▫⁻¹)
 end 
 
+
+
+
 #=  default
-nnℓ = deg2rad(μK_arcmin/60)^2 # Cⁿℓ == μK_arcmin |> arcmin2radians |> abs2
 
 Ð▪⁻¹ = CMBrings.spin2_az_cov½_vecchia_blks(
     ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
@@ -697,8 +717,7 @@ N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(.√EZ.Ωpix(eaz0)), n_iter=5, 
     ## not sure which version of σ² is the best here???
     ## σ² = mean(fwhmθ_rad)^2 / 8 / log(2)
     ## σ² = minimum(fwhmθ_rad)^2 / 8 / log(2)    
-    ## σ² = maximum(fwhmθ_rad)^2 / 8 / log(2) # default
-    σ² = 1.25 * maximum(fwhmθ_rad)^2 / 8 / log(2) # testing ...
+    σ² = maximum(fwhmθ_rad)^2 / 8 / log(2) # default
     beamℓ = @. exp( - σ²*ℓ*(ℓ+1) / 2)
 
     T_fld   = Float64
@@ -966,8 +985,8 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:5 # default
-    # for otr = 1:10 #
+    # for otr = 1:50 # default
+    for otr = 1:20 #
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1081,8 +1100,8 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    # ϕ; title1=L"True $\phi$",
-    Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
+    ϕ; title1=L"True $\phi$",
+    # Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
     # Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );
