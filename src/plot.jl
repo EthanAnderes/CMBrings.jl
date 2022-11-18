@@ -15,9 +15,14 @@ end
 
 imag_logabs2clip(x) = log_clip(abs2.(x)) 
 
-function imag_blur(x;blur=0) 
+function imag_blur(x;blur=0, boundary="reflect")
+    # :replicate (repeat edge values to infinity),
+    # :circular (image edges "wrap around"),
+    # :symmetric (the image reflects relative to a position between pixels),
+    # :reflect (the image reflects relative to the edge itself).
+
     nθ, nφ = size(x) 
-    IF.imfilter(x, IF.Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
+    IF.imfilter(x, IF.Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), boundary)
 end
 
 

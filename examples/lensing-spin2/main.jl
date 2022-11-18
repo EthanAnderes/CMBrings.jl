@@ -177,28 +177,12 @@ approx_lmax += ceil(Int, approx_lmax * 0.05) # for good measure:)
     return l, T.(ϕϕl), T.(eel), T.(bbl), T.(ẽel), T.(b̃bl) 
 end;
 
-
 #=
 loglog( ℓ.^2 .* eeℓ)
 loglog( ℓ.^2 .* bbℓ)
 loglog( ℓ.^2 .* ẽẽℓ)
 loglog( ℓ.^2 .* b̃b̃ℓ)
 =#
-
-# this is a hack ...
-#=
-bbℓ[bbℓ .<= 0] .= 1e-18 # minimum(bbℓ[3:end][bbℓ[3:end] .> 0])
-eeℓ[eeℓ .<= 0] .= 1e-18 # minimum(eeℓ[3:end][eeℓ[3:end] .> 0])
-b̃b̃ℓ[b̃b̃ℓ .<= 0] .= 1e-18 # minimum(bbℓ[3:end][bbℓ[3:end] .> 0])
-ẽẽℓ[ẽẽℓ .<= 0] .= 1e-18 # minimum(eeℓ[3:end][eeℓ[3:end] .> 0])
-b̃b̃ℓ[1] = b̃b̃ℓ[2] = 0
-ẽẽℓ[1] = ẽẽℓ[2] = 0
-bbℓ[1] = bbℓ[2] = 0
-eeℓ[1] = eeℓ[2] = 0
-=#
-
-
-
 
 # Check the block cov matrices for problems with pos def 
 # =========================================
@@ -274,6 +258,18 @@ wn_c = randn(ComplexF64, 2nθ)
 
 #=
 # TODO: try out ClassicalOrthogonalPolynomials
+
+using ClassicalOrthogonalPolynomials
+
+# ### make X
+Pfilter = Normalized(ChebyshevT())
+# Pfilter   = Normalized(Legendre())
+Po_order  = 9
+t         = range(-1, 1; length=eaz0.nφ)
+X         = Pfilter[t, 1:(Po_order+1)]
+
+
+
 nℓ = @. (2ℓ+1)/(4π)
 j0⁺0tℓ = @. ϕϕℓ * nℓ
 f0⁺0t = ((a,b,jℓ)=(0,0,j0⁺0tℓ); CC.Fun(CC.Jacobi(b,a),jℓ))
