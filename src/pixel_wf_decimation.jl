@@ -84,12 +84,12 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :row_ave) where
     # tile a block banded matrix to cover it.
     sparse_pattern  = @. abs(θ - θ') ≤ max2Δθ
     nrow_each_block = ceil(Int, maximum(map(sum, eachcol(sparse_pattern)))/2)
-    bnθs′           = VF.block_split(nθ, nrow_each_block) 
-    bnθs            = vcat(bnθs′[1:end-2], sum(bnθs′[end-1:end]))
-    @assert sum(bnθs) == nθ
-    # bnθs is a vector of block sizes.
+    block_sizesθ′ = VF.block_split(nθ, nrow_each_block) 
+    block_sizesθ  = vcat(block_sizesθ′[1:end-2], sum(block_sizesθ′[end-1:end]))
+    @assert sum(block_sizesθ) == nθ
+    # block_sizesθ is a vector of block sizes.
 
-    Σ▫ = block_tridiag_Σ▫(eaz0, healpix_pwf_Γ(Nside), bnθs)
+    Σ▫ = eaz_cov_btridiag(eaz0, healpix_pwf_Γ(Nside); block_sizesθ)
 
     # now we normalize
     if normalizeθ == :none
@@ -118,10 +118,10 @@ end
 
 function healpix_pwf▫(eaz2::EAZ2{T}; Nside::Int, normalizeθ = :none) where {T}
     Σ0▫   = healpix_pwf▫(EZ.spin0(eaz2); Nside, normalizeθ)
-    bnθs0 = blocksizes(Σ0▫[1],1)
-    bnθs2 = vcat(bnθs0, bnθs0)
+    block_sizesθ0 = blocksizes(Σ0▫[1],1)
+    block_sizesθ2 = vcat(block_sizesθ0, block_sizesθ0)
     nθ    = eaz2.nθ
-    Σ2▫   = [BlockBandedMatrix{T}(Zeros(2nθ, 2nθ), bnθs2, bnθs2, (1,1)) for i in eachindex(Σ0▫)]
+    Σ2▫   = [BlockBandedMatrix{T}(Zeros(2nθ, 2nθ), block_sizesθ2, block_sizesθ2, (1,1)) for i in eachindex(Σ0▫)]
     for i in eachindex(Σ2▫)    
         for J = blockaxes(Σ0▫[i],2), K = blockcolsupport(Σ0▫[i],J)
             view(Σ2▫[i], K, J)       .= Σ0▫[i][K, J]

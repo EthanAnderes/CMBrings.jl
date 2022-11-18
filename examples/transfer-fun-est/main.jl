@@ -683,8 +683,8 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
 
     Γ = CMBrings.beam_Γ(eaz0; fwhmθ_rad)
 
-    # Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
-    Σ_pre▫, P = CMBrings.spin0_az_bidiagΣ▫_P(Γ, block_sizesθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0))
+    Σ_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ, block_sizesθ)
+    # Σ_pre▫, P = CMBrings.spin0_az_bidiagΣ▫_P(Γ, block_sizesθ; θ=EZ.θ(eaz0), φ=EZ.φ(eaz0))
 
     Σ▫     = map(Σ_pre▫) do Σ
         CMBrings.VF.vecchia(Σ, block_sizesθ)

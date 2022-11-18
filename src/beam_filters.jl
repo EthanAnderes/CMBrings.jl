@@ -34,7 +34,7 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
 
     Γ = beam_Γ(eaz0; fwhmθ_rad)
 
-    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
+    Σ_pre▫ = eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
     Σ▫     = map(Σ_pre▫) do Σ
         VF.vecchia_general(Σ, block_sizesθ)
     end

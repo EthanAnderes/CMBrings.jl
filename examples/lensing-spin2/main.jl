@@ -14,9 +14,12 @@
 # Modules
 # ==============================
 
+# using MKL
+
 using LinearAlgebra
 using FFTW
 FFTW.set_num_threads(BLAS.get_num_threads())
+# FFTW.set_num_threads(4)
 
 using  CMBrings
 using  XFields
@@ -101,7 +104,7 @@ end
 
 # Plot Grid statistics
 
-@sblock let eaz0, hide_plots=false
+@sblock let eaz0, hide_plots=true # false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(eaz0.θ, rad2deg.(.√(EZ.Ωpix(eaz0)).*60), label="sqrt pixel area")
@@ -125,9 +128,9 @@ end
 # ==============================
 ## using Primes; factor(length(eaz0.θ)) # ; @assert nθ÷bks == nθ/bks
 
-bsd_nθ       = 200 # 50 # 50 # 100 #  150 # 161
+bsd_nθ       = 100 # 50 # 50 # 100 #  150 # 161
 block_sizesθ = VF.block_split(eaz0.nθ, bsd_nθ) # |> sort
-permθ        = 1:eaz0.nθ
+# permθ        = 1:eaz0.nθ
 
 # Spectral densities
 # ==============================
@@ -205,12 +208,18 @@ EB▫_test = CMBrings.eaz_cov(
     ℓrange= 1:15, # ℓrange=[eaz0.nφ÷2-5,eaz0.nφ÷2+1]
 );
 
+EB▫_test[1] |> Hermitian |> eigen |> x->x.values
+EB▫_test[end] |> Hermitian |> eigen |> x->x.values
+
+EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
+EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
+EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end÷2] |> plot
+EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
+
 Σ = EB▫_test[1]
 
 eigen(Hermitian(Σ)).values |> semilogy
 eigen(Symmetric(real(Σ))).values |> semilogy
-# It almost seems that Σ should be real !!!???
-# Why does it appear to be fine, but Vecchia is not???
 
 nθ = eaz0.nθ
 spin2perm = (reshape(1:2nθ, nθ, 2)')[:]
@@ -261,41 +270,7 @@ wn_c = randn(ComplexF64, 2nθ)
 ( (inv(R_ge) * M_ge * inv(R_ge)') \ wn_c) |> real |> plot 
 ( (inv(R_pd) * M_pd * inv(R_pd)') \ wn_c) |> real |> plot 
 
-
-(Symmetric(real(Σ′)) \ wn_r) |> real |> plot 
-
-
-(sqrt(Hermitian(Σ′)) \ wn_c)           |> real |> plot 
-( (inv(R_pd) * sqrt(M_pd)) \ wn_c) |> real |> plot 
-
-( (inv(R) * sqrt(M)) \ wn_c) |> real |> plot 
-( (inv(R_ge) * sqrt(M_ge)) \ wn_c) |> real |> plot 
-
-
-
-
-
-# TODO
-low_rank_chol(Hermitian(Σ′); tol=chol_atol)
-pdeigen(Hermitian(Σ′), eig_vmin, eig_val)
-
-
-M = LRC.low_rank_cov(
-    Hermitian(Σ);
-    tol=0
-)
-
-VF.vecchia(EB▫_test[1], [200,200]; atol=1e-15)
-
-EB▫_test[1] |> Hermitian |> eigen |> x->x.values
-EB▫_test[end] |> Hermitian |> eigen |> x->x.values
-
-EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end] |> plot
-EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end-1] |> plot
-EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,end÷2] |> plot
-EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
 =#
-
 
 #=
 # TODO: try out ClassicalOrthogonalPolynomials
@@ -312,7 +287,6 @@ covtt_F64 = x-> f0⁺0t_F64(cos(x))
 @benchmark cos($(BigFloat(0.1))) # 1.050 μs
 @benchmark cos(0.1)              # 0.875 ns
 =#
-
 
 # Mask 
 # =========================================
@@ -366,32 +340,8 @@ end;
 # Mask plot
 # ========================
 
-
-#= Old ... slated for removal
-@sblock let prθ, prφ, Mϕ, φ, θ, hide_plots, save_figures
-    hide_plots && return
-    prθφ = prθ .* prφ'
-    dma = prθφ .> 0
-    ma  = prθφ
-    ## imgs = Dict(1=>dma, 2=>ma)
-    ## txt  = Dict(1=>"pre-smoothed mask", 2=>"mask")
-    imgs = Dict(1=>ma, 2=>Mϕ[:])
-    txt  = Dict(1=>"data mask", 2=>"lensing mask")
-
-    fig, ax = CMBrings.diskplot(
-        imgs, CC.in_negπ_π.(φ)', π.-θ; 
-        txt=txt, 
-        figsize=(10,8), nrows=1, fontsize=14
-    )
-    save_figures && savefig("figure$(fig.number).png", dpi=250, bbox_inches="tight")
-    return nothing
-end
-=# 
-
-
 ## Mϕ[:] .|> real |> matshow; colorbar()
 ## prθ .* prφ' .|> real |> matshow; colorbar()
-
 
 @sblock let eaz0, Mϕ, prθφ = prθ.*prφ', hide_plots, save_figures
     hide_plots && return
@@ -415,17 +365,13 @@ end
 
 # Spin 2 signal
 # =================================================
-# TODO: make custom sqrt and LowRankCov/Chol with a clamp...
 
-
-@time EB▪½ = CMBrings.spin2_az_cov½_vecchia_blks(
-    ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
-    θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
+@time EB▪½ = CMBrings.eaz_½cov_vecchia(
+    eaz2, ℓ, eeℓ, bbℓ; block_sizesθ, 
     chol_atol=0, 
     eig_vmin=0, 
-    eig_val=0, # note that this is intentionally set to zero, for preconditioners it is set to > 0
+    eig_val=0, 
 ) |> CircOp;
-
 
 #=
 test_wn2 = Xmap(eaz2,randn(eltype_in(eaz2), size_in(eaz2)))
@@ -439,23 +385,12 @@ CMBrings.fourier_power(EB▪½ \ qu, ℓs = [1000, 4000], imag_fun=CMBrings.imag
 CMBrings.map_plot(EB▪½ \ qu)
 CMBrings.fourier_power(EB▪½ \ test_wn2, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 CMBrings.map_plot(EB▪½ \ test_wn2)
-
 =#
-
-
 
 # Spin 0 signal
 # =================================================
 
-# @time Phi▪½ = CMBrings.spin0_az_cov½_vecchia_blks(
-#     ℓ, ϕϕℓ, block_sizesθ, permθ; 
-#     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-#     chol_atol = 0, 
-#     eig_vmin  = 0, 
-#     eig_val   = 0, 
-# ) |> CircOp;
-
-@time Phi▪½ = CMBrings.eaz_½cov_vecchia(eaz0, ℓ, ϕϕℓ; block_sizesθ) |> CircOp
+@time Phi▪½ = CMBrings.eaz_½cov_vecchia(eaz0, ℓ, ϕϕℓ; block_sizesθ) |> CircOp;
 
 #=
 test_wn0 = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
@@ -465,7 +400,7 @@ CMBrings.map_plot(ϕ)
 CMBrings.fourier_power(ϕ, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 
 @time Phi▪½ \ test_wn0;
-CMBrings.fourier_power(Pshi▪½ \ϕ, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
+CMBrings.fourier_power(Phi▪½ \ϕ, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
 CMBrings.map_plot(Phi▪½ \ϕ)
 
 CMBrings.fourier_power(Phi▪½ \ test_wn0, ℓs = [1000, 4000], imag_fun=CMBrings.imag_logabs2clip);
@@ -495,19 +430,6 @@ end;
 
 N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
 
-# Now add pure BB noise * large factor bb_noise_factor
-
-## N▪ = let bb_noise_factor = 100 
-##     zeroEB▪  = CMBrings.eaz_cov(eaz2, ℓ, 0 .* eeℓ, bbℓ) |> CircOp
-##     map(N▪, zeroEB▪) do A, B
-##         A + bb_noise_factor * B
-##     end |> CircOp
-## end 
-## 
-## ## N▪⁻¹ = map(Nℓ->Diagonal(1 ./ diag(Nℓ)), N▪.Σ) |> CircOp;
-## N▪⁻¹ = map(inv, N▪) |> CircOp;
-
-
 # Mask
 # ============================
 
@@ -515,7 +437,6 @@ M = DiagOp(Xmap(eaz2, prθ .* prφ' ));
 
 # Beam
 # ============================
-
 
 fwhmθ_rad = EZ.pix_diag_rad(eaz0) # pix_diag_rad # * 0.95
 ## -- option --
@@ -655,40 +576,10 @@ CMBrings.fourier_power(
         λU
     end
 
-    # ẼB̃▪ = CMBrings.spin2_az_cov_vecchia_blks(
-    #     ℓ, ẽẽℓ, b̃b̃ℓ,  
-    #     block_sizesθ,  permθ ; 
-    #     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-    #     chol_atol = 0, 
-    #     eig_vmin  = 0, 
-    #     eig_val   = 0, 
-    # ) |> CircOp;
-    # Ð▪⁻¹ = map(ẼB̃▪, N▪, EB▪½) do Σ̃, N, Σ½
-    #     dΣ½   = .√(diag(Matrix(Σ½*Σ½')))
-    #     dΣ̃2N½ = .√(diag(Matrix(Σ̃)) .+ 2 .* diag(N))
-    #     Diagonal(dΣ½ ./ dΣ̃2N½)
-    # end |> CircOp;
-
     CircOp(Ð▫⁻¹)
 end 
 
-
-
-
-#=  default
-
-Ð▪⁻¹ = CMBrings.spin2_az_cov½_vecchia_blks(
-    ℓ, (@. eeℓ/(ẽẽℓ+2nnℓ)), (@. bbℓ/(b̃b̃ℓ+2nnℓ)),  
-    block_sizesθ,  permθ ; 
-    θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-    chol_atol = 0, 
-    eig_vmin  = 0, 
-    eig_val   = 0, 
-) |> CircOp;
-=#
-
 #=
-
 test_wn2 = Xmap(eaz2,randn(eltype_in(eaz2), size_in(eaz2)))
 
 CMBrings.fourier_power(
@@ -703,7 +594,6 @@ CMBrings.map_plot(
     Ð▪⁻¹ \ test_wn2;
     imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
-
 =#
 
 # Initalize opps for ϕ gradient
@@ -792,36 +682,23 @@ N0ℓ, NΦNℓ = @sblock let pix_side_rad = mean(.√EZ.Ωpix(eaz0)), n_iter=5, 
 end;
 
 
-# NΦN▪ = CMBrings.spin0_az_cov_vecchia_blks(
-#     ℓ, NΦNℓ,  
-#     block_sizesθ,  permθ ; 
-#     θ=EZ.θ(eaz0), φ=EZ.φ(eaz0),
-#     chol_atol = 0, 
-#     eig_vmin  = 0, 
-#     eig_val   = 0, 
-# ) |> CircOp;
-
-NΦN▪ = CMBrings.eaz_cov_vecchia(eaz0, ℓ, NΦNℓ; block_sizesθ) |> CircOp
-
+NΦN▪ = CMBrings.eaz_cov_vecchia(eaz0, ℓ, NΦNℓ; block_sizesθ) |> CircOp;
 
 #=
-
 test_wn0 = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
-
 CMBrings.fourier_power(
     NΦN▪ * test_wn0;
     # Xmap(eaz0, kappa(NΦN▪ * ϕ)); 
     ℓs = [400, 1000, 3000], 
     imag_fun=CMBrings.imag_logabs2clip,
 );
-
 CMBrings.map_plot(
     NΦN▪ * test_wn0;
     # Xmap(eaz0, kappa(NΦN▪ * ϕ)); 
     imag_fun=x->CMBrings.imag_blur(x;blur=0),
 );
-
 =#
+
 
 # Initalize opps for WF
 # ==============================================
@@ -852,23 +729,22 @@ MWMᵀᵍ = @sblock let W▪, M, eaz2
 end;
 
 
-@time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, ℓ, eeℓ, bbℓ, N▪⁺ᵍ, W▪, M, MWMᵀᵍ, normalizeθ, block_sizesθ, permθ, eaz0
+@time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, ℓ, eeℓ, bbℓ, N▪⁺ᵍ, W▪, M, MWMᵀᵍ, normalizeθ, block_sizesθ, eaz2
     
-    nθ = eaz0.nθ
+    nθ = eaz2.nθ
     
     Mθ     = M[:][:,end÷2] |> x->vcat(x,x)
     ## Mθ     = mean(eachcol(M[:])) |> x->vcat(x,x)
 
     MWMᵀᵍθ = MWMᵀᵍ[:][:,end÷2] |> x->vcat(x,x)
-    
-    EB▪ = CMBrings.spin2_az_cov_vecchia_blks(
-        ℓ, eeℓ, bbℓ, block_sizesθ, permθ; 
-        θ=EZ.θ(eaz0), φ=EZ.φ(eaz0), 
-        chol_atol = 0, 
-        eig_vmin  = 1e-14, 
-        eig_val   = 0, 
-    ) |> CircOp        
 
+    EB▪ = CMBrings.eaz_cov_vecchia(
+        eaz2, ℓ, eeℓ, bbℓ; block_sizesθ, 
+        chol_atol=0, 
+        eig_vmin=0, 
+        eig_val=0, 
+    ) |> CircOp;
+     
     _A₁₁ᵍ▪ = map(W▪, N▪⁺ᵍ) do W, iN
         Diagonal(pinv.(Mθ .* MWMᵀᵍθ .* conj.(Mθ) .+ diag(iN)))
     end |> CircOp
@@ -917,7 +793,6 @@ f_cr = 0*d
 g_cr = 0*d
 ϕ_cr = 0*ϕ
 
-
 let M=M, MWMᵀᵍ=MWMᵀᵍ, N▪⁺ᵍ=N▪⁺ᵍ, B▪=B▪, _A₁₁ᵍ▪=_A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪=_A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪, eaz2=eaz2, EB▪½=EB▪½
 
     global function A(g, f, L)
@@ -942,9 +817,6 @@ let M=M, MWMᵀᵍ=MWMᵀᵍ, N▪⁺ᵍ=N▪⁺ᵍ, B▪=B▪, _A₁₁ᵍ▪=_
       
 end;
 
-
-
-
 # WF for conditional expected value
 ## -----------------------
 g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
@@ -957,7 +829,6 @@ g_cr, f_cr, reshist = CMBrings.pcg_coupled(;
     x_g = 0 * d, 
     x_f = 0 * d, 
 )
-
 
 ## CMBrings.map_plot(f_cr);
 ## CMBrings.fourier_power(f_cr, ℓs = [400, 1000], imag_fun=CMBrings.imag_logabs2clip)
@@ -998,10 +869,10 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
         @time β = CMBrings.linesearch_ϕf′(
             ∇ϕ_cr, ϕ_cr, f′_cr,  Phi▪½, EB▪½; 
             data=d, Ł, Ð⁻¹=Ð▪⁻¹, M=M, B=B▪, N⁻¹=N▪⁻¹,
-            eval_max=500, 
+            eval_max=400, 
             startval=0.0001 , # default 0.0001 
             upper_bound = 1,  # default 2
-            ftol_abs=10,      # default 100
+            ftol_abs=50,      # default 100
             solver=:LN_COBYLA,  
         )
         @show β
@@ -1100,8 +971,8 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    ϕ; title1=L"True $\phi$",
-    # Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
+    # ϕ; title1=L"True $\phi$",
+    Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
     # Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );

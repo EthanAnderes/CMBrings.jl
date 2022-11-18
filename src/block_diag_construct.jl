@@ -1,4 +1,4 @@
-# Constructors for Block diagonals in AzEqui coordinates
+# eaz_cov
 # ====================================
 
 function eaz_cov(
@@ -37,30 +37,98 @@ function eaz_cov(
 end
 
 
-# New tridiagonal spin0 constructor 
+# eaz_cov_vecchia and eaz_½cov_vecchia
 # ====================================
-# TODO: add spin2 and tests
 
-function block_tridiag_Σ▫(
-        eaz0::EAZ0{T}, 
-        Γ,
-        bnθs::AbstractVector{<:Integer};
+function eaz_cov_vecchia(
+        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
+        block_sizesθ,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
+    Σ_pre▫ = eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
+    Σ▫ = map(Σ_pre▫) do Σ
+        VF.vecchia_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
+    end
+    return Σ▫
+end
+
+
+function eaz_cov_vecchia(
+        eaz2::EAZ2{T}, ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector; 
+        block_sizesθ,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+    Γ, C       = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
+    Σ_pre▫, P  = eaz_cov_btridiag(eaz2, Γ, C; block_sizesθ)
+    block_sizesθ′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
+    Σ▫ = map(Σ_pre▫) do Σ
+        P' * VF.vecchia_pdeigen(Σ, block_sizesθ′; chol_atol, eig_vmin, eig_val) * P
+    end
+    return Σ▫
+end
+
+
+# eaz_½cov_vecchia
+# ====================================
+
+
+function eaz_½cov_vecchia(
+        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
+        block_sizesθ::AbstractVector{<:Integer},
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+    Σ_pre▫ = eaz_cov_vecchia(eaz0, ℓ, ffℓ; block_sizesθ, chol_atol, eig_vmin, eig_val, ngrid) 
+    Σ▫ = map(Σ_pre▫) do Σ
+        invR, M,  = Σ # Σ is a tuple of vecchia operators
+        M½        = VF.Midiagonal(map(sqrt, M.data)) 
+        invR * M½
+    end
+    return Σ▫
+end
+
+function eaz_½cov_vecchia(
+        eaz2::EAZ2{T}, ℓ::AbstractVector, eeℓ::Vector, bbℓ::Vector; 
+        block_sizesθ,
+        chol_atol=0, eig_vmin=0, eig_val=0, 
+        ngrid=100_000
+    ) where {T}
+    Σ_pre▫ = eaz_cov_vecchia(eaz2, ℓ, eeℓ, bbℓ; block_sizesθ, chol_atol, eig_vmin, eig_val, ngrid) 
+    Σ▫ = map(Σ_pre▫) do Σ
+        Pᵀ, invR, M, = Σ # Σ is a tuple of vecchia operators
+        M½  = VF.Midiagonal(map(sqrt, M.data)) 
+        Pᵀ * invR * M½ * Pᵀ' 
+    end
+    return Σ▫
+end
+
+
+# eaz_cov_btridiag and 
+# ==========================================
+
+
+function eaz_cov_btridiag(
+        eaz0::EAZ0{T}, Γ;
+        block_sizesθ::AbstractVector{<:Integer},
         ℓrange=1:size_out(eaz0)[2],
     ) where {T}
-    # bnθs looks like this [20, 10, 5, 5, ...]
+    # block_sizesθ looks like this [20, 10, 5, 5, ...]
     # which means the first diag block is 20x20, 
     # next diag block is 10x10, ... 
 
     θ, φ, nθ, nφ = EZ.θ(eaz0), EZ.φ(eaz0), eaz0.nθ, eaz0.nφ
     ptmW   = FFTW.plan_fft(Vector{Complex{T}}(undef, nφ))
 
-    @assert sum(bnθs) == nθ
-    Σ▫ = [BlockBandedMatrix{T}(Zeros(nθ, nθ), bnθs, bnθs, (1,1)) for ℓ′ in ℓrange]
+    @assert sum(block_sizesθ) == nθ
+    Σ▫ = [BlockBandedMatrix{T}(Zeros(nθ, nθ), block_sizesθ, block_sizesθ, (1,1)) for ℓ′ in ℓrange]
     # Σ▫ = [zeros(Float64, nθ, nθ) for ℓ′ in ℓrange]
 
     # just to make it easier lets create a bool to record the support
     # of the blockedBanded array.
-    Supp = BlockBandedMatrix{Bool}(Ones(nθ, nθ), bnθs, bnθs, (1,1))
+    Supp = BlockBandedMatrix{Bool}(Ones(nθ, nθ), block_sizesθ, block_sizesθ, (1,1))
 
     setΣ! = function (M▫,j,k)
         if Supp[j,k]
@@ -86,49 +154,86 @@ function block_tridiag_Σ▫(
 end
 
 
-# New Vecchia constructor with new tridiagonal spin0 constructor 
-# ====================================
-
-function eaz_cov_vecchia(
-        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
-        block_sizesθ,
-        chol_atol=0, eig_vmin=0, eig_val=0, 
-        ngrid=100_000
+function eaz_cov_btridiag(
+        eaz2::EAZ2{T}, Γ, C;
+        block_sizesθ::AbstractVector{<:Integer},
+        ℓrange=1:size_out(eaz2)[2],
     ) where {T}
-    
-    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
-    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
-    
-    Σ▫ = map(Σ_pre▫) do Σ
-        VF.vecchia_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
+    # block_sizesθ looks like this [20, 10, 5, 5, ...]
+    # which means the first diag block is 20x20, 
+    # next diag block is 10x10, ... 
+
+    θ, φ, nθ, nφ = EZ.θ(eaz2), EZ.φ(eaz2), eaz2.nθ, eaz2.nφ
+
+    cT    = Complex{T}
+    ptmW  = FFTW.plan_fft(Vector{cT}(undef, nφ))
+
+    ### First part
+    @assert sum(block_sizesθ) == nθ
+    Mγ▫   = [BlockBandedMatrix{cT}(Zeros(nθ, nθ), block_sizesθ, block_sizesθ, (1,1)) for ℓ′ in ℓrange]
+    Mξ▫   = [BlockBandedMatrix{cT}(Zeros(nθ, nθ), block_sizesθ, block_sizesθ, (1,1)) for ℓ′ in ℓrange]
+    cMγJ▫ = [BlockBandedMatrix{cT}(Zeros(nθ, nθ), block_sizesθ, block_sizesθ, (1,1)) for ℓ′ in ℓrange]
+    cMξJ▫ = [BlockBandedMatrix{cT}(Zeros(nθ, nθ), block_sizesθ, block_sizesθ, (1,1)) for ℓ′ in ℓrange]
+    # create a bool to record the support of the blockedBanded array.
+    Supp = BlockBandedMatrix{Bool}(Ones(nθ, nθ), block_sizesθ, block_sizesθ, (1,1))
+
+    setΣ! = function (Mγ▫,Mξ▫,cMγJ▫,cMξJ▫,j,k)
+        if Supp[j,k]
+            Mγⱼₖℓ⃗, Mξⱼₖℓ⃗ = CC.γθ₁θ₂ℓ⃗_ξθ₁θ₂ℓ⃗(θ[j], θ[k], φ, Γ, C, ptmW)
+            for (i,ℓ′) in enumerate(ℓrange)
+                Jℓ′ = CC.Jperm(ℓ′, nφ)
+                Mγ▫[i][j,k]   = Mγⱼₖℓ⃗[ℓ′]
+                Mξ▫[i][j,k]   = Mξⱼₖℓ⃗[ℓ′]
+                cMξJ▫[i][j,k] = conj(Mξⱼₖℓ⃗[Jℓ′])
+                cMγJ▫[i][j,k] = conj(Mγⱼₖℓ⃗[Jℓ′])
+            end
+            return nothing
+        else
+            return nothing
+        end
     end
 
-    return Σ▫
+    prgss  = Progress(nθ, dt=1, desc="Constructing block diagonals")
+    for k in 1:nθ # loop over column block
+        for j in 1:nθ
+            setΣ!(Mγ▫,Mξ▫,cMγJ▫,cMξJ▫, j, k)
+        end
+        next!(prgss)
+    end 
+
+    ### Second part
+    N = length(block_sizesθ)
+    # Put Mγ▫,Mξ▫,cMγJ▫,cMξJ▫  toghether for the full Spin2 operator
+    Σ▫ = map(Mγ▫,Mξ▫,cMγJ▫,cMξJ▫) do Mγ,Mξ,cMγJ,cMξJ
+        M = BlockBandedMatrix{cT}(Zeros(2nθ, 2nθ), 2 .* block_sizesθ, 2 .* block_sizesθ, (1,1))
+        for ic=1:N 
+            M[Block(ic,ic)] = [ Mγ[Block(ic,ic)]   Mξ[Block(ic,ic)]
+                              cMξJ[Block(ic,ic)] cMγJ[Block(ic,ic)] ]
+            if ic < N
+                M[Block(ic+1,ic)] = [ Mγ[Block(ic+1,ic)]   Mξ[Block(ic+1,ic)]
+                                    cMξJ[Block(ic+1,ic)] cMγJ[Block(ic+1,ic)] ]
+                M[Block(ic,ic+1)] = M[Block(ic+1,ic)]'
+            end 
+        end
+        return M
+    end
+
+    ### Third part, put the permuation together so the blocks are interlaced
+    a2    = blocks(PseudoBlockArray(collect(1:2nθ), vcat(block_sizesθ, block_sizesθ))) # divide into blocks
+    perm2 = a2 |> x->reshape(x,N,2) |> x->permutedims(x) |> vec |> x->vcat(x...) # interlace the blocks
+    P     = VF.Piv(perm2)
+
+    return Σ▫, P
 end
 
 
+#######################################
+#
+# This stuff is slated for removal 
+#
+#######################################
 
-function eaz_½cov_vecchia(
-        eaz0::EAZ0{T}, ℓ::AbstractVector, ffℓ::Vector;
-        block_sizesθ,
-        chol_atol=0, eig_vmin=0, eig_val=0, 
-        ngrid=100_000
-    ) where {T}
-
-    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
-    Σ_pre▫ = block_tridiag_Σ▫(eaz0, Γ, block_sizesθ)
-    
-    Σ▫ = map(Σ_pre▫) do Σ
-        R, preM, = VF.R_M_P_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
-        M½       = VF.Midiagonal(map(sqrt, preM.data)) 
-        inv(R) * M½
-    end
-
-    return Σ▫
-end
-
-# TODO add spin2 constructor.
-# TODO: then remove all the spin0_az_cov_vecchia_blks and spin0_az_cov½_vecchia_blks
+#=
 
 # az_cov_vecchia_blks is similar to az_cov but the AzEqui blocks
 # are approximated with Vecchia 
@@ -433,3 +538,4 @@ function spin2_az_bidiagΣ▫_P(
     return Σ▫, P
 end
 
+=#
