@@ -182,6 +182,10 @@ loglog( ℓ.^2 .* eeℓ)
 loglog( ℓ.^2 .* bbℓ)
 loglog( ℓ.^2 .* ẽẽℓ)
 loglog( ℓ.^2 .* b̃b̃ℓ)
+
+# in case you need it ...
+eeℓ = abs.(eeℓ)
+bbℓ = abs.(bbℓ)
 =#
 
 # Check the block cov matrices for problems with pos def 
@@ -259,29 +263,55 @@ wn_c = randn(ComplexF64, 2nθ)
 #=
 # TODO: try out ClassicalOrthogonalPolynomials
 
+ 
 using ClassicalOrthogonalPolynomials
 
-# ### make X
-Pfilter = Normalized(ChebyshevT())
-# Pfilter   = Normalized(Legendre())
-Po_order  = 9
-t         = range(-1, 1; length=eaz0.nφ)
-X         = Pfilter[t, 1:(Po_order+1)]
-
+## a,b = 0,0
+## f = Jacobi(a,b) * vcat([1,2,3], zeros(∞))
+## # WeightedJacobi ?, JacobiWeight(2.0,2.0) .* Jacobi(2.0,2.0) ? 
+## # jacobip(n, a, b, x) # P_n^(a,b)(x)
+## f[0.12]
+## f[cos.(0:.01:1)]
 
 
 nℓ = @. (2ℓ+1)/(4π)
-j0⁺0tℓ = @. ϕϕℓ * nℓ
-f0⁺0t = ((a,b,jℓ)=(0,0,j0⁺0tℓ); CC.Fun(CC.Jacobi(b,a),jℓ))
-f0⁺0t_F64 = ((a,b,jℓ)=(0,0,Float64.(j0⁺0tℓ)); CC.Fun(CC.Jacobi(b,a),jℓ))
-covtt = x-> f0⁺0t(cos(x))
-covtt_F64 = x-> f0⁺0t_F64(cos(x))
 
-@benchmark f0⁺0t($(BigFloat(0.1))) # 43 ms
-@benchmark f0⁺0t_F64(0.1)          # 50 μs
+f0⁺0, f0⁺0_COP = let a=0, b=0, jℓ=(@. ϕϕℓ * nℓ)
+    f_COP = Jacobi(a,b) * vcat(jℓ, zeros(∞))
+    f     = CC.Fun(CC.Jacobi(b,a),jℓ)
+    f, f_COP
+end
 
-@benchmark cos($(BigFloat(0.1))) # 1.050 μs
-@benchmark cos(0.1)              # 0.875 ns
+
+f2⁺2, f2⁺2_COP = let a=0, b=4, jℓ=(@. (eeℓ + bbℓ) * nℓ)[2:end]
+    f_COP = Jacobi(a,b) * vcat(jℓ, zeros(∞))
+    f     = CC.Fun(CC.Jacobi(b,a),jℓ)
+    f, f_COP
+end
+
+f2⁻2, f2⁻2_COP = let a=4, b=0, jℓ=(@. (eeℓ - bbℓ) * nℓ)[2:end]
+    f_COP = Jacobi(a,b) * vcat(jℓ, zeros(∞))
+    f     = CC.Fun(CC.Jacobi(b,a),jℓ)
+    f, f_COP
+end
+
+x = range(0, π, 100000)
+a = hcat(f0⁺0_COP[cos.(x)], f0⁺0.(cos.(x)))
+b = hcat(f2⁺2_COP[cos.(x)], f2⁺2.(cos.(x)))
+c = hcat(f2⁻2_COP[cos.(x)], f2⁻2.(cos.(x)))
+for t in (a,b,c)
+    @show sum(abs2, t[:,1] .- t[:,2])
+end 
+
+
+x = range(0, π, 2000)
+y = cos.(x)
+
+
+@benchmark f0⁺0.($y)     # 143 ms
+@benchmark f0⁺0_COP[$y]  # 175 ms
+@benchmark cos.(x)       # 10 μs
+
 =#
 
 # Mask 

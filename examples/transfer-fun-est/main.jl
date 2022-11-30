@@ -97,7 +97,7 @@ eaz0, eaz2, ring_idx_rng = @sblock let Nside
     return eaz0, eaz2, ri 
 end;
 
-#=
+
 @sblock let eaz0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
@@ -109,7 +109,7 @@ end;
     ax.legend()
     return nothing
 end
-=#
+
 
 @show (eaz0.nθ, eaz0.nφ)
 @show extrema(rad2deg.(.√(EZ.Ωpix(eaz0)).*60))
@@ -296,14 +296,19 @@ HP2 = DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 # HP2  = DiagOp(Xfourier(eaz2, exp.(.- pinv.(abs.(EZ.ell(eaz2))./ℓ_Hp).^6) ))
 
 
-Xfromθ = @sblock let ℓ_Hp, eaz0, X
+Xfromθ = @sblock let ℓ_Hp, eaz0, X, Poly
     # the unmasked full column set of modes needed
     k         = EZ.freq(eaz0)[2]
     # k         = 0:1000 # testing 
     k_all     = k[k .<= maximum(ℓ_Hp .* sin.(eaz0.θ))]
     Xcos_all  = cos.(k_all' .* EZ.φ(eaz0))
     Xsin_all  = sin.(k_all' .* EZ.φ(eaz0))
-    XwoOrd0   = X[:,2:end]
+    # ------ if we do the high pass after the poly filter
+    # ------ project out the poly from the cos/sin
+    # ------ then HP * Poly will be a full joint deprojection
+    Xcos_all  = LM.deproject_Xm_eachrow_qr(Xcos_all', Poly.m, Poly.X)'
+    Xsin_all  = LM.deproject_Xm_eachrow_qr(Xsin_all', Poly.m, Poly.X)'
+    # XwoOrd0   = Poly.X[:,2:end]
 
     function(θ)
         c_cos = 0 .≤ k_all .< ℓ_Hp*sin(θ)
@@ -321,12 +326,12 @@ HP = LM.EllDeprojector(Xfromθ, eaz0.θ, M0_hard[:])
 
 
 
-# add PWF (TODO: try a conv beam...)
+# PWF 
 # ===============================================
 
-# add approximate PWF
-PWF_Nside  = Nside # default
-PWF0_hpx, PWF2_hpx = @sblock let eaz0, eaz2, PWF_Nside, lmax, hp
+# approximate PWF .....
+
+PWF0_hpx, PWF2_hpx = @sblock let eaz0, eaz2, PWF_Nside=Nside, lmax, hp
 
     S0_hpx_PWFℓ, S2_hpx_PWFℓ = hp.pixwin(PWF_Nside, pol=true, lmax=lmax)
     # plot(0:lmax, S0_hpx_PWFℓ.^2) # plots the spectra, not the operator multiplier
@@ -340,9 +345,9 @@ PWF0_hpx, PWF2_hpx = @sblock let eaz0, eaz2, PWF_Nside, lmax, hp
     DiagOp(Xfourier(eaz0, pℓ0)), DiagOp(Xfourier(eaz2, pℓ2))
 end
 
-# a different approximate PWF
-PWF_Nside  = Nside # default
-PWF0_sinc, PWF2_sinc = @sblock let eaz0, eaz2, PWF_Nside, ring_idx_rng
+# sinc approximate PWF .....
+
+PWF0_sinc, PWF2_sinc = @sblock let eaz0, eaz2, PWF_Nside=Nside, ring_idx_rng
 
     ring_idx_rng
     Δφhpx = HT.θ_φ_idx_4_rings(PWF_Nside)[4][ring_idx_rng]
@@ -354,27 +359,58 @@ PWF0_sinc, PWF2_sinc = @sblock let eaz0, eaz2, PWF_Nside, ring_idx_rng
     DiagOp(Xfourier(eaz0, sinc_m_filter0)), DiagOp(Xfourier(eaz2, sinc_m_filter2))
 end
 
+# more accurate Healpix pwf ...... testing ... only for T
+
+pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true) # , lmax=maximum(ℓ))
+ℓ = 0:length(pwf0ℓ)-1
+beamℓ_pre = pwf0ℓ;
+# note we are setting the taper at the ℓ_nyq for the top edge
+φ_approx_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+srt_ramp  = min(13_000, 0.75 * φ_approx_ℓ_nyq)  # optional settings....
+end_ramp  = 1.0 * φ_approx_ℓ_nyq                # optional settings...
+ℓ_taper = map(ℓ) do l
+    if l < srt_ramp
+        return 1 
+    else
+        lpost = l-srt_ramp
+        σ     =  (end_ramp - srt_ramp)/2 
+        return exp(-(lpost/σ)^2)
+    end
+end
+beamℓ = beamℓ_pre .* ℓ_taper; 
 
 
-# more accurate Healpix pwf 
-# Default 
-# PWF_Nside  = Nside # default
-# PWF0▪     = CMBrings.healpix_pwf▫(eaz0; Nside=PWF_Nside, normalizeθ=:row_ave) |> CircOp 
-# TODO: this appears to break down near the south pole...
+PWF0▪  = @sblock let eaz0, ℓ=ℓ, fℓ=beamℓ, block_sizesθ=VF.block_split(eaz0.nθ, 25)
+    
+    # B_pre▫  = CMBrings.eaz_cov_vecchia(eaz0, ℓ, fℓ; block_sizesθ) |> CircOp;
+    # ---------- alternative that doesn't require postive definite
+    Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
+    B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
+    B▫     = map(B_pre▫) do B
+        VF.vecchia_general(B, block_sizesθ)
+    end
+
+    DΩ = Diagonal(EZ.Ωpix(eaz0))
+    B▫ = map(B->B*DΩ, B_pre▫)
+    CircOp(B▫)
+end;
 
 
-## The following needs fixing ...
-# PWF2▪  = CMBrings.healpix_pwf▫(eaz2; Nside=2048) |> CircOp 
-# @time nhpx_θ = CMBrings.healpix_count_θ(eaz0; Nside=2048*4)
-# plot(nhpx_θ)
-# PWF0▪[1] |> matshow
-# PWF0▪[end÷2] |> matshow
-#=
-figure()
-plot(diag(PWF0▪[1]))
-plot(diag(PWF0▪[100]))
-plot(diag(PWF0▪[1000]))
+
+
+#= Plot the tapered beam
+m_max_top = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2)
+m_max_btm = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(maximum(eaz0.θ)) / 2)
+fig,ax = subplots(2, dpi=147)
+ax[1].plot(0:m_max_btm, beamℓ_pre[1:m_max_btm+1]);
+ax[1].plot(0:m_max_btm, beamℓ[1:m_max_btm+1]);
+ax[1].axvline(x=m_max_top, color="black", linestyle="--")
+ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
+ax[2].plot(0:m_max_btm, beamℓ[1:m_max_btm+1]./beamℓ_pre[1:m_max_btm+1]);
+ax[2].set_ylim([0.90, 1.10])
+ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 =#
+
 # test ...
 # t′ = PWF0▪ * t_eaz
 # matshow(t′[:]); colorbar()
@@ -385,17 +421,23 @@ plot(diag(PWF0▪[1000]))
 # Filtered true sky sims
 # =============================
 
-TF0 = PWF0_sinc^3 * HP0 * LP0 *  Poly * M0_hard
-TF2 = PWF2_sinc^3 * HP2 * LP2 *  Poly * M2_hard
+# Testing ...
+TF0 = PWF0▪ * PWF0▪ * HP0 * LP0 * (Poly*M0_hard) * PWF0▪
+# TF0 = PWF0▪ * HP0 * LP0 * (Poly*M0_hard) * PWF0▪ * PWF0▪ # appears good ...
+TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)   # TODO: PWF0▪ ....
 
-# TF0 =  PWF0_sinc^4 * LP0 * (HP*M0_hard) * (Poly*M0_hard)
+# default
+# TF0 = PWF0_sinc^3 * HP0 * LP0 * (Poly*M0_hard) 
+# TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
+
+# TF0 =  PWF0_sinc^3 * LP0 * (HP*M0_hard) * (Poly*M0_hard)
 # TF2 =  PWF2_sinc^3 * LP2 * (HP*M2_hard) * (Poly*M2_hard)
 
 @time apxTF_t_eaz  = TF0 * t_eaz
 @time apxTF_qu_eaz = TF2 * qu_eaz;
 
 
-# some plots
+# Plots
 # =============================
 
 ## T maps.........
@@ -494,8 +536,8 @@ f2 = M0 * TF_t_eaz
 
 f1k = f1[!]
 f2k = f2[!]
-r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10) 
-r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=10) 
+r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5) 
+r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=5) 
 
 CMBrings.fourier_power(
     Xfourier(eaz0, r12 ./ r22); 
@@ -514,9 +556,9 @@ f2 = M2 * TF_qu_eaz
 
 f1k = f1[!]
 f2k = f2[!]
-r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10)
-i12 = imag(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10)
-r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=10) 
+r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5)
+i12 = imag(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5)
+r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=5) 
 
 CMBrings.fourier_power(
     Xfourier(eaz2, complex.(r12,i12) ./ r22); 
@@ -551,6 +593,7 @@ ax[2].plot(ℓbn[ll:ul], f1_kpwr[ll:ul] ./ f2_kpwr[ll:ul], label=L"power ratio: 
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
+ax[2].set_ylim(0.99, 1.01)
 
 ax[1].set_title(L"Averaging $|i_{\theta,m}|^2$ and $|o_{\theta,m}|^2$ along $\ell$ bins")
 
@@ -577,6 +620,7 @@ ax[2].plot(ℓbn[ll:ul], f1_kpwr[ll:ul] ./ f2_kpwr[ll:ul], label=L"power ratio: 
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
+ax[2].set_ylim(0.99, 1.01)
 
 ax[1].set_title(L"Averaging $|i(\theta,m)|^2$ and $|o(\theta,m)|^2$ along $\ell$ bins")
 
@@ -589,19 +633,21 @@ ax[1].set_title(L"Averaging $|i(\theta,m)|^2$ and $|o(\theta,m)|^2$ along $\ell$
 
 # compare bandpowers projected to healpix
 # =======================================
-
 import CMBLensing as CMBL
 
-fspt = CMBL.EquiRectMap(
-    (M0 * TF_t_eaz)[:], 
+f1 = M0 * apxTF_t_eaz
+f2 = M0 * TF_t_eaz
+
+feaz = CMBL.EquiRectMap(
+    f1[:], 
     Ny=eaz0.nθ, 
     Nx=eaz0.nφ, 
     θspan=extrema(eaz0.θ∂), 
     φspan=eaz0.φspan .|> CC.in_negπ_π,
 )
 
-feaz = CMBL.EquiRectMap(
-    (M0 * PWF0▪ * Tf0 * B0▪ * t_eaz)[:], 
+fspt = CMBL.EquiRectMap(
+    f2[:], 
     Ny=eaz0.nθ, 
     Nx=eaz0.nφ, 
     θspan=extrema(eaz0.θ∂), 
@@ -611,23 +657,27 @@ feaz = CMBL.EquiRectMap(
 # CMBL.plot(fspt)
 # CMBL.plot(feaz)
 
-hspt = CMBL.project(fspt => CMBL.ProjHealpix(Nside));
-heaz = CMBL.project(feaz => CMBL.ProjHealpix(Nside));
+hspt, heaz = let _Nside = Nside÷4  
+    heaz = CMBL.project(feaz => CMBL.ProjHealpix(_Nside));
+    hspt = CMBL.project(fspt => CMBL.ProjHealpix(_Nside));
+    hspt, heaz 
+end
 
-hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 8000
-    hsptℓ       = HP.sphtfunc.anafast(hspt.arr, lmax=lmax, pol=false)
-    heazℓ       = HP.sphtfunc.anafast(heaz.arr, lmax=lmax, pol=false)
-    heaz_hsptℓ  = HP.sphtfunc.anafast(hspt.arr, heaz.arr, lmax=lmax, pol=false)
+hsptℓ, heazℓ, heaz_hsptℓ = let lmax = 5000
+    hsptℓ       = hp.sphtfunc.anafast(hspt.arr, lmax=lmax, pol=false)
+    heazℓ       = hp.sphtfunc.anafast(heaz.arr, lmax=lmax, pol=false)
+    heaz_hsptℓ  = hp.sphtfunc.anafast(hspt.arr, heaz.arr, lmax=lmax, pol=false)
     hsptℓ, heazℓ, heaz_hsptℓ
 end
 
+# TODO: look at the alm .* conj.(blm) / |blm|^2 .... 
 
-let lmax = 8000
+let lmax = 5000
     ℓ  = (0:lmax)
 
-    rg = 10:4000
+    rg = 1:4900
 
-    fig,ax = subplots(2, dpi=147)
+    fig,ax = subplots(3, dpi=147)
     ax[1].semilogy(ℓ[rg], ℓ[rg].^2 .* hsptℓ[rg], label="spt mock sim")
     ax[1].plot(    ℓ[rg], ℓ[rg].^2 .* heazℓ[rg], label="ECP simulated and filtered")
     ax[1].set_xlabel("ℓ")
@@ -639,12 +689,16 @@ let lmax = 8000
     ax[2].set_xlabel("ℓ")
     ax[2].legend()
     ax[2].set_title("Bandpower ratio: (spt mock sim)_ℓ / (ECP simulated and filtered)_ℓ")
+    ax[2].set_ylim(0.95, 1.05)
 
-    # ρℓ = (heaz_hsptℓ ./ .√(hsptℓ .* heazℓ))
-    # ax[3].semilogx(ℓ[rg], 1 .- ρℓ[rg].^2, label="1 - ρℓ^2 where ρℓ = cross correlation")
-    # ax[3].semilogx(ℓ[rg], ρℓ[rg], label="cross correlation ρℓ")
-    # ax[3].ylabel("ρℓ")
-    # ax[3].xlabel("ℓ")
+
+    ρℓ = (heaz_hsptℓ ./ .√(hsptℓ .* heazℓ))
+    # ax[3].plot(ℓ[rg], 1 .- ρℓ[rg].^2, label="1 - ρℓ^2 where ρℓ = cross correlation")
+    ax[3].plot(ℓ[rg], ρℓ[rg], label="cross correlation ρℓ")
+    ax[3].set_ylabel("ρℓ")
+    ax[3].set_xlabel("ℓ")
+    ax[3].set_ylim(0.95, 1.0)
+
 
 end
 
