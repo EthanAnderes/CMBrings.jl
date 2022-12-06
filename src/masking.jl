@@ -44,14 +44,19 @@ end
 # Point source pixel mask from pnt src list 
 # ==========================================
 
-function pix_point_src_mask(eaz0::EAZ, point_src_file_; smooth_border_Δ′ = 4.0) 
+function pix_point_src_mask(eaz0::EAZ, point_src_file_; radius_in=:arcmin, smooth_border_Δ′ = 4.0, skipstart=22) 
 
     hole_map = ones(size_in(eaz0)) 
 
-    point_src_list = readdlm(point_src_file_, '\t', skipstart=22)
+    point_src_list = readdlm(point_src_file_, '\t', skipstart=skipstart)
     point_src_φ  = RA2φ.(point_src_list[:,2])
     point_src_θ  = Dec2θ.(point_src_list[:,3])
-    point_src_Δβ = deg2rad.(point_src_list[:,4] / 60)
+    # this is a temp hack ...
+    if radius_in==:arcmin
+        point_src_Δβ = deg2rad.(point_src_list[:,4] / 60)
+    elseif radius_in==:deg 
+        point_src_Δβ = deg2rad.(point_src_list[:,4])
+    end
 
     θ, φ     = EZ.pix(eaz0)
     for (θ₀, φ₀, Δβ₀) in zip(point_src_θ, point_src_φ, point_src_Δβ)

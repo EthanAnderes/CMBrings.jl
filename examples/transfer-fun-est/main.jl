@@ -4,7 +4,8 @@
 
 using LinearAlgebra
 using FFTW
-FFTW.set_num_threads(BLAS.get_num_threads())
+# FFTW.set_num_threads(BLAS.get_num_threads())
+FFTW.set_num_threads(6)
 
 using CMBrings
 
@@ -41,11 +42,11 @@ TF_cmb_file_, preTF_cmb_file_, ghz = @sblock let cmb_file_root, noise_file_root
 
     # preTF_cmb_file_ = joinpath(cmb_file_root, "lensed_planck2018_base_plikHM_TTTEEE_lowl_lowE_lensing_cambphiG_teb1_seed1_lmax17000_nside8192_interp1.6_method1_pol_1_lensedmap.fits")
 
-    preTF_cmb_file_, pre_ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_90ghz_seed1_3gpatch.fits"), 90
-    TF_cmb_file_, ghz        =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_90ghz.hpix"), 90
+    # preTF_cmb_file_, pre_ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_90ghz_seed1_3gpatch.fits"), 90
+    # TF_cmb_file_, ghz        =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_90ghz.hpix"), 90
     
-    # preTF_cmb_file_, pre_ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_150ghz_seed1_3gpatch.fits"), 150
-    # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_150ghz.hpix"), 150
+    preTF_cmb_file_, pre_ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_150ghz_seed1_3gpatch.fits"), 150
+    TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_150ghz.hpix"), 150
     
     # preTF_cmb_file_, pre_ghz =  joinpath(cmb_file_root, "mockobs_v2/tqu1_cambphiG1_fg_mdpl2v0.7_220ghz_seed1_3gpatch.fits"), 220
     # TF_cmb_file_, ghz =  joinpath(cmb_file_root, "mockobs_v2/Coadd_allfields_220ghz.hpix"), 220
@@ -55,11 +56,6 @@ TF_cmb_file_, preTF_cmb_file_, ghz = @sblock let cmb_file_root, noise_file_root
     return TF_cmb_file_, preTF_cmb_file_, ghz
 end
 
-
-# Set point source file
-# =========================================
-
-point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
 
 
 # Set Healpix grid
@@ -202,15 +198,23 @@ end;
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
 # =======================================================================
 
+
 # Mp (point source mask)
-Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; smooth_border_Δ′= 10); 
+point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut.txt"
+Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:deg, smooth_border_Δ′= 10, skipstart=22); 
+# ------
+# point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
+# Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:arcmin, smooth_border_Δ′= 10, skipstart=22); 
+
 Mp2 = DiagOp(Xmap(eaz2, Mp0[:]))
 
 # Mu (uniform scan region pixel mask)
+# ------------- option 1
 Mu0 = @sblock let eaz0
     ## parameters ...
-    # lb1, rb1, Δl1, Δr1 = -50, 50, 4, 4
-    lb1, rb1, Δl1, Δr1 = -48, 48, 6, 6 # default
+    # lb1, rb1, Δl1, Δr1 = -48, 48, 6, 6 # default
+    lb1, rb1, Δl1, Δr1 = -36, 36, 3, 3 
+    # lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3
     # lb1, rb1, Δl1, Δr1 = -50, 50, 10, 10
     # lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
     
@@ -220,7 +224,9 @@ Mu0 = @sblock let eaz0
     DiagOp(Xmap(eaz0, mask))
 end
 Mu2 = DiagOp(Xmap(eaz2, Mu0[:]))
-
+# ------------- option 2
+# Mu0 = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
+# Mu2 = DiagOp(Xmap(eaz2, Mu0[:]))
 
 # M (combined mask) 
 M0 = Mu0 * Mp0
@@ -229,6 +235,9 @@ M2 = Mu2 * Mp2
 # M_hard (Hard-cut mask, i.e. all observed pixels) 
 Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
 Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
+# ------------- option 2
+# Mu0_hard = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
+# Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:]))
 
 Mp0_hard = DiagOp(Xmap(eaz0, Mp0[:].>0))
 Mp2_hard = DiagOp(Xmap(eaz2, Mp0[:].>0))
@@ -240,9 +249,10 @@ M2_hard = Mu2_hard * Mp2_hard
 # Map plot
 #=
 CMBrings.map_plot(
-    # Mp0.f, title1="point source pixel mask",
+    Mp0.f, title1="point source pixel mask",
     # Mu0.f, title1="uniform scan region pixel mask",
-    M0.f, title1="full pixel mask",
+    # M0.f, title1="full pixel mask",
+    # M0_hard.f, title1="full pixel mask",
 );
 =#
 
@@ -286,7 +296,7 @@ using BenchmarkTools
 # ============================
 
 # ℓ_Hp  = 300
-ℓ_Hp  = 271
+ℓ_Hp  = 268
 # ℓ_Hp  = 25 creats TF noise out to ell = 3000 ???
 
 # FFT high pass
@@ -306,8 +316,8 @@ Xfromθ = @sblock let ℓ_Hp, eaz0, X, Poly
     # ------ if we do the high pass after the poly filter
     # ------ project out the poly from the cos/sin
     # ------ then HP * Poly will be a full joint deprojection
-    Xcos_all  = LM.deproject_Xm_eachrow_qr(Xcos_all', Poly.m, Poly.X)'
-    Xsin_all  = LM.deproject_Xm_eachrow_qr(Xsin_all', Poly.m, Poly.X)'
+    # Xcos_all  = LM.deproject_Xm_eachrow_qr(Xcos_all', Poly.m, Poly.X)'
+    # Xsin_all  = LM.deproject_Xm_eachrow_qr(Xsin_all', Poly.m, Poly.X)'
     # XwoOrd0   = Poly.X[:,2:end]
 
     function(θ)
@@ -421,26 +431,45 @@ ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 # Filtered true sky sims
 # =============================
 
-# Testing ...
-TF0 = PWF0▪ * PWF0▪ * HP0 * LP0 * (Poly*M0_hard) * PWF0▪
-# TF0 = PWF0▪ * HP0 * LP0 * (Poly*M0_hard) * PWF0▪ * PWF0▪ # appears good ...
-TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)   # TODO: PWF0▪ ....
-
 # default
 # TF0 = PWF0_sinc^3 * HP0 * LP0 * (Poly*M0_hard) 
 # TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
 
-# TF0 =  PWF0_sinc^3 * LP0 * (HP*M0_hard) * (Poly*M0_hard)
-# TF2 =  PWF2_sinc^3 * LP2 * (HP*M2_hard) * (Poly*M2_hard)
+# Testing ...
+# TF0  = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard)
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * HP0 * LP0 * (Poly*M0_hard) # appears good ...
+# TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)   # TODO: PWF0▪ ....
+
+TF0 = PWF0_sinc^3 * HP0 * LP0 * (Poly*M0_hard) 
+TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
+
+# TF0 =  PWF0_sinc^2 * LP0 * (Poly*M0_hard) * (HP*M0_hard)
+# TF2 =  PWF2_sinc^2 * LP2 * (Poly*M2_hard) * (HP*M2_hard) 
 
 @time apxTF_t_eaz  = TF0 * t_eaz
 @time apxTF_qu_eaz = TF2 * qu_eaz;
 
+# temp ...
+#=
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard)
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (HP*M0_hard) * (Poly*M0_hard) 
+TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0  * (Poly*M0_hard) * (HP*M0_hard)
+@time apxTF_q_eaz  = TF0 * Xmap(eaz0, real(qu_eaz[:]))
+@time apxTF_u_eaz  = TF0 * Xmap(eaz0, imag(qu_eaz[:]))
+apxTF_qu_eaz = Xmap(eaz2, complex.(apxTF_q_eaz[:], apxTF_u_eaz[:]))
+@time apxTF_t_eaz  = TF0 * t_eaz
+=# 
 
 # Plots
 # =============================
 
 ## T maps.........
+
+
+CMBrings.map_plot(
+    M0 * TF_t_eaz; title1=L"map-maker($T$)",
+    # imag_fun=x->CMBrings.imag_blur(x;blur=15),
+);
 
 CMBrings.map_plot(
     M0 * TF_t_eaz; title1=L"map-maker($T$)",
@@ -452,9 +481,12 @@ CMBrings.map_plot(
     # imag_fun=x->CMBrings.imag_blur(x;blur=15),
 );
 
+Mid_pass = DiagOp(Xfourier(eaz0, 4000 .> abs.(EZ.ell(eaz0)) .> 2000))
 CMBrings.map_plot(
     M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
+    # M0 * Mid_pass * M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
     # imag_fun=x->CMBrings.imag_blur(x;blur=15),
+    # vmin=-20.0, vmax=20.0
 );
 
 ## QU maps.........
@@ -469,16 +501,20 @@ CMBrings.map_plot(
     # imag_fun=x->CMBrings.imag_blur(x;blur=15),
 );
 
+Mid_pass2 = DiagOp(Xfourier(eaz2, 4000 .> abs.(EZ.ell(eaz2)) .> 2000))
 CMBrings.map_plot(
+    # M2 * Mid_pass2 * M2 * (TF_qu_eaz - apxTF_qu_eaz); title1=L"map-maker($Q$) - $2dTF * Q$", title2=L"map-maker($U$) - $2dTF * U$",
+    # M2 * (TF_qu_eaz - apxTF_qu_eaz); title1=L"map-maker($Q$) - $2dTF * Q$", title2=L"map-maker($U$) - $2dTF * U$",
     M2 * (TF_qu_eaz - apxTF_qu_eaz); title1=L"map-maker($Q$) - $2dTF * Q$", title2=L"map-maker($U$) - $2dTF * U$",
     # imag_fun=x->CMBrings.imag_blur(x;blur=15),
+    vmin=-1.0, vmax=1.0
 );
 
 
 ## T fourer.........
 
 CMBrings.fourier_power(
-    M0 * TF_t_eaz; title1=L"log EAZ-fourier power: map-maker($T$)", 
+    TF_t_eaz; title1=L"log EAZ-fourier power: map-maker($T$)", 
     imag_fun=CMBrings.imag_logabs2clip,
     vmin=-10, vmax=15, # for t
     ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
@@ -486,7 +522,7 @@ CMBrings.fourier_power(
 );
 
 CMBrings.fourier_power(
-    M0 * apxTF_t_eaz; title1=L"log EAZ-fourier power: $2dTF * T$",
+    apxTF_t_eaz; title1=L"log EAZ-fourier power: $2dTF * T$",
     imag_fun=CMBrings.imag_logabs2clip,
     vmin=-10, vmax=15, # for t
     ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
@@ -497,7 +533,7 @@ CMBrings.fourier_power(
 CMBrings.fourier_power(
     M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"log EAZ-fourier power: map-maker($T$) - $2dTF * T$",
     imag_fun=CMBrings.imag_logabs2clip,
-    ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
+    ℓs = [275,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
     xaxis_units = :m # :Hz
 );
 
@@ -536,8 +572,8 @@ f2 = M0 * TF_t_eaz
 
 f1k = f1[!]
 f2k = f2[!]
-r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5) 
-r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=5) 
+r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10) 
+r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=10) 
 
 CMBrings.fourier_power(
     Xfourier(eaz0, r12 ./ r22); 
@@ -556,9 +592,9 @@ f2 = M2 * TF_qu_eaz
 
 f1k = f1[!]
 f2k = f2[!]
-r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5)
-i12 = imag(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=5)
-r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=5) 
+r12 = real(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10)
+i12 = imag(f1k .* conj.(f2k)) |> x->CMBrings.imag_blur(x;blur=10)
+r22 = abs2.(f2k)              |> x->CMBrings.imag_blur(x;blur=10) 
 
 CMBrings.fourier_power(
     Xfourier(eaz2, complex.(r12,i12) ./ r22); 
@@ -584,7 +620,7 @@ end
 
 fig,ax = subplots(2, dpi=147)
 ul = findfirst(ℓbn .> 5_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
-ll = findfirst(20 .< ℓbn)    |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ll = findfirst(1 .< ℓbn)    |> x->(isnothing(x) ? length(ℓbn) : x[1])
 # ll = findfirst(ℓ_Hp .< ℓbn) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].semilogy(ℓbn[ll:ul], f2_kpwr[ll:ul], label=L"map-maker($T$)")
 ax[1].plot(ℓbn[ll:ul], f1_kpwr[ll:ul], "--", label=L"approximated $2dTF * T$")
@@ -593,9 +629,13 @@ ax[2].plot(ℓbn[ll:ul], f1_kpwr[ll:ul] ./ f2_kpwr[ll:ul], label=L"power ratio: 
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
-ax[2].set_ylim(0.99, 1.01)
+ax[2].set_ylim(0.95, 1.05)
+# ax[2].set_ylim(0.95, 1.04)
 
 ax[1].set_title(L"Averaging $|i_{\theta,m}|^2$ and $|o_{\theta,m}|^2$ along $\ell$ bins")
+ax[2].set_xlabel(L"\ell")
+
+
 
 
 # EAZ quasi bandpowers (P).........
@@ -604,14 +644,14 @@ f1 = M2 * apxTF_qu_eaz
 f2 = M2 * TF_qu_eaz
 
 f1_kpwr, f2_kpwr, ℓbn = @sblock let f1, f2
-    ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 15)
-    ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 15)
+    ℓbn, f1_kpwr = CMBrings.quasi_bandpowers(f1; Δℓsph_bin = 10)
+    ℓbn, f2_kpwr = CMBrings.quasi_bandpowers(f2; Δℓsph_bin = 10)
     f1_kpwr, f2_kpwr, ℓbn
 end
 
 fig,ax = subplots(2, dpi=147)
-ul = findfirst(ℓbn .> 6_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
-ll = findfirst(20 .< ℓbn)    |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ul = findfirst(ℓbn .> 4_000) |> x->(isnothing(x) ? length(ℓbn) : x[1])
+ll = findfirst(10 .< ℓbn)    |> x->(isnothing(x) ? length(ℓbn) : x[1])
 # ll = findfirst(ℓ_Hp .< ℓbn) |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].semilogy(ℓbn[ll:ul], f2_kpwr[ll:ul], label=L"map-maker($Q+iU$)")
 ax[1].plot(ℓbn[ll:ul], f1_kpwr[ll:ul], "--", label=L"approximated $2dTF * (Q+iU)$")
@@ -620,10 +660,10 @@ ax[2].plot(ℓbn[ll:ul], f1_kpwr[ll:ul] ./ f2_kpwr[ll:ul], label=L"power ratio: 
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 ax[2].legend()
-ax[2].set_ylim(0.99, 1.01)
+ax[2].set_ylim(0.90, 1.10)
 
 ax[1].set_title(L"Averaging $|i(\theta,m)|^2$ and $|o(\theta,m)|^2$ along $\ell$ bins")
-
+ax[2].set_xlabel(L"\ell")
 
 
 

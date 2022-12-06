@@ -18,8 +18,8 @@
 
 using LinearAlgebra
 using FFTW
-FFTW.set_num_threads(BLAS.get_num_threads())
-# FFTW.set_num_threads(4)
+# FFTW.set_num_threads(BLAS.get_num_threads())
+FFTW.set_num_threads(6)
 
 using  CMBrings
 using  XFields
@@ -104,7 +104,7 @@ end
 
 # Plot Grid statistics
 
-@sblock let eaz0, hide_plots=true # false
+@sblock let eaz0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(eaz0.θ, rad2deg.(.√(EZ.Ωpix(eaz0)).*60), label="sqrt pixel area")
@@ -883,7 +883,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
     # for otr = 1:50 # default
-    for otr = 1:20 #
+    for otr = 1:5 #
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
