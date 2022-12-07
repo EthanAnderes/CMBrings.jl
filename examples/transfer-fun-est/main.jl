@@ -2,10 +2,13 @@
 # Modules
 # =========================================
 
+using Distributed
+using ProgressMeter
+
 using LinearAlgebra
 using FFTW
 # FFTW.set_num_threads(BLAS.get_num_threads())
-FFTW.set_num_threads(6)
+FFTW.set_num_threads(8)
 
 using CMBrings
 
@@ -371,13 +374,12 @@ end
 
 # more accurate Healpix pwf ...... testing ... only for T
 
-pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true) # , lmax=maximum(ℓ))
+pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true , lmax=30_000)
 ℓ = 0:length(pwf0ℓ)-1
 beamℓ_pre = pwf0ℓ;
-# note we are setting the taper at the ℓ_nyq for the top edge
 φ_approx_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
-srt_ramp  = min(13_000, 0.75 * φ_approx_ℓ_nyq)  # optional settings....
-end_ramp  = 1.0 * φ_approx_ℓ_nyq                # optional settings...
+srt_ramp  = 11000 # 0.75 * φ_approx_ℓ_nyq  # tried 0.75 * .. optional settings....
+end_ramp  = 1.0 * φ_approx_ℓ_nyq            # optional settings...
 ℓ_taper = map(ℓ) do l
     if l < srt_ramp
         return 1 
@@ -387,22 +389,44 @@ end_ramp  = 1.0 * φ_approx_ℓ_nyq                # optional settings...
         return exp(-(lpost/σ)^2)
     end
 end
+
 beamℓ = beamℓ_pre .* ℓ_taper; 
 
+#=
+
+
+# Plot the tapered beam
+m_max_top = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2)
+m_max_btm = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(maximum(eaz0.θ)) / 2)
+fig,ax = subplots(1, dpi=147)
+ax.plot(0:m_max_top, beamℓ_pre[1:m_max_top+1]);
+ax.plot(0:m_max_top, beamℓ[1:m_max_top+1]);
+ax.axvline(x=m_max_top, color="black", linestyle="--")
+
+
+=#
 
 PWF0▪  = @sblock let eaz0, ℓ=ℓ, fℓ=beamℓ, block_sizesθ=VF.block_split(eaz0.nθ, 25)
     
     # B_pre▫  = CMBrings.eaz_cov_vecchia(eaz0, ℓ, fℓ; block_sizesθ) |> CircOp;
     # ---------- alternative that doesn't require postive definite
+    # Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
+    # B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
+    # B▫     = @showprogress pmap(B_pre▫) do B
     Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
     B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
     B▫     = map(B_pre▫) do B
         VF.vecchia_general(B, block_sizesθ)
+        # VF.vecchia(B, block_sizesθ)
     end
 
-    DΩ = Diagonal(EZ.Ωpix(eaz0))
-    B▫ = map(B->B*DΩ, B_pre▫)
-    CircOp(B▫)
+
+    # DΩ = Diagonal(EZ.Ωpix(eaz0))
+    # B▫ = @showprogress pmap(B->B*DΩ, B_pre▫)
+    # CircOp(B▫)
+
+    # DΩ = Diagonal(EZ.Ωpix(eaz0))
+    CircOp(B▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))))
 end;
 
 
@@ -422,9 +446,12 @@ ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 =#
 
 # test ...
+# w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
 # t′ = PWF0▪ * t_eaz
+# w′ = PWF0▪ * w0
+# matshow(w′[:], vmin=-2, vmax=2); colorbar()
+# matshow(t_eaz[:], vmin=-400, vmax=400); colorbar()
 # matshow(t′[:]); colorbar()
-# matshow(t_eaz[:]); colorbar()
 # w = field2▪(t_eaz)
 # Pw1 = PWF0▪[1] * w[1]
 
@@ -435,41 +462,31 @@ ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 # TF0 = PWF0_sinc^3 * HP0 * LP0 * (Poly*M0_hard) 
 # TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
 
-# Testing ...
-# TF0  = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard)
-# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * HP0 * LP0 * (Poly*M0_hard) # appears good ...
-# TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)   # TODO: PWF0▪ ....
-
-TF0 = PWF0_sinc^3 * HP0 * LP0 * (Poly*M0_hard) 
-TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * HP0 * LP0 * (Poly*M0_hard) 
+# TF2 = PWF2_sinc^3 * HP2 * LP2 * (Poly*M2_hard)
 
 # TF0 =  PWF0_sinc^2 * LP0 * (Poly*M0_hard) * (HP*M0_hard)
 # TF2 =  PWF2_sinc^2 * LP2 * (Poly*M2_hard) * (HP*M2_hard) 
 
-@time apxTF_t_eaz  = TF0 * t_eaz
-@time apxTF_qu_eaz = TF2 * qu_eaz;
+# @time apxTF_t_eaz  = TF0 * t_eaz
+# @time apxTF_qu_eaz = TF2 * qu_eaz;
 
 # temp ...
-#=
-# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard)
-# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (HP*M0_hard) * (Poly*M0_hard) 
-TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0  * (Poly*M0_hard) * (HP*M0_hard)
-@time apxTF_q_eaz  = TF0 * Xmap(eaz0, real(qu_eaz[:]))
-@time apxTF_u_eaz  = TF0 * Xmap(eaz0, imag(qu_eaz[:]))
-apxTF_qu_eaz = Xmap(eaz2, complex.(apxTF_q_eaz[:], apxTF_u_eaz[:]))
-@time apxTF_t_eaz  = TF0 * t_eaz
-=# 
+TF0 = PWF0▪ * PWF0▪ * LP0 * HP0 * M0_hard;
+# TF0 = PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard);
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (HP*M0_hard)   * (Poly*M0_hard) 
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (Poly*M0_hard) * (HP*M0_hard)
+@time apxTF_q_eaz  = TF0 * Xmap(eaz0, real(qu_eaz[:]));
+@time apxTF_u_eaz  = TF0 * Xmap(eaz0, imag(qu_eaz[:]));
+@time apxTF_t_eaz  = TF0 * t_eaz;
+apxTF_qu_eaz = Xmap(eaz2, complex.(apxTF_q_eaz[:], apxTF_u_eaz[:]));
+
 
 # Plots
 # =============================
 
 ## T maps.........
 
-
-CMBrings.map_plot(
-    M0 * TF_t_eaz; title1=L"map-maker($T$)",
-    # imag_fun=x->CMBrings.imag_blur(x;blur=15),
-);
 
 CMBrings.map_plot(
     M0 * TF_t_eaz; title1=L"map-maker($T$)",
@@ -514,7 +531,7 @@ CMBrings.map_plot(
 ## T fourer.........
 
 CMBrings.fourier_power(
-    TF_t_eaz; title1=L"log EAZ-fourier power: map-maker($T$)", 
+    M0 * TF_t_eaz; title1=L"log EAZ-fourier power: map-maker($T$)", 
     imag_fun=CMBrings.imag_logabs2clip,
     vmin=-10, vmax=15, # for t
     ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
@@ -522,7 +539,7 @@ CMBrings.fourier_power(
 );
 
 CMBrings.fourier_power(
-    apxTF_t_eaz; title1=L"log EAZ-fourier power: $2dTF * T$",
+    M0 * apxTF_t_eaz; title1=L"log EAZ-fourier power: $2dTF * T$",
     imag_fun=CMBrings.imag_logabs2clip,
     vmin=-10, vmax=15, # for t
     ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
@@ -552,7 +569,7 @@ CMBrings.fourier_power(
 CMBrings.fourier_power(
     M2 * apxTF_qu_eaz; title1=L"log EAZ-fourier power: $2dTF * (Q+iU)$",
     imag_fun=CMBrings.imag_logabs2clip,
-    vmin=-10, vmax=7, 
+    # vmin=-10, vmax=7, 
     ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1)], 
     xaxis_units = :m # :Hz
 );

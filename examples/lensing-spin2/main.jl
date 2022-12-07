@@ -19,7 +19,7 @@
 using LinearAlgebra
 using FFTW
 # FFTW.set_num_threads(BLAS.get_num_threads())
-FFTW.set_num_threads(6)
+FFTW.set_num_threads(4)
 
 using  CMBrings
 using  XFields

@@ -101,7 +101,7 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :row_ave) where
         for i in axes(Dnpix⁻¹, 1)
             Dnpix⁻¹[i,i] = 1 / dnpix[i]
         end
-        return map(Σ▫i -> Dnpix⁻¹ * Σ▫i, Σ▫)
+        return pmap(Σ▫i -> Dnpix⁻¹ * Σ▫i, Σ▫)
     elseif normalizeθ == :Ω
         ## Adjust so left mult behaves like an integral operator
         dΩ = EZ.Ωpix(eaz0)
@@ -109,7 +109,7 @@ function healpix_pwf▫(eaz0::EAZ0{T}; Nside::Int, normalizeθ = :row_ave) where
         for i in axes(DΩ, 1)
             DΩ[i,i] = dΩ[i]
         end
-        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+        return pmap(Σ▫i -> Σ▫i * DΩ, Σ▫)
     else 
         error("normalizeθ ∉ {:row_ave, :Ω, :none}")
     end

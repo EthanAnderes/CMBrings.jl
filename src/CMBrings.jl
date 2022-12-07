@@ -19,7 +19,7 @@ using BlockArrays: Block, BlockArray, PseudoBlockArray,
                     blockaxes, blockcolsupport
 using BlockBandedMatrices: BlockBandedMatrix, Zeros, Ones
 
-# using Distributed
+using Distributed
 using LinearAlgebra
 using FFTW
 using Statistics 

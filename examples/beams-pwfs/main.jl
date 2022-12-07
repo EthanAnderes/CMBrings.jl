@@ -1,6 +1,6 @@
 using LinearAlgebra
 using FFTW
-FFTW.set_num_threads(BLAS.get_num_threads())
+FFTW.set_num_threads(6)
 
 using CMBrings
 
@@ -33,8 +33,8 @@ eaz0, eaz2, grid_type = @sblock let
     ## set φ grid parameters: φspan and nφ
     # φspan = deg2rad.((-60,60)) 
     φspan = deg2rad.((-45, 45))
-    # nφ    = 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
-    nφ    = 1575
+    nφ    = 18000÷4 # 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    # nφ    = 1575
 
     ## set θ grid parameters: θ, θ∂
     ## ---- option
@@ -46,8 +46,8 @@ eaz0, eaz2, grid_type = @sblock let
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
     type = :equicosθ # :equiθ # 
-    # nθ     = 600 # 500 # 800
-    nθ    = 400
+    nθ     = 600 # 500 # 800
+    # nθ    = 400
     θspan  = π/2 .+ deg2rad.((51,67))
     # θspan  = π/2 .+ deg2rad.((41.78,70.43)) 
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
@@ -128,17 +128,15 @@ beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
 # Subpixel Gaussian Beam
 # ----------------------------------------
 #
-fwhm_arcmin = 0.9 * minimum(EZ.pix_diag_arcmin(eaz0)) # optional settings....
-σ² = CMBrings.arcmin2rad(fwhm_arcmin)^2 / 8 / log(2)
-beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
-# 
+# fwhm_arcmin = 0.9 * minimum(EZ.pix_diag_arcmin(eaz0)) # optional settings....
+# σ² = CMBrings.arcmin2rad(fwhm_arcmin)^2 / 8 / log(2)
+# beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
+
 
 # Healpix pixel window function .... option
 # ----------------------------------------
-#=
-pwf0ℓ, pwf2ℓ = hp.pixwin(8192÷2, pol=true, lmax=maximum(ℓ))
+pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true, lmax=maximum(ℓ))
 beamℓ_pre = pwf0ℓ;
-=# 
 
 # Now we taper so we don't get aliasing
 # ----------------------------------------
@@ -204,31 +202,38 @@ end;
 # Full eaz beam operator
 Beam1▪  = let fℓ=beamℓ
     DΩ = Diagonal(EZ.Ωpix(eaz0))
-    B_pre▫  = CMBrings.eaz_cov(eaz0, ℓ, fℓ) |> CircOp;
-    
-    # B▫      = map(B->pdeigen(Symmetric(B))*DΩ, B_pre▫)
-    ######  alternative that doesn't require positive definite 
-    B▫ = map(B->B*DΩ, B_pre▫)
-    
-    CircOp(B▫)
+    B_pre▫  = CMBrings.eaz_cov(eaz0, ℓ, fℓ)
+    CircOp(B_pre▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))))
 end;
 
 # Vecchia eaz beam operator
-block_sizesθ=VF.block_split(eaz0.nθ, 75) # optional settings .....
+using Distributed
+block_sizesθ=VF.block_split(eaz0.nθ, 40) # optional settings .....
 Beam2▪  = let ℓ=ℓ, fℓ=beamℓ
     
     # B_pre▫  = CMBrings.eaz_cov_vecchia(eaz0, ℓ, fℓ; block_sizesθ) |> CircOp;
     # ---------- alternative that doesn't require postive definite
     Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
     B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
-    B▫     = map(B_pre▫) do B
+    B▫     = pmap(B_pre▫) do B
         VF.vecchia_general(B, block_sizesθ)
     end
 
-    DΩ = Diagonal(EZ.Ωpix(eaz0))
-    B▫ = map(B->B*DΩ, B_pre▫)
-    CircOp(B▫)
+    # DΩ = Diagonal(EZ.Ωpix(eaz0))
+    # B▫ = map(B->B*DΩ, B_pre▫)
+    # CircOp(B▫)
+
+    CircOp(B▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))))
 end;
+# w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
+# CMBrings.map_plot(Beam2▪ * Beam2▪ * w0, title1="eaz vecchia iterative beamed white noise")
+# CMBrings.fourier_power(
+#     Beam2▪ * Beam2▪ * w0, 
+#     ℓs = [round(Int,srt_ramp), round(Int,end_ramp)], 
+#     imag_fun=CMBrings.imag_logabs2clip,
+#     xaxis_units = :m # :Hz
+# );
+
 
 # Diag m multiplier
 Beam3▪  = let ℓ=ℓ, fℓ=beamℓ
