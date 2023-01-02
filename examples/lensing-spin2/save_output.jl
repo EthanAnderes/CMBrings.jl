@@ -1,9 +1,9 @@
 import JLD2 
 
-dest_dir = "saved_output"
+dest_dir = joinpath(CMBrings.module_dir,"examples/lensing-spin2/saved_output")
 
 JLD2.jldsave(joinpath(dest_dir, "grid_info.jld2"); 
-	θ, φ, θ∂, φ∂, Ω, Δθ, nθ, nφ, freq_mult, grid_type, bsd_nθ
+	eaz0, eaz2, grid_type
 )
 
 JLD2.jldsave(joinpath(dest_dir, "spectra.jld2");
@@ -15,7 +15,7 @@ JLD2.jldsave(joinpath(dest_dir, "mask.jld2");
 )
 
 JLD2.jldsave(joinpath(dest_dir, "vecchia_blocks.jld2");
-	permθ, block_sizesθ
+	bsd_nθ, block_sizesθ
 )
 
 JLD2.jldsave(joinpath(dest_dir, "fields_data_components.jld2");

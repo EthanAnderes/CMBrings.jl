@@ -48,7 +48,7 @@ function eaz_cov_vecchia(
     ) where {T}
     Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, ffℓ; ngrid)
     Σ_pre▫ = eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
-    Σ▫ = pmap(Σ_pre▫) do Σ
+    Σ▫ = map(Σ_pre▫) do Σ
         VF.vecchia_pdeigen(Σ, block_sizesθ; chol_atol, eig_vmin, eig_val)
     end
     return Σ▫
@@ -64,7 +64,7 @@ function eaz_cov_vecchia(
     Γ, C       = CC.ΓCθ₁θ₂φ₁φ⃗_CMBpol(ℓ, eeℓ, bbℓ; ngrid)
     Σ_pre▫, P  = eaz_cov_btridiag(eaz2, Γ, C; block_sizesθ)
     block_sizesθ′ = VF.blocksizes(Σ_pre▫[1],1) # for spin2 block sizes get doubled ...
-    Σ▫ = pmap(Σ_pre▫) do Σ
+    Σ▫ = map(Σ_pre▫) do Σ
         P' * VF.vecchia_pdeigen(Σ, block_sizesθ′; chol_atol, eig_vmin, eig_val) * P
     end
     return Σ▫
@@ -82,7 +82,7 @@ function eaz_½cov_vecchia(
         ngrid=100_000
     ) where {T}
     Σ_pre▫ = eaz_cov_vecchia(eaz0, ℓ, ffℓ; block_sizesθ, chol_atol, eig_vmin, eig_val, ngrid) 
-    Σ▫ = pmap(Σ_pre▫) do Σ
+    Σ▫ = map(Σ_pre▫) do Σ
         invR, M,  = Σ # Σ is a tuple of vecchia operators
         M½        = VF.Midiagonal(map(sqrt, M.data)) 
         invR * M½
@@ -97,7 +97,7 @@ function eaz_½cov_vecchia(
         ngrid=100_000
     ) where {T}
     Σ_pre▫ = eaz_cov_vecchia(eaz2, ℓ, eeℓ, bbℓ; block_sizesθ, chol_atol, eig_vmin, eig_val, ngrid) 
-    Σ▫ = pmap(Σ_pre▫) do Σ
+    Σ▫ = map(Σ_pre▫) do Σ
         Pᵀ, invR, M, = Σ # Σ is a tuple of vecchia operators
         M½  = VF.Midiagonal(map(sqrt, M.data)) 
         Pᵀ * invR * M½ * Pᵀ' 

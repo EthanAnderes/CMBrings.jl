@@ -8,7 +8,7 @@ using ProgressMeter
 using LinearAlgebra
 using FFTW
 # FFTW.set_num_threads(BLAS.get_num_threads())
-FFTW.set_num_threads(8)
+FFTW.set_num_threads(6)
 
 using CMBrings
 
@@ -215,8 +215,8 @@ Mp2 = DiagOp(Xmap(eaz2, Mp0[:]))
 # ------------- option 1
 Mu0 = @sblock let eaz0
     ## parameters ...
-    # lb1, rb1, Δl1, Δr1 = -48, 48, 6, 6 # default
-    lb1, rb1, Δl1, Δr1 = -36, 36, 3, 3 
+    lb1, rb1, Δl1, Δr1 = -48, 48, 6, 6 # default
+    # lb1, rb1, Δl1, Δr1 = -36, 36, 3, 3 # worked before
     # lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3
     # lb1, rb1, Δl1, Δr1 = -50, 50, 10, 10
     # lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
@@ -236,9 +236,18 @@ M0 = Mu0 * Mp0
 M2 = Mu2 * Mp2
 
 # M_hard (Hard-cut mask, i.e. all observed pixels) 
-Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
-Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
+Mu0_hard = @sblock let eaz0
+    lb1, rb1, Δl1, Δr1 = -53, 53, 1, 1    
+    φ = EZ.φ(eaz0)
+    mask   = zeros(eltype_in(eaz0),size_in(eaz0))
+    mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
+    DiagOp(Xmap(eaz0, mask.>0))
+end
+Mu2_hard = DiagOp(Xmap(eaz2, Mu0_hard[:]))
 # ------------- option 2
+# Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
+# Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
+# ------------- option 3
 # Mu0_hard = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
 # Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:]))
 
@@ -252,10 +261,10 @@ M2_hard = Mu2_hard * Mp2_hard
 # Map plot
 #=
 CMBrings.map_plot(
-    Mp0.f, title1="point source pixel mask",
+    # Mp0.f, title1="point source pixel mask",
     # Mu0.f, title1="uniform scan region pixel mask",
     # M0.f, title1="full pixel mask",
-    # M0_hard.f, title1="full pixel mask",
+    M0_hard.f, title1="full pixel mask",
 );
 =#
 
@@ -279,6 +288,7 @@ Pfilter = Normalized(ChebyshevT())
 Po_order  = 9
 t         = range(-1, 1; length=eaz0.nφ)
 X         = Pfilter[t, 1:(Po_order+1)]
+# X = t.^(collect(0:Po_order)')
 
 Poly = LM.RingDeprojector(X, (M0_hard)[:]);
 # Poly  = LM.RingDeprojector(X, (M0_hard)[:]; alg=:svg_divide_conquer)
@@ -310,12 +320,18 @@ HP2 = DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 
 
 Xfromθ = @sblock let ℓ_Hp, eaz0, X, Poly
+
+    φ = EZ.φ(eaz0)
+
     # the unmasked full column set of modes needed
-    k         = EZ.freq(eaz0)[2]
+    # k         = EZ.freq(eaz0)[2]
     # k         = 0:1000 # testing 
+    # Try these with period given by the uniform scan region (-53ᵒ, 53ᵒ) 
+    k         = 0:200 * (360/106)
+
     k_all     = k[k .<= maximum(ℓ_Hp .* sin.(eaz0.θ))]
-    Xcos_all  = cos.(k_all' .* EZ.φ(eaz0))
-    Xsin_all  = sin.(k_all' .* EZ.φ(eaz0))
+    Xcos_all  = cos.(k_all' .* φ)
+    Xsin_all  = sin.(k_all' .* φ)
     # ------ if we do the high pass after the poly filter
     # ------ project out the poly from the cos/sin
     # ------ then HP * Poly will be a full joint deprojection
@@ -344,22 +360,21 @@ HP = LM.EllDeprojector(Xfromθ, eaz0.θ, M0_hard[:])
 
 # approximate PWF .....
 
-PWF0_hpx, PWF2_hpx = @sblock let eaz0, eaz2, PWF_Nside=Nside, lmax, hp
-
-    S0_hpx_PWFℓ, S2_hpx_PWFℓ = hp.pixwin(PWF_Nside, pol=true, lmax=lmax)
-    # plot(0:lmax, S0_hpx_PWFℓ.^2) # plots the spectra, not the operator multiplier
-    # plot(0:lmax, S2_hpx_PWFℓ.^2)
-
-    ℓ0  = abs.(EZ.ell(eaz0))
-    ℓ2  = abs.(EZ.ell(eaz2))
-    pℓ0 = S0_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ0), lmax)]
-    pℓ2 = S2_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ2), lmax)]
-
-    DiagOp(Xfourier(eaz0, pℓ0)), DiagOp(Xfourier(eaz2, pℓ2))
-end
+# PWF0_hpx, PWF2_hpx = @sblock let eaz0, eaz2, PWF_Nside=Nside, lmax, hp
+#     S0_hpx_PWFℓ, S2_hpx_PWFℓ = hp.pixwin(PWF_Nside, pol=true, lmax=lmax)
+#     # plot(0:lmax, S0_hpx_PWFℓ.^2) # plots the spectra, not the operator multiplier
+#     # plot(0:lmax, S2_hpx_PWFℓ.^2)
+#     ℓ0  = abs.(EZ.ell(eaz0))
+#     ℓ2  = abs.(EZ.ell(eaz2))
+#     pℓ0 = S0_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ0), lmax)]
+#     pℓ2 = S2_hpx_PWFℓ[1 .+ min.(round.(Int, ℓ2), lmax)]
+#     DiagOp(Xfourier(eaz0, pℓ0)), DiagOp(Xfourier(eaz2, pℓ2))
+# end
+# test this out .....
+PWF0_hpx = CMBrings.healpix_pwf▫(eaz0; Nside, normalizeθ = :Ω)
+# PWF2_hpx = healpix_pwf▫(eaz0::EAZ0{T}; Nsidet, normalizeθ = :Ω)
 
 # sinc approximate PWF .....
-
 PWF0_sinc, PWF2_sinc = @sblock let eaz0, eaz2, PWF_Nside=Nside, ring_idx_rng
 
     ring_idx_rng
@@ -372,25 +387,43 @@ PWF0_sinc, PWF2_sinc = @sblock let eaz0, eaz2, PWF_Nside=Nside, ring_idx_rng
     DiagOp(Xfourier(eaz0, sinc_m_filter0)), DiagOp(Xfourier(eaz2, sinc_m_filter2))
 end
 
-# more accurate Healpix pwf ...... testing ... only for T
 
-pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true , lmax=30_000)
+# more accurate Healpix pwf ...... testing ... only for T
+# TODO: add this to EZ ...!!! 
+# φ_approx_nyq = eaz0.φfreq_mult * eaz0.nφ / minimum(sin.(eaz0.θ)) / 2
+# θ_approx_nyq = π / minimum(EZ.Δθ(eaz0)) 
+# approx_lmax  = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
+# approx_lmax += ceil(Int, approx_lmax * 0.05) # for good measure:)
+# pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true , lmax=approx_lmax) # testing ...
+pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true , lmax=48_000) # testing ...
 ℓ = 0:length(pwf0ℓ)-1
 beamℓ_pre = pwf0ℓ;
-φ_approx_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
-srt_ramp  = 11000 # 0.75 * φ_approx_ℓ_nyq  # tried 0.75 * .. optional settings....
-end_ramp  = 1.0 * φ_approx_ℓ_nyq            # optional settings...
-ℓ_taper = map(ℓ) do l
-    if l < srt_ramp
-        return 1 
-    else
-        lpost = l-srt_ramp
-        σ     =  (end_ramp - srt_ramp)/2 
-        return exp(-(lpost/σ)^2)
-    end
-end
 
-beamℓ = beamℓ_pre .* ℓ_taper; 
+#########
+# φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+# srt_ramp  = 9_000 # 0.3 * φmin_ℓ_nyq       
+# end_ramp  = 1.0 * φmin_ℓ_nyq  
+# ℓ_taper = map(ℓ) do l
+#     if l < srt_ramp
+#         return 1 
+#     else
+#         lpost = l-srt_ramp
+#         σ     =  (end_ramp - srt_ramp) 
+#         return exp(-(lpost/σ)^4)
+#     end
+# end
+# beamℓ = beamℓ_pre .* ℓ_taper; 
+#########
+φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+srt_ramp  = 4000           
+end_ramp  = 10000            
+beam_max_diagℓ = let 
+    beamfwhm=maximum(EZ.pix_diag_rad(eaz0))
+    σ² = beamfwhm^2 / 8 / log(2)
+    @. exp( - σ²*ℓ*(ℓ+1) / 2)
+end;
+ℓ_weight = CMBrings.pixweight.(Float64.(ℓ); ▮l=0, ▯l=0, ▮r=end_ramp, ▯r=srt_ramp)
+beamℓ = @. beamℓ_pre*ℓ_weight + beam_max_diagℓ*(1-ℓ_weight); 
 
 #=
 
@@ -399,27 +432,33 @@ beamℓ = beamℓ_pre .* ℓ_taper;
 m_max_top = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2)
 m_max_btm = round(Int, eaz0.φfreq_mult * eaz0.nφ / sin.(maximum(eaz0.θ)) / 2)
 fig,ax = subplots(1, dpi=147)
-ax.plot(0:m_max_top, beamℓ_pre[1:m_max_top+1]);
-ax.plot(0:m_max_top, beamℓ[1:m_max_top+1]);
+ax.semilogy(ℓ, beamℓ_pre);
+ax.semilogy(ℓ, beamℓ);
 ax.axvline(x=m_max_top, color="black", linestyle="--")
 
 
 =#
 
-PWF0▪  = @sblock let eaz0, ℓ=ℓ, fℓ=beamℓ, block_sizesθ=VF.block_split(eaz0.nθ, 25)
+PWF0▪  = @sblock let eaz0, ℓ=ℓ, beamℓ, block_sizesθ=VF.block_split(eaz0.nθ, 23)
     
     # B_pre▫  = CMBrings.eaz_cov_vecchia(eaz0, ℓ, fℓ; block_sizesθ) |> CircOp;
     # ---------- alternative that doesn't require postive definite
     # Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
     # B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
     # B▫     = @showprogress pmap(B_pre▫) do B
-    Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
+    Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, beamℓ)
     B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
+    iDΩ    = inv(Diagonal(EZ.Ωpix(eaz0)))
+    ϵ      = 1e-2
     B▫     = map(B_pre▫) do B
-        VF.vecchia_general(B, block_sizesθ)
+        B′ = (1-ϵ) * B + ϵ * iDΩ
+        VF.vecchia_general(B′, block_sizesθ)
+        # VF.vecchia_pdeigen(B′, block_sizesθ)
         # VF.vecchia(B, block_sizesθ)
     end
-
+    # for testing 
+    # PWF0▪ = CircOp(B▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))));
+    # PWF0▪ = CircOp(B_pre▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))));
 
     # DΩ = Diagonal(EZ.Ωpix(eaz0))
     # B▫ = @showprogress pmap(B->B*DΩ, B_pre▫)
@@ -445,15 +484,48 @@ ax[2].set_ylim([0.90, 1.10])
 ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 =#
 
-# test ...
-# w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
-# t′ = PWF0▪ * t_eaz
-# w′ = PWF0▪ * w0
-# matshow(w′[:], vmin=-2, vmax=2); colorbar()
-# matshow(t_eaz[:], vmin=-400, vmax=400); colorbar()
-# matshow(t′[:]); colorbar()
-# w = field2▪(t_eaz)
-# Pw1 = PWF0▪[1] * w[1]
+#= test ...
+w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
+t′  = PWF0▪ * t_eaz
+w′  = PWF0▪ * w0
+ϵ   = 1e-2
+
+w′′ = w0
+for i=1:4
+    w′′ = PWF0▪ * w′′ - ϵ * w′′
+end
+
+CMBrings.map_plot(M0 * w′′);
+CMBrings.map_plot(M0 * w′);
+CMBrings.map_plot(M0 * w0);
+
+CMBrings.fourier_power(
+    M0 * w′′; 
+    imag_fun=CMBrings.imag_logabs2clip,
+    # vmin=-10, vmax=15, # for t
+    ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1), 48_000], 
+    xaxis_units = :m # :Hz
+);
+
+CMBrings.fourier_power(
+    M0 * w′; 
+    imag_fun=CMBrings.imag_logabs2clip,
+    # vmin=-10, vmax=15, # for t
+    ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1), 48_000], 
+    xaxis_units = :m # :Hz
+);
+
+CMBrings.fourier_power(
+    M0 * w0; 
+    imag_fun=CMBrings.imag_logabs2clip,
+    # vmin=-10, vmax=15, # for t
+    ℓs = [300,  2_750, 5_000,  13_000, Int(Nside*2.5-1), 48_000], 
+    xaxis_units = :m # :Hz
+);
+
+
+
+=#
 
 # Filtered true sky sims
 # =============================
@@ -472,8 +544,8 @@ ax[1].axvline(x=m_max_btm, color="black", linestyle="--")
 # @time apxTF_qu_eaz = TF2 * qu_eaz;
 
 # temp ...
-TF0 = PWF0▪ * PWF0▪ * LP0 * HP0 * M0_hard;
-# TF0 = PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard);
+# TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * HP0 * M0_hard;
+TF0 = PWF0▪ * PWF0▪ * LP0 * HP0 * (Poly*M0_hard);
 # TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (HP*M0_hard)   * (Poly*M0_hard) 
 # TF0 = PWF0▪ * PWF0▪ * PWF0▪ * LP0 * (Poly*M0_hard) * (HP*M0_hard)
 @time apxTF_q_eaz  = TF0 * Xmap(eaz0, real(qu_eaz[:]));

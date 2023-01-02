@@ -33,7 +33,8 @@ eaz0, eaz2, grid_type = @sblock let
     ## set φ grid parameters: φspan and nφ
     # φspan = deg2rad.((-60,60)) 
     φspan = deg2rad.((-45, 45))
-    nφ    = 18000÷4 # 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    # nφ    = 18000÷4 # 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    nφ    = 2048
     # nφ    = 1575
 
     ## set θ grid parameters: θ, θ∂
@@ -46,8 +47,8 @@ eaz0, eaz2, grid_type = @sblock let
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
     type = :equicosθ # :equiθ # 
-    nθ     = 600 # 500 # 800
-    # nθ    = 400
+    # nθ     = 600 # 500 # 800
+    nθ    = 400
     θspan  = π/2 .+ deg2rad.((51,67))
     # θspan  = π/2 .+ deg2rad.((41.78,70.43)) 
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
@@ -120,7 +121,7 @@ end;
 # Wide Gaussian Beam
 # ----------------------------------------
 #=
-fwhm_arcmin = 1.5 * maximum(EZ.pix_diag_arcmin(eaz0)) # optional settings....
+fwhm_arcmin = 1.5 * maximum(EZ.pix_diag_arcmin(eaz0)) 
 σ² = CMBrings.arcmin2rad(fwhm_arcmin)^2 / 8 / log(2)
 beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
 =# 
@@ -128,45 +129,75 @@ beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
 # Subpixel Gaussian Beam
 # ----------------------------------------
 #
-# fwhm_arcmin = 0.9 * minimum(EZ.pix_diag_arcmin(eaz0)) # optional settings....
+# fwhm_arcmin = 0.9 * minimum(EZ.pix_diag_arcmin(eaz0)) 
 # σ² = CMBrings.arcmin2rad(fwhm_arcmin)^2 / 8 / log(2)
 # beamℓ_pre =  @. exp( - σ²*ℓ*(ℓ+1) / 2);
 
+# SPT beam 
+# ------------------------------------
+# 
+# beam_file_ = "/Users/ethananderes/Software/spt3g_software/beams/products/v2/compiled_2020_beams.txt"
+# beam_file = CMBrings.readdlm(beam_file_, ' ')
+# ℓbeam = beam_file[:,1]
+# beamℓ_90ghz  = beam_file[:,2]
+# beamℓ_150ghz = beam_file[:,3]
+# beamℓ_220ghz = beam_file[:,4]
+# # plot(ℓbeam, beamℓ_90ghz)
 
 # Healpix pixel window function .... option
 # ----------------------------------------
-pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true, lmax=maximum(ℓ))
+
+# pwf0ℓ, pwf2ℓ = hp.pixwin(8192, pol=true , lmax=approx_lmax)
+pwf0ℓ, pwf2ℓ = hp.pixwin(8192÷2, pol=true , lmax=approx_lmax)
 beamℓ_pre = pwf0ℓ;
 
 # Now we taper so we don't get aliasing
 # ----------------------------------------
 # note we are setting the taper at the ℓ_nyq for the top edge
-φ_approx_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
-
 
 #####
-# srt_ramp  = 0.9 * φ_approx_ℓ_nyq           # optional settings....
-# end_ramp  = 1.0 * φ_approx_ℓ_nyq            # optional settings...
+# beamℓ = beamℓ_pre;
+#####
+# φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+# srt_ramp  = 0.5 * φmin_ℓ_nyq           
+# end_ramp  = 0.9 * φmin_ℓ_nyq            
 # ℓ_taper   = CMBrings.pixweight.(Float64.(ℓ); ▮l=0, ▯l=0, ▮r=end_ramp, ▯r=srt_ramp)
-# ℓ_taper .+= 0.001                         # optional settings...
-# ℓ_taper ./= maximum(ℓ_taper)              # optional settings...
+# ℓ_taper .+= 0.001                         
+# ℓ_taper ./= maximum(ℓ_taper)
+# beamℓ = beamℓ_pre .* ℓ_taper; 
 #####
+φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+srt_ramp  = 0.4 * φmin_ℓ_nyq           
+end_ramp  = 0.8 * φmin_ℓ_nyq            
+# beam_max_diagℓ = let 
+#     beamfwhm=maximum(EZ.pix_diag_rad(eaz0))
+#     σ² = beamfwhm^2 / 8 / log(2)
+#     @. exp( - σ²*ℓ*(ℓ+1) / 2)
+# end;
+beam_max_diagℓ = @. exp(-(ℓ/end_ramp)^6) 
+ℓ_weight = CMBrings.pixweight.(Float64.(ℓ); ▮l=0, ▯l=0, ▮r=end_ramp, ▯r=srt_ramp)
+beamℓ = @. beamℓ_pre*ℓ_weight + beam_max_diagℓ*(1-ℓ_weight); 
+#####
+# φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+# end_ramp  = 0.75 * φmin_ℓ_nyq
 # ℓ_taper = @. exp(-(ℓ/end_ramp)^6)           # seems to work well
+# beamℓ = beamℓ_pre .* ℓ_taper; 
 #####
-srt_ramp  = 0.75 * φ_approx_ℓ_nyq           # optional settings....
-end_ramp  = 1.0 * φ_approx_ℓ_nyq            # optional settings...
-ℓ_taper = map(ℓ) do l
-    if l < srt_ramp
-        return 1 
-    else
-        lpost = l-srt_ramp
-        σ     =  (end_ramp - srt_ramp)/2 
-        return exp(-(lpost/σ)^2)
-    end
-end
+# φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin.(minimum(eaz0.θ)) / 2
+# srt_ramp  = 0.3 * φmin_ℓ_nyq           
+# end_ramp  = 1.0 * φmin_ℓ_nyq  # default
+# ℓ_taper = map(ℓ) do l
+#     if l < srt_ramp
+#         return 1 
+#     else
+#         lpost = l-srt_ramp
+#         σ     =  (end_ramp - srt_ramp)/3
+#         return exp(-(lpost/σ)^2)
+#     end
+# end
+# beamℓ = beamℓ_pre .* ℓ_taper; 
 #####
 
-beamℓ = beamℓ_pre .* ℓ_taper; 
 
 
 # Plot the tapered beam
@@ -196,6 +227,20 @@ BT▪½  = let
     map(x->sqrt(pdeigen(Symmetric(x))), BT▪) |> CircOp
 end;
 
+#= Do these commute? Nearly so .... except near the edges
+
+w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
+bt_t = BT▪½ * T▪½  * w0
+t_bt = T▪½  * BT▪½ * w0
+bt_t[:] |> matshow 
+t_bt[:] |> matshow; colorbar() 
+(bt_t-t_bt)[:] |> matshow; colorbar()
+
+bw = T▪½  \ (BT▪½ * w0)
+
+
+=#
+
 # Beam operators
 # ----------------------------------------
 
@@ -207,17 +252,28 @@ Beam1▪  = let fℓ=beamℓ
 end;
 
 # Vecchia eaz beam operator
-using Distributed
+# using Distributed
 block_sizesθ=VF.block_split(eaz0.nθ, 40) # optional settings .....
 Beam2▪  = let ℓ=ℓ, fℓ=beamℓ
     
     # B_pre▫  = CMBrings.eaz_cov_vecchia(eaz0, ℓ, fℓ; block_sizesθ) |> CircOp;
     # ---------- alternative that doesn't require postive definite
-    Γ  = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
+    Γ      = CC.Γθ₁θ₂φ₁φ⃗_Iso(ℓ, fℓ)
     B_pre▫ = CMBrings.eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
-    B▫     = pmap(B_pre▫) do B
-        VF.vecchia_general(B, block_sizesθ)
-    end
+    
+    # -------------------
+    # iDΩ    = inv(Diagonal(EZ.Ωpix(eaz0)))
+    # ϵ      = 0 # 1e-10
+    # B▫     = map(B_pre▫) do B
+    #     B′ = (1-ϵ) * B + ϵ * iDΩ
+    #     VF.vecchia_general(B′, block_sizesθ)
+    #     # VF.vecchia(B′, block_sizesθ)
+    #     # VF.vecchia_pdeigen(B′, block_sizesθ)
+    # end
+    # -------------------
+    B▫ = B_pre▫
+    # -------------------
+
 
     # DΩ = Diagonal(EZ.Ωpix(eaz0))
     # B▫ = map(B->B*DΩ, B_pre▫)
@@ -225,15 +281,22 @@ Beam2▪  = let ℓ=ℓ, fℓ=beamℓ
 
     CircOp(B▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))))
 end;
-# w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)))
-# CMBrings.map_plot(Beam2▪ * Beam2▪ * w0, title1="eaz vecchia iterative beamed white noise")
-# CMBrings.fourier_power(
-#     Beam2▪ * Beam2▪ * w0, 
-#     ℓs = [round(Int,srt_ramp), round(Int,end_ramp)], 
-#     imag_fun=CMBrings.imag_logabs2clip,
-#     xaxis_units = :m # :Hz
-# );
+#= for testing ...
+w0    = Xmap(eaz0,randn(eltype_in(eaz0), size_in(eaz0)) ./ sqrt.(EZ.Ωpix(eaz0)))
 
+Beam2▪ = CircOp(B▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))));
+
+CMBrings.map_plot(Beam2▪ * w0, title1="eaz vecchia iterative beamed white noise")
+CMBrings.map_plot(Beam2▪ * Beam2▪ * Beam2▪ * w0, title1="eaz vecchia iterative beamed white noise")
+
+CMBrings.fourier_power(
+    Beam2▪ * Beam2▪ * Beam2▪ * w0, 
+    #ℓs = [round(Int,srt_ramp), round(Int,end_ramp)], 
+    ℓs = [3000, 5000], 
+    imag_fun=CMBrings.imag_logabs2clip,
+    xaxis_units = :m # :Hz
+);
+=#
 
 # Diag m multiplier
 Beam3▪  = let ℓ=ℓ, fℓ=beamℓ
@@ -244,7 +307,7 @@ Beam3▪  = let ℓ=ℓ, fℓ=beamℓ
     for i in axes(Bmθ,1)
         θᵢ = θs[i]
         # TODO: possibly change Γ that changes the band limit on each ring using
-        # φ_approx_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin(θᵢ) / 2
+        # φmin_ℓ_nyq = eaz0.φfreq_mult * eaz0.nφ / sin(θᵢ) / 2
         Bᵢ_pre▫     = CMBrings.eaz_cov(eaz0, Γ; θ=θᵢ, φ=φs)
         Bᵢ_in_col   = map(x->x[1], Bᵢ_pre▫)
         Bᵢ_in_col ./= Bᵢ_in_col[1]
@@ -252,6 +315,11 @@ Beam3▪  = let ℓ=ℓ, fℓ=beamℓ
     end
     DiagOp(Xfourier(eaz0, Bmθ))
 end;
+
+Beam4▪ = map(T▪½, BT▪½) do T½, B½
+    invT½ = inv(T½)
+    Matrix(invT½) * Matrix(B½)
+end |> CircOp
 
 # Simulate the pre-beamed and beamed field. The beamed field here is considered the ground truth.
 # ==========================================================
@@ -261,6 +329,8 @@ t     = T▪½   * w0     # pre-beamed field
 bt    = BT▪½  * w0     # ground truth beamed field
 b1t   = Beam1▪ * t     # full eaz beam
 b2t   = Beam2▪ * t;    # vecchia eaz beam
+# b3t   = Beam3▪ * t;    # 
+b4t   = Beam4▪ * t;    # T▪½ \ BT▪½
 
 # Plots
 # -------------------
@@ -271,8 +341,10 @@ CMBrings.map_plot(t, title1=L"T(\theta,\varphi)")
 CMBrings.map_plot(bt, title1=L"ground truth beamed: $BT(\theta,\varphi)$")
 CMBrings.map_plot(b1t, title1=L"eaz beamed: $B_1T(\theta,\varphi)$")
 CMBrings.map_plot(b2t, title1=L"eaz vecchia beamed: $B_2T(\theta,\varphi)$")
+CMBrings.map_plot(b4t, title1=L" T▪½ \ BT▪½: $B_4T(\theta,\varphi)$")
 CMBrings.map_plot(Beam1▪ * Beam1▪ * Beam1▪ * Beam1▪ * w0, title1="eaz iterative beamed white noise")
 CMBrings.map_plot(Beam2▪ * Beam2▪ * Beam2▪ * Beam2▪ * w0, title1="eaz vecchia iterative beamed white noise")
+CMBrings.map_plot(Beam4▪ * Beam4▪ * Beam4▪ * Beam4▪ * w0, title1="inv(T▪½)*BT▪½ iterative beamed white noise")
 
 # Fourier plots....
 
@@ -304,11 +376,20 @@ CMBrings.fourier_power(
     title1=L"log|B_2T(\theta,m)|^2",
     xaxis_units = :m # :Hz
 );
+CMBrings.fourier_power(
+    Beam2▪ * Beam2▪ * Beam2▪ * Beam2▪ * w0, 
+    ℓs = [round(Int,srt_ramp), round(Int,end_ramp)], 
+    imag_fun=CMBrings.imag_logabs2clip,
+    title1=L"log|B*B*...*B*w(\theta,m)|^2",
+    xaxis_units = :m # :Hz
+);
+
 
 ## Power ratio .........
 
 r1bt  = real(b1t[!] .* conj.(bt[!])) |> x->CMBrings.imag_blur(x;blur=2) 
 r2bt  = real(b2t[!] .* conj.(bt[!])) |> x->CMBrings.imag_blur(x;blur=2) 
+r4bt  = real(b4t[!] .* conj.(bt[!])) |> x->CMBrings.imag_blur(x;blur=2) 
 rbtbt = abs2.(bt[!])              |> x->CMBrings.imag_blur(x;blur=2) 
 
 CMBrings.fourier_power(
@@ -327,11 +408,21 @@ CMBrings.fourier_power(
     xaxis_units = :m # :Hz
 );
 
+
+CMBrings.fourier_power(
+    Xfourier(eaz0, r4bt ./ rbtbt); 
+    title1=L"b4t(\theta,m) bt^*(\theta,m)/|bt(\theta,m)|^2", # imag_fun=CMBrings.imag_logabs2clip,
+    vmin=0.95, vmax=1.05, # for t
+    ℓs = [round(Int,srt_ramp), round(Int,end_ramp)], 
+    xaxis_units = :m # :Hz
+);
+
 ## EAZ quasi-bandpowers .........
 
-b1t_kpwr, b2t_kpwr, bt_kpwr, t_kpwr, ℓbn = @sblock let b1t, b2t, bt, t
+b1t_kpwr, b2t_kpwr, bt_kpwr, t_kpwr, ℓbn = @sblock let b1t, b2t, b4t, bt, t
     ℓbn, b1t_kpwr = CMBrings.quasi_bandpowers(b1t; Δℓsph_bin = 10)
     ℓbn, b2t_kpwr = CMBrings.quasi_bandpowers(b2t; Δℓsph_bin = 10)
+    ℓbn, b4t_kpwr = CMBrings.quasi_bandpowers(b4t; Δℓsph_bin = 10)
     ℓbn, bt_kpwr = CMBrings.quasi_bandpowers(bt; Δℓsph_bin = 10)
     ℓbn, t_kpwr = CMBrings.quasi_bandpowers(t; Δℓsph_bin = 10)
     b1t_kpwr, b2t_kpwr, bt_kpwr, t_kpwr, ℓbn
@@ -344,11 +435,13 @@ ll = findfirst(0 .< ℓbn)    |> x->(isnothing(x) ? length(ℓbn) : x[1])
 ax[1].plot(ℓbn[ll:ul], bt_kpwr[ll:ul] ./ t_kpwr[ll:ul], label="power ratio:  BT / T")
 ax[1].plot(ℓbn[ll:ul], b1t_kpwr[ll:ul] ./ t_kpwr[ll:ul], label="power ratio: B1T / T")
 ax[1].plot(ℓbn[ll:ul], b2t_kpwr[ll:ul] ./ t_kpwr[ll:ul], label="power ratio: B2T / T")
+ax[1].plot(ℓbn[ll:ul], b4t_kpwr[ll:ul] ./ t_kpwr[ll:ul], label="power ratio: B4T / T")
 ax[1].axhline(y=1, color="black", linestyle="--")
 ax[1].legend()
 
 ax[2].plot(ℓbn[ll:ul], b1t_kpwr[ll:ul] ./ bt_kpwr[ll:ul], label="power ratio: B1T / BT")
 ax[2].plot(ℓbn[ll:ul], b2t_kpwr[ll:ul] ./ bt_kpwr[ll:ul], label="power ratio: B2T / BT")
+ax[2].plot(ℓbn[ll:ul], b4t_kpwr[ll:ul] ./ bt_kpwr[ll:ul], label="power ratio: B4T / BT")
 ax[2].axhline(y=1, color="black", linestyle="--")
 ax[2].legend()
 

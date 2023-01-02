@@ -19,7 +19,7 @@
 using LinearAlgebra
 using FFTW
 # FFTW.set_num_threads(BLAS.get_num_threads())
-FFTW.set_num_threads(4)
+FFTW.set_num_threads(6)
 
 using  CMBrings
 using  XFields
@@ -82,8 +82,8 @@ eaz0, eaz2, grid_type = @sblock let
     # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
     type = :equicosθ # :equiθ # 
-    # nθ     = 600 # 500 # 800
-    nθ    = 400
+    nθ     = 500 # 600 # 800
+    # nθ    = 400
     θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
     θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
@@ -195,6 +195,15 @@ EB▫_test = CMBrings.eaz_cov(
     eaz2, ℓ, eeℓ, bbℓ; 
     ℓrange= 1:15, # ℓrange=[eaz0.nφ÷2-5,eaz0.nφ÷2+1]
 );
+
+Σ  = EB▫_test[10]
+Σk = Array(fft(Array(fft(Σ,1)'),1)')
+
+Σ  .|> abs2 .|> log |> matshow; colorbar()
+Σk .|> abs2 .|> log |> matshow; colorbar() 
+
+Σ |> Hermitian |> eigen |> x->x.values |> plot
+Σk |> Hermitian |> eigen |> x->x.values |> plot
 
 EB▫_test[1] |> Hermitian |> eigen |> x->x.values
 EB▫_test[end] |> Hermitian |> eigen |> x->x.values
@@ -882,8 +891,8 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    # for otr = 1:50 # default
-    for otr = 1:5 #
+    for otr = 1:50 # default
+    # for otr = 1:5 #
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -963,7 +972,7 @@ end
 
 
 if save_jld2
-    include("save_src.jl")
+    include(joinpath(CMBrings.module_dir,"examples/lensing-spin2/save_output.jl"))
 end
 
 
@@ -997,8 +1006,8 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    # ϕ; title1=L"True $\phi$",
-    Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
+    ϕ; title1=L"True $\phi$",
+    # Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
     # Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );

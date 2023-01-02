@@ -35,7 +35,7 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
     Γ = beam_Γ(eaz0; fwhmθ_rad)
 
     Σ_pre▫ = eaz_cov_btridiag(eaz0, Γ; block_sizesθ)
-    Σ▫     = pmap(Σ_pre▫) do Σ
+    Σ▫     = map(Σ_pre▫) do Σ
         VF.vecchia_general(Σ, block_sizesθ)
     end
 
@@ -45,12 +45,12 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
         ## Adjust so row mean of the pixel kernel is 1
         bws  = beamθ_weight_sum(eaz0; fwhmθ_rad)
         Dw⁻¹ = Diagonal(inv.(bws))
-        return pmap(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
+        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
     elseif normalizeθ == :Ω
         ## Adjust so left mult behaves like an integral operator
         dΩ = EZ.Ωpix(eaz0)
         DΩ = Diagonal(dΩ)
-        return pmap(Σ▫i -> Σ▫i * DΩ, Σ▫)
+        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
     else 
         error("normalizeθ ∉ {:row_ave, :Ω, :none}")
     end
@@ -65,7 +65,7 @@ function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ,
     # or allow spin0 operators in fourier to multiply on q,u fields separately
     nθ = eaz2.nθ
 
-    Σ2▫ = pmap(Σ0▫) do B
+    Σ2▫ = map(Σ0▫) do B
         # M -> M2
         M = B[2]
         M2 = vcat(M.data, M.data) |> VF.Midiagonal
@@ -88,12 +88,12 @@ function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ,
         bws     = beamθ_weight_sum(eaz2; fwhmθ_rad)
         inv_bws = inv.(bws)
         Dw⁻¹    = Diagonal(vcat(inv_bws,inv_bws))
-        return pmap(Σ▫i -> Dw⁻¹ * Σ▫i, Σ2▫)
+        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ2▫)
     elseif normalizeθ == :Ω
         ## Adjust so left mult behaves like an integral operator
         dΩ = EZ.Ωpix(eaz2)
         DΩ = Diagonal(vcat(dΩ,dΩ))
-        return pmap(Σ▫i -> Σ▫i * DΩ, Σ2▫)
+        return map(Σ▫i -> Σ▫i * DΩ, Σ2▫)
     else 
         error("normalizeθ ∉ {:row_ave, :Ω, :none}")
     end
