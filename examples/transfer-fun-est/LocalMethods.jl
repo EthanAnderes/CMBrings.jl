@@ -27,24 +27,80 @@ function deproject_Xm(f::AbstractVector, Xm::AbstractMatrix, factXm::Factorizati
 end 
 
 
-## ----------------------------------------
+function deproject_Xm_collapse(
+        f::AbstractVector, 
+        X::AbstractMatrix, 
+        fc::AbstractVector, 
+        factXc::Factorization
+    ) 
+    f - X * (factXc \ fc)
+end 
 
-
+# In this version, instead of masking we collaps
+# function deproject_Xm_eachrow_qr(f::AbstractMatrix, m::AbstractMatrix, X::AbstractMatrix)
+#     # f is a matrix representing the CMB (θ, φ) pixel values. (θ, φ) <-> (row, col)
+#     # m is a matrix representing the (θ, φ) pixel mask (0 => not-observed)
+#     # X is a matrix with columns representing the unmasked modes to be removed from the rows of f.
+#     g        = similar(f)
+#     for (fr, mr, gr) in zip(eachrow(f), eachrow(m), eachrow(g))
+#         mr_bool = mr .> 0       
+#         factXmr = qr!(X[mr_bool,:], ColumnNorm()) # modifies Xm_copy
+#         copyto!(gr, deproject_Xm_collapse(fr, X, fr[mr_bool], factXmr))
+#     end
+#     return g
+# end
 function deproject_Xm_eachrow_qr(f::AbstractMatrix, m::AbstractMatrix, X::AbstractMatrix)
     # f is a matrix representing the CMB (θ, φ) pixel values. (θ, φ) <-> (row, col)
     # m is a matrix representing the (θ, φ) pixel mask (0 => not-observed)
     # X is a matrix with columns representing the unmasked modes to be removed from the rows of f.
     Xmr      = similar(X)
-    Xmr_copy = similar(X)
+    # Xmr_copy = similar(X)
     g        = similar(f)
     for (fr, mr, gr) in zip(eachrow(f), eachrow(m), eachrow(g))
+        # Xmr      .= mr .* X # mask the columns of X
+        # Xmr_copy .= Xmr
+        # factXmr = qr!(Xmr_copy, ColumnNorm()) # modifies Xm_copy
+        # copyto!(gr, deproject_Xm(fr, Xmr, factXmr))
         Xmr      .= mr .* X # mask the columns of X
-        Xmr_copy .= Xmr
-        factXmr = qr!(Xmr_copy, ColumnNorm()) # modifies Xm_copy
-        copyto!(gr, deproject_Xm(fr, Xmr, factXmr))
+        factXmr = qr!(Xmr, ColumnNorm()) # modifies Xm_copy
+        copyto!(gr, deproject_Xm(fr, X, factXmr)) #testing 
     end
     return g
 end
+
+
+# function deproject_Xθm_eachθ_qr(f::AbstractMatrix, θ::AbstractVector, m::AbstractMatrix, Xfromθ::Function)
+#     # f is a matrix representing the CMB (θ, φ) pixel values. (θ, φ) <-> (row, col)
+#     # m is a matrix representing the (θ, φ) pixel mask (0 => not-observed)
+#     # X is a matrix with columns representing the unmasked modes to be removed from the rows of f.
+#     g        = similar(f)
+#     for (fr, θr, mr, gr) in zip(eachrow(f), θ, eachrow(m), eachrow(g))
+#         mr_bool = mr .> 0       
+#         X       = Xfromθ(θr) 
+#         factXmr = qr!(X[mr_bool,:], ColumnNorm()) # modifies Xm_copy
+#         copyto!(gr, deproject_Xm_collapse(fr, X, fr[mr_bool], factXmr))
+#     end
+#     return g
+# end
+function deproject_Xθm_eachθ_qr(f::AbstractMatrix, θ::AbstractVector, m::AbstractMatrix, Xfromθ::Function)
+    # f is a matrix representing the CMB (θ, φ) pixel values. (θ, φ) <-> (row, col)
+    # m is a matrix representing the (θ, φ) pixel mask (0 => not-observed)
+    # X is a matrix with columns representing the unmasked modes to be removed from the rows of f.
+    g        = similar(f)
+    for (fr, θr, mr, gr) in zip(eachrow(f), θ, eachrow(m), eachrow(g))
+        # Xmr     = mr .* Xfromθ(θr) # mask the columns of X
+        # factXmr = qr!(copy(Xmr), ColumnNorm()) # modifies Xm_copy
+        # copyto!(gr, deproject_Xm(fr, Xmr, factXmr))
+        X       = Xfromθ(θr)
+        factXmr = qr!(mr.*X, ColumnNorm()) 
+        copyto!(gr, deproject_Xm(fr, X, factXmr))
+    end
+    return g
+end
+
+## ----------------------------------------
+
+
 
 function deproject_Xm_eachrow_svd(
         f::AbstractMatrix, 
@@ -111,18 +167,6 @@ end
 ## ----------------------------------------
 
 
-function deproject_Xθm_eachθ_qr(f::AbstractMatrix, θ::AbstractVector, m::AbstractMatrix, Xfromθ::Function)
-    # f is a matrix representing the CMB (θ, φ) pixel values. (θ, φ) <-> (row, col)
-    # m is a matrix representing the (θ, φ) pixel mask (0 => not-observed)
-    # X is a matrix with columns representing the unmasked modes to be removed from the rows of f.
-    g        = similar(f)
-    for (fr, θr, mr, gr) in zip(eachrow(f), θ, eachrow(m), eachrow(g))
-        Xmr     = mr .* Xfromθ(θr) # mask the columns of X
-        factXmr = qr!(copy(Xmr), ColumnNorm()) # modifies Xm_copy
-        copyto!(gr, deproject_Xm(fr, Xmr, factXmr))
-    end
-    return g
-end
 
 struct EllDeprojector{T<:AbstractVector, U<:AbstractMatrix} <: AbstractLinearOp
     Xfromθ::Function

@@ -5,12 +5,13 @@
 
 function cosφ°Mask(φ°::T; lb, rb, Δl, Δr=Δl) where T<:Number
     ϕ° = rad2deg(CC.in_negπ_π(deg2rad(φ°)))
-    l1, l2, r1, r2 = lb, lb+Δl, rb-Δr, rb
+    l1, l2 = lb, lb+Δl
+    r1, r2 = rb-Δr, rb
     @assert -180 <= l1 <= l2 <= r1 <= r2 ≤ 180
 
-    if abs(Δl) <= 0
-        return T(1)
-    end
+    # if abs(Δl) <= 0
+    #     return T(1)
+    # end
 
     if l1 < ϕ° < l2
         return (1+cospi((ϕ°-l2)/Δl))/2
