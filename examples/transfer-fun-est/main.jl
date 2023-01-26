@@ -299,10 +299,7 @@ X         = Pfilter[t, 1:(Po_order+1)]
 # --- option
 # X = t.^(collect(0:Po_order)')
 # ---
-
-Poly = LM.RingDeprojector(X, Mu0_hard[:]);
-# Poly = LM.RingDeprojector(X, (M0_hard)[:]);
-# Poly  = LM.RingDeprojector(X, (M0_hard)[:]; alg=:svg_divide_conquer)
+Poly = LM.RingDeprojector(X, M0_hard[:]);
 # Poly = LM.RingDeprojector(X, (M0_hard)[:]; alg=:svg_qr_iteration)
 
 # Poly = LM.EllDeprojector(θ -> X, eaz0.θ, M0_hard[:])

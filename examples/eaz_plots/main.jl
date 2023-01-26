@@ -71,8 +71,19 @@ cmb_file_, ghz = @sblock let cmb_file_root, data_file_root
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_right.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_minus_right_divided_by_two.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_plus_right_divided_by_two.fits"), 90
-    cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
+    # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
 
+    
+    # filter on/off tests ...
+
+    # filter on
+    # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_on_left.fits" ), 90
+    # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_on_right.fits"), 90
+    # scmb_file_, ghz =  joinpath(data_file_root, "filter_test_on_lmrd2.fits"), 90
+    # filter off
+    # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_left.fits" ), 90
+    cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_right.fits"), 90
+    # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_lmrd2.fits"), 90
 
     return cmb_file_, ghz
 end
@@ -111,7 +122,7 @@ eaz0, eaz2, ring_idx_rng = @sblock let Nside
     return eaz0, eaz2, ri 
 end;
 
-@sblock let eaz0, hide_plots=false
+@sblock let eaz0, hide_plots=true
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(eaz0.θ, rad2deg.(.√(EZ.Ωpix(eaz0)).*60), label="sqrt pixel area (arcmin)")
@@ -170,10 +181,11 @@ end
     return Xmap(eaz2, qu_eaz), Xmap(eaz0, t_eaz)
 end;
 
-# qu_eaz_noise, t_eaz_noise = qu_eaz, t_eaz
-# qu_eaz_diff, t_eaz_diff = qu_eaz, t_eaz
-# qu_eaz_left, t_eaz_left = qu_eaz, t_eaz
-# qu_eaz_right, t_eaz_right = qu_eaz, t_eaz
+# qu_eaz_on_diff, t_eaz_on_diff = qu_eaz, t_eaz
+
+# qu_eaz_off_left, t_eaz_off_left = qu_eaz, t_eaz
+qu_eaz_off_right, t_eaz_off_right = qu_eaz, t_eaz
+# qu_eaz_off_diff, t_eaz_off_diff = qu_eaz, t_eaz
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
 # =======================================================================
@@ -191,12 +203,10 @@ Mp2 = DiagOp(Xmap(eaz2, Mp0[:]))
 # ------------- option 1
 Mu0 = @sblock let eaz0
     ## parameters ...
-    lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3 # default
-    # lb1, rb1, Δl1, Δr1 = -36, 36, 3, 3 # worked before
-    # lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3
-    # lb1, rb1, Δl1, Δr1 = -50, 50, 10, 10
-    # lb1, rb1, Δl1, Δr1 = -40, 40, 7, 7
-    
+    # lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3 
+    lb1, rb1, Δl1, Δr1 = -45, 45, 3, 3 # default    
+    # lb1, rb1, Δl1, Δr1 = -45, 45, 20, 20 # default    
+
     φ = EZ.φ(eaz0)
     mask   = zeros(eltype_in(eaz0),size_in(eaz0))
     mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
@@ -212,18 +222,18 @@ M0 = Mu0 * Mp0
 M2 = Mu2 * Mp2
 
 # M_hard (Hard-cut mask, i.e. all observed pixels) 
-Mu0_hard = @sblock let eaz0
-    # lb1, rb1, Δl1, Δr1 = -53, 53, 1, 1    
-    lb1, rb1, Δl1, Δr1 = -50, 50, 1, 1    
-    φ = EZ.φ(eaz0)
-    mask   = zeros(eltype_in(eaz0),size_in(eaz0))
-    mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
-    DiagOp(Xmap(eaz0, mask.>0))
-end
-Mu2_hard = DiagOp(Xmap(eaz2, Mu0_hard[:]))
+# Mu0_hard = @sblock let eaz0
+#     # lb1, rb1, Δl1, Δr1 = -53, 53, 1, 1    
+#     lb1, rb1, Δl1, Δr1 = -50, 50, 1, 1    
+#     φ = EZ.φ(eaz0)
+#     mask   = zeros(eltype_in(eaz0),size_in(eaz0))
+#     mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
+#     DiagOp(Xmap(eaz0, mask.>0))
+# end
+# Mu2_hard = DiagOp(Xmap(eaz2, Mu0_hard[:]))
 # ------------- option 2
-# Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
-# Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
+Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
+Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
 # ------------- option 3
 # Mu0_hard = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
 # Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:]))
@@ -245,6 +255,27 @@ CMBrings.map_plot(
 );
 =#
  
+# Low pass / High pass / Poly filters
+# ===============================================
+ℓ_Lp = 12_000 # 13_000 
+ℓ_Hp  = 268   # 300
+LP0  = DiagOp(Xfourier(eaz0, exp.(.- (abs.(EZ.ell(eaz0))./ℓ_Lp).^6) ))
+LP2  = DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
+HP0 = DiagOp(Xfourier(eaz0, abs.(EZ.ell(eaz0)) .> ℓ_Hp))
+HP2 = DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
+
+using ClassicalOrthogonalPolynomials
+include(joinpath(CMBrings.module_dir,"examples/transfer-fun-est/LocalMethods.jl"))
+import .LocalMethods as LM
+Po_order  = 8
+t_pre = range(-1, 1; length=sum(Mu0[:][1,:].>0))
+t = zeros(eaz0.nφ)
+t[Mu0[:][1,:].>0] .= t_pre
+Pfilter   = Legendre() # Normalized(Legendre()) # Normalized(ChebyshevT()) #  
+X         = Pfilter[t, 1:(Po_order+1)]
+Poly = LM.RingDeprojector(X, M0_hard[:]);
+
+
 
 # Extra filter 
 # =========
@@ -290,21 +321,33 @@ CMBrings.map_plot(
 # F0  = DiagOp(Xfourier(eaz0, exp.(.- 0.5 .* abs2.((Hz0 .- 16.5) ./ 0.5) )))
 # F2  = DiagOp(Xfourier(eaz2, exp.(.- 0.5 .* abs2.((abs.(Hz2) .- 16.5) ./ 0.5) )))
 
+
+## LowHigh/HighPass/Poly filter
+F0 = Poly # HP0 * Poly
+F2 = Poly # HP2 * Poly
+
 # turn off extra filter 
-F0 = F2 = 1
+# F0 = F2 = 1
 
 
 # (θ,φ) plots
 # =============================
 
 CMBrings.map_plot(
-    # M0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
-    M0 * F0 * M0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
-    # M0 * Xmap(eaz0, real(qu_eaz_left[:])); title1=L"left scan: $Q(\theta,\varphi)$",
-    # M0 * Xmap(eaz0, imag(qu_eaz[:])); title1=L"(left-right)/2: $U(\theta,\varphi)$,
+    # M0 *  t_eaz_on_diff; title1=L"filter_on_lmrd2 :  $T(\theta,\varphi)$",
+    # M0 * F0 * M0 *  t_eaz_off_diff; title1=L"filter_off_lmrd2 : EAZ Lp * Hp * $T(\theta,\varphi)$",
+    # M0 * F0 * M0 *  t_eaz_off_left; title1=L"filter_off_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
+    # M0 * F0 * M0 *  t_eaz_on_left; title1=L"filter_on_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
+    
+    M0 * F0 * t_eaz_off_diff; title1=L"$T(\theta,\varphi)$",
+
+    # Mu0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
+    # F0 * Mu0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
+    # M0 * Xmap(eaz0, real(qu_eaz_off_diff[:])); title1=L"left scan: $Q(\theta,\varphi)$",
+    # M0 * Xmap(eaz0, imag(qu_eaz_off_diff[:])); title1=L"(left-right)/2: $U(\theta,\varphi)$,
     # F2 * M2 * qu_eaz; title1=L"$Q(\theta,\varphi)$ (%$ghz Ghz)", title2=L"$U(\theta,\varphi)$ (%$ghz Ghz)", 
     #
-    # imag_fun=x->CMBrings.imag_blur(x;blur=5),
+    imag_fun=x->CMBrings.imag_blur(x;blur=5),
     #
     # vmin = ...,
     # vmax = ...,
@@ -314,23 +357,28 @@ CMBrings.map_plot(
 # =============================
 
 CMBrings.fourier_power(
-    F0 * M0 * t_eaz; title1=L"band pass (left-right)/2: $|T(\theta,m)|$",
-    # M0 * t_eaz; title1=L"log power of (left-right)/2:  $T(\theta,m)$",
-    # M0 * t_eaz; title1=L"phase angle of (left-right)/2  $T(\theta,m)$",
-    # M0 * t_eaz; title1=L"(restricted to ±36deg) log power of (left-right)/2:  $T(\theta,m)$",
-    # F2 * M2 * qu_eaz; title1=L"log power of (left-right)/2: $[Q+iU](\theta,m)$",
-    # F0 * M0 * Xmap(eaz0, real(qu_eaz[:])); title1=L"log power of (left-right)/2: $Q(\theta,m)$",
-    # F0 * M0 * Xmap(eaz0, imag(qu_eaz[:])); title1=L"log power of (left-right)/2: $U(\theta,m)$",
+    # M0 * t_eaz_on_diff; title1=L"filter_on_lmrd2 :  $T(\theta,m)$",
+    # M0 * t_eaz_off_diff; title1=L"filter_off_lmrd2 : $T(\theta,m)$",
+    
+    # M2 * qu_eaz_on_diff; title1=L"filter_on_lmrd2 :  $[Q+iU](\theta,\varphi)$",
+    # M2 *  qu_eaz_off_diff; title1=L"filter_off_lmrd2 : EAZ Lp * Hp * $[Q+iU](\theta,\varphi)$",
+    
+    M0 * F0 * M0_hard * t_eaz_off_diff; title1=L"$T(\theta,\varphi)$",
+
+    # M0 * F0 * M0 *  t_eaz_off_left; title1=L"filter_off_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
+    # M0 * F0 * M0 *  t_eaz_on_left; title1=L"filter_on_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
+    # M0 * Xmap(eaz0, real(qu_eaz_off_diff[:])); title1=L"log power of (left-right)/2: $Q(\theta,m)$",
+    # M0 * Xmap(eaz0, imag(qu_eaz_off_diff[:])); title1=L"log power of (left-right)/2: $U(\theta,m)$",
     # 
     # imag_fun=x->abs.(x),
-    imag_fun=CMBrings.imag_logabs2clip,
-    # imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=3),
+    # imag_fun=CMBrings.imag_logabs2clip,
+    imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=4),
     # imag_fun=x->CMBrings.imag_blur(CMBrings.angle.(x);blur=2),
     # vmax = 0.001,
-    vmin = -11,
-    # vmin = -9,
+    # vmin = -11,
+    vmin = -9,
     # vmin = -2, vmax = 2,
-    # vmax = -8,
+    # vmax = -2,
     # ℓs = [550, 580,610, 13_000, 16_000, Int(Nside*2.5-1)], 
     ℓs = [13_000, 16_000, Int(Nside*2.5-1)], 
     # xaxis_units = :m,
