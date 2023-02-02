@@ -31,6 +31,8 @@ using Test
     @test CMBrings.hz2m(CMBrings.m2hz(m)) ≈ m
     @test CMBrings.hz2m(CMBrings.m2hz(hz)) ≈ hz
 
+    ms = 1:20
+    @test all(@. CMBrings.m2hz(ms) ≈  deg2rad(1) / (2π / ms))    
 
     # TODO: add tests for RA and Dec ...
     # make sure the orientation is correct ...

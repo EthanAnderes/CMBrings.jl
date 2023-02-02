@@ -202,9 +202,8 @@ function fourier_power(
     end
 
     if xaxis_units == :Hz
-        Hz_or_m = m -> deg2rad(1) / (2π / m)
+        Hz_or_m = m -> CMBrings.m2hz(m)
         xlabel_hz_or_m = L"$f$ [Hz] (for scan rate of $1^o$ per second)"
-        # (every second the telescope traverses deg2rad(1) rad) / (wave length of k)
     elseif xaxis_units == :m 
         Hz_or_m = m -> m
         xlabel_hz_or_m = L"azmuthal frequency $m$"

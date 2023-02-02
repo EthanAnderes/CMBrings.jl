@@ -184,7 +184,7 @@ end;
 # qu_eaz_on_diff, t_eaz_on_diff = qu_eaz, t_eaz
 
 # qu_eaz_off_left, t_eaz_off_left = qu_eaz, t_eaz
-qu_eaz_off_right, t_eaz_off_right = qu_eaz, t_eaz
+# qu_eaz_off_right, t_eaz_off_right = qu_eaz, t_eaz
 # qu_eaz_off_diff, t_eaz_off_diff = qu_eaz, t_eaz
 
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
@@ -192,7 +192,7 @@ qu_eaz_off_right, t_eaz_off_right = qu_eaz, t_eaz
 
 # Mp (point source mask)
 point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut.txt"
-Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:deg, smooth_border_Δ′= 10, skipstart=22); 
+Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:deg, smooth_border_Δ′= 2, skipstart=22); 
 # ------
 # point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
 # Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:arcmin, smooth_border_Δ′= 10, skipstart=22); 
@@ -334,18 +334,13 @@ F2 = Poly # HP2 * Poly
 # =============================
 
 CMBrings.map_plot(
-    # M0 *  t_eaz_on_diff; title1=L"filter_on_lmrd2 :  $T(\theta,\varphi)$",
-    # M0 * F0 * M0 *  t_eaz_off_diff; title1=L"filter_off_lmrd2 : EAZ Lp * Hp * $T(\theta,\varphi)$",
-    # M0 * F0 * M0 *  t_eaz_off_left; title1=L"filter_off_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
-    # M0 * F0 * M0 *  t_eaz_on_left; title1=L"filter_on_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
-    
-    M0 * F0 * t_eaz_off_diff; title1=L"$T(\theta,\varphi)$",
+    M0 * t_eaz; title1=L"$T(\theta,\varphi)$ (%$ghz Ghz)",
+    # M2 * qu_eaz; title1=L"$Q(\theta,\varphi)$ (%$ghz Ghz)", title2=L"$U(\theta,\varphi)$ (%$ghz Ghz)", 
 
     # Mu0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
     # F0 * Mu0 * t_eaz; title1=L"band pass (left-right)/2 $T(\theta,\varphi)$",
     # M0 * Xmap(eaz0, real(qu_eaz_off_diff[:])); title1=L"left scan: $Q(\theta,\varphi)$",
     # M0 * Xmap(eaz0, imag(qu_eaz_off_diff[:])); title1=L"(left-right)/2: $U(\theta,\varphi)$,
-    # F2 * M2 * qu_eaz; title1=L"$Q(\theta,\varphi)$ (%$ghz Ghz)", title2=L"$U(\theta,\varphi)$ (%$ghz Ghz)", 
     #
     imag_fun=x->CMBrings.imag_blur(x;blur=5),
     #
@@ -357,14 +352,10 @@ CMBrings.map_plot(
 # =============================
 
 CMBrings.fourier_power(
-    # M0 * t_eaz_on_diff; title1=L"filter_on_lmrd2 :  $T(\theta,m)$",
+    # M0 * t_eaz; title1=L"$T(\theta,m)$ (%$ghz Ghz)",
+    M2 * qu_eaz; title1=L"$[Q+iU](\theta,\varphi)$ (%$ghz Ghz)",    
+    
     # M0 * t_eaz_off_diff; title1=L"filter_off_lmrd2 : $T(\theta,m)$",
-    
-    # M2 * qu_eaz_on_diff; title1=L"filter_on_lmrd2 :  $[Q+iU](\theta,\varphi)$",
-    # M2 *  qu_eaz_off_diff; title1=L"filter_off_lmrd2 : EAZ Lp * Hp * $[Q+iU](\theta,\varphi)$",
-    
-    M0 * F0 * M0_hard * t_eaz_off_diff; title1=L"$T(\theta,\varphi)$",
-
     # M0 * F0 * M0 *  t_eaz_off_left; title1=L"filter_off_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
     # M0 * F0 * M0 *  t_eaz_on_left; title1=L"filter_on_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
     # M0 * Xmap(eaz0, real(qu_eaz_off_diff[:])); title1=L"log power of (left-right)/2: $Q(\theta,m)$",
@@ -372,7 +363,7 @@ CMBrings.fourier_power(
     # 
     # imag_fun=x->abs.(x),
     # imag_fun=CMBrings.imag_logabs2clip,
-    imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=4),
+    imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=2),
     # imag_fun=x->CMBrings.imag_blur(CMBrings.angle.(x);blur=2),
     # vmax = 0.001,
     # vmin = -11,
