@@ -86,12 +86,6 @@ function pix_point_src_mask(eaz0::EAZ, point_src_file_; radius_in=:arcmin, smoot
 end
 
 
-θ2Dec(θ)   = 90 - rad2deg(θ)
-Dec2θ(dec) = deg2rad(90 - dec)
-
-φ2RA(φ)   = rad2deg(CC.in_negπ_π(φ))
-RA2φ(ra)  = CC.in_0_2π(deg2rad(ra))
-
 function hole_punch(θ, φ; θ₀, φ₀, radius_hole, radius_ramp)
     β      = CC.geoβ(θ, θ₀, φ, φ₀)
     r1, r2 = radius_hole, radius_hole + radius_ramp

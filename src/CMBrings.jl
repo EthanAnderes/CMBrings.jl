@@ -80,7 +80,7 @@ include("wf_pcg.jl")
 
 include("alm_from_eaz.jl")
 
-include("misc_methods.jl")
+include("conversions.jl")
 
 include("plot.jl")
 

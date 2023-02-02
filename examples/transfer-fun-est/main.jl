@@ -589,9 +589,7 @@ CMBrings.map_plot(
 
 Mid_pass = DiagOp(Xfourier(eaz0, 4000 .> abs.(EZ.ell(eaz0)) .> 2000))
 CMBrings.map_plot(
-    # M0 * (M0 * TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
     M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
-    # M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
     # M0 * Mid_pass * M0 * (TF_t_eaz - apxTF_t_eaz); title1=L"map-maker($T$) -  $2dTF * T$",
     # imag_fun=x->CMBrings.imag_blur(x;blur=15),
     vmin=-80.0, vmax=80.0

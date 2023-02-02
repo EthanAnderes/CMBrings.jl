@@ -1,30 +1,38 @@
 using CMBrings
-
 using Test
 
-@testset "CMBrings.jl" begin
+@testset "conversions.jl" begin
 
-	# let 
-	# 	Tf = Float32
-	# 	nsd = CMBrings.HH.Nside(512)
-	# 	θ,φ = CMBrings.HH.θφ_eqbelt_align(nsd) .|> x -> Tf.(x)
-	# 	rT  = RingS2Transform(Tf,θ,φ[:]) 
+    scanᵒ_sec = 1.1     # traverse 1.1 deg each sec
+    hz = 1.0            # 1 full wavelength each sec
+                        # so wavelength[deg] = 1.1
+                        # i.e wavelength[rad] = deg2rad(1.1)
+    m = 2π/deg2rad(1.1) # so m = 2π / wavelength[rad] = 2π / deg2rad(1.1)
+    @test CMBrings.hz2m(hz; scanᵒ_sec) ≈ m
+    @test CMBrings.m2hz(CMBrings.hz2m(hz; scanᵒ_sec); scanᵒ_sec) ≈ hz
+    @test CMBrings.hz2m(CMBrings.m2hz(m; scanᵒ_sec); scanᵒ_sec) ≈ m
 
- #    	qu1 = Xmap(rT, rand(Tf, 2rT.szθ, rT.szφ))
- #    	qu2 = Xmap(rT, rand(Tf, 2rT.szθ, rT.szφ)) |> Xfourier
+    #scanᵒ_sec = 1      # (default) 1 sec ≡ 1 deg
+    hz = 0.5            # 1/2 * wavelength each 1 sec
+                        # 1/2 * wavelength in 1 deg
+                        # wavelength[deg] = 2 deg
+                        # wavelength[rad] = deg2rad(2)
+    m = 2π/deg2rad(2)   # so m = 2π / deg2rad(2)
+    @test CMBrings.hz2m(hz) ≈ m
+    @test CMBrings.m2hz(CMBrings.hz2m(hz)) ≈ hz
+    @test CMBrings.m2hz(CMBrings.hz2m(m))  ≈ m
 
- #    	2qu1 - 3qu2
+    #scanᵒ_sec = 1      # (default) 1 sec ≡ 1 deg
+    m = 2               # wavelength[rad]=2π/2 = π
+                        # wavelength[deg]=180
+                        # so each second covers 1/180 of a wavelength
+    hz = 1/180          # i.e. hz = 1/180
+    @test CMBrings.m2hz(m) ≈ hz
+    @test CMBrings.hz2m(CMBrings.m2hz(m)) ≈ m
+    @test CMBrings.hz2m(CMBrings.m2hz(hz)) ≈ hz
 
- #    	qu1[:Qx]
- #    	qu1[:Ux]
- #    	qu1[:Ql]
- #    	qu1[:Ul]
 
- #    	qu2[:Qx]
- #    	qu2[:Ux]
- #    	qu2[:Ql]
- #    	qu2[:Ul]
-
-	# end
+    # TODO: add tests for RA and Dec ...
+    # make sure the orientation is correct ...
 
 end

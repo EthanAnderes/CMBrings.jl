@@ -386,7 +386,6 @@ CMBrings.fourier_power(
 );
 
 
-
 # EAZ quasi bandpowers
 # =============================
 
