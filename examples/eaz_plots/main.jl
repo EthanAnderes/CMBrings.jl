@@ -71,7 +71,7 @@ cmb_file_, ghz = @sblock let cmb_file_root, data_file_root
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_right.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_minus_right_divided_by_two.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_plus_right_divided_by_two.fits"), 90
-    # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
+    cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
 
     
     # filter on/off tests ...
@@ -82,7 +82,7 @@ cmb_file_, ghz = @sblock let cmb_file_root, data_file_root
     # scmb_file_, ghz =  joinpath(data_file_root, "filter_test_on_lmrd2.fits"), 90
     # filter off
     # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_left.fits" ), 90
-    cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_right.fits"), 90
+    # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_right.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "filter_test_off_lmrd2.fits"), 90
 
     return cmb_file_, ghz
@@ -190,53 +190,35 @@ end;
 # Map space masks: Mp (point source) and Mu (uniform region), M = Mp * Mu
 # =======================================================================
 
+## which point source do we need ...
 # Mp (point source mask)
-point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut.txt"
-Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:deg, smooth_border_Δ′= 2, skipstart=22); 
+# point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut.txt"
+# Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:deg, smooth_border_Δ′= 3, skipstart=22); 
 # ------
-# point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
-# Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:arcmin, smooth_border_Δ′= 10, skipstart=22); 
+point_src_file_ = "/Users/ethananderes/Downloads/3gmaps/resources/spt3g_1500d_mask_list_eete+lensing-19-20_S150=6mJycut_v3.txt"
+Mp0 = CMBrings.pix_point_src_mask(eaz0, point_src_file_; radius_in=:arcmin, smooth_border_Δ′= 5, skipstart=22); 
 
 Mp2 = DiagOp(Xmap(eaz2, Mp0[:]))
 
 # Mu (uniform scan region pixel mask)
 # ------------- option 1
 Mu0 = @sblock let eaz0
-    ## parameters ...
-    # lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3 
-    lb1, rb1, Δl1, Δr1 = -45, 45, 3, 3 # default    
-    # lb1, rb1, Δl1, Δr1 = -45, 45, 20, 20 # default    
-
+    lb1, rb1, Δl1, Δr1 = -50, 50, 4, 4 # default    
+    # lb1, rb1, Δl1, Δr1 = -51, -30, 2, 10 
     φ = EZ.φ(eaz0)
     mask   = zeros(eltype_in(eaz0),size_in(eaz0))
     mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
     DiagOp(Xmap(eaz0, mask))
 end
 Mu2 = DiagOp(Xmap(eaz2, Mu0[:]))
-# ------------- option 2
-# Mu0 = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
-# Mu2 = DiagOp(Xmap(eaz2, Mu0[:]))
 
 # M (combined mask) 
 M0 = Mu0 * Mp0
 M2 = Mu2 * Mp2
 
-# M_hard (Hard-cut mask, i.e. all observed pixels) 
-# Mu0_hard = @sblock let eaz0
-#     # lb1, rb1, Δl1, Δr1 = -53, 53, 1, 1    
-#     lb1, rb1, Δl1, Δr1 = -50, 50, 1, 1    
-#     φ = EZ.φ(eaz0)
-#     mask   = zeros(eltype_in(eaz0),size_in(eaz0))
-#     mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
-#     DiagOp(Xmap(eaz0, mask.>0))
-# end
-# Mu2_hard = DiagOp(Xmap(eaz2, Mu0_hard[:]))
-# ------------- option 2
+# hard cuts
 Mu0_hard = DiagOp(Xmap(eaz0, Mu0[:].>0))
 Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:].>0))
-# ------------- option 3
-# Mu0_hard = DiagOp(Xmap(eaz0, (abs2.(t_eaz[:]) .+ abs2.(qu_eaz[:]).*320 .> 50)))
-# Mu2_hard = DiagOp(Xmap(eaz2, Mu0[:]))
 
 Mp0_hard = DiagOp(Xmap(eaz0, Mp0[:].>0))
 Mp2_hard = DiagOp(Xmap(eaz2, Mp0[:].>0))
@@ -244,7 +226,19 @@ Mp2_hard = DiagOp(Xmap(eaz2, Mp0[:].>0))
 M0_hard = Mu0_hard * Mp0_hard
 M2_hard = Mu2_hard * Mp2_hard
 
+#=  Map plot
+matshow((M0*t_eaz)[:][1000:1500, 2300:2800], vmin=-.5, vmax=.5)
+matshow((t_eaz)[:][1000:1500, 2300:2800], vmin=-.5, vmax=.5)
 
+matshow((M0*t_eaz)[:][2200:2500, 8400:8900], vmin=-.5, vmax=.5)
+matshow((t_eaz)[:][2200:2500, 8400:8900], vmin=-.5, vmax=.5)
+
+matshow((t_eaz)[:], vmin=-.5, vmax=.5)
+
+
+CMBrings.map_plot(M0_hard.f);
+=#
+ 
 # Map plot
 #=
 CMBrings.map_plot(
@@ -323,11 +317,11 @@ Poly = LM.RingDeprojector(X, M0_hard[:]);
 
 
 ## LowHigh/HighPass/Poly filter
-F0 = Poly # HP0 * Poly
-F2 = Poly # HP2 * Poly
+# F0 = Poly # HP0 * Poly
+# F2 = Poly # HP2 * Poly
 
 # turn off extra filter 
-# F0 = F2 = 1
+F0 = F2 = 1
 
 
 # (θ,φ) plots
@@ -352,8 +346,8 @@ CMBrings.map_plot(
 # =============================
 
 CMBrings.fourier_power(
-    # M0 * t_eaz; title1=L"$T(\theta,m)$ (%$ghz Ghz)",
-    M2 * qu_eaz; title1=L"$[Q+iU](\theta,\varphi)$ (%$ghz Ghz)",    
+    M0 * t_eaz; title1=L"$T(\theta,m)$ (%$ghz Ghz)",
+    # M2 * qu_eaz; title1=L"$[Q+iU](\theta,\varphi)$ (%$ghz Ghz)",    
     
     # M0 * t_eaz_off_diff; title1=L"filter_off_lmrd2 : $T(\theta,m)$",
     # M0 * F0 * M0 *  t_eaz_off_left; title1=L"filter_off_left : EAZ Lp * Hp * $T(\theta,\varphi)$",
@@ -363,11 +357,11 @@ CMBrings.fourier_power(
     # 
     # imag_fun=x->abs.(x),
     # imag_fun=CMBrings.imag_logabs2clip,
-    imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=2),
-    # imag_fun=x->CMBrings.imag_blur(CMBrings.angle.(x);blur=2),
+    imag_fun=x->CMBrings.imag_blur(CMBrings.imag_logabs2clip(x);blur=0),
+    # imag_fun=x->CMBrings.imag_blur(CMBrings.angle.(x);blur=0),
     # vmax = 0.001,
-    # vmin = -11,
-    vmin = -9,
+    vmin = -11,
+    # vmin = -4,
     # vmin = -2, vmax = 2,
     # vmax = -2,
     # ℓs = [550, 580,610, 13_000, 16_000, Int(Nside*2.5-1)], 
@@ -375,6 +369,50 @@ CMBrings.fourier_power(
     # xaxis_units = :m,
     xaxis_units = :Hz
 );
+
+
+
+# Row PSD
+# =============================
+
+using Statistics
+
+fig, ax = let
+
+    Mu0′ = @sblock let eaz0
+        lb1, rb1, Δl1, Δr1 = -50, 50, 3, 3 
+        # lb1, rb1, Δl1, Δr1 = -51, -40, 1, 1 
+        # lb1, rb1, Δl1, Δr1 = 40, 50, 1, 1 
+        φ = EZ.φ(eaz0)
+        mask   = zeros(eltype_in(eaz0),size_in(eaz0))
+        mask .+= CMBrings.cosφ°Mask.(rad2deg.(φ'); lb=lb1, rb=rb1, Δl=Δl1, Δr=Δr1)
+        DiagOp(Xmap(eaz0, mask))
+    end
+
+    M0′ = Mu0′ * Mp0
+
+    selected_rows = 2.33 .<= eaz0.θ .<= 2.41
+    hz = CMBrings.m2hz.(EZ.freq(eaz0)[2])
+    t_eaz_k′ = (M0′*t_eaz)[!][selected_rows, :]
+
+    #rng = 55:260
+    rng = 30:560
+    plot_mat1 = CMBrings.imag_blur(abs2.(t_eaz_k′); blur=1)
+    #plot_mat1 = abs2.(t_eaz_k′)
+    # plot_mat = CMBrings.imag_blur(angle.(t_eaz_k′); blur=1/2)
+    fig, ax = subplots(2,dpi=147)
+
+    for i=1:5:sum(selected_rows)
+        ax[1].semilogy(hz[rng], plot_mat1[i,rng], alpha = 0.15)
+        # ax.plot(hz[rng], plot_mat[i,rng], alpha = 0.5)
+    end
+
+    ax[2].semilogy(hz[rng], mean(eachrow(abs2.(t_eaz_k′)))[rng] )
+    ax[2].semilogy(hz[rng], abs2.(mean(eachrow(t_eaz_k′)))[rng] )
+
+    fig, ax
+end
+
 
 
 # EAZ quasi bandpowers
