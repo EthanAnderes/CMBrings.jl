@@ -136,39 +136,6 @@ function map_plot(
     return fig, ax
 end
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# these are slated for removal in the future
-# keeping them around to allow these methods when the 
-# ... transform is from FFTransform.jl
-
-function map_plot_QU(
-        QU; 
-        θ, φ,
-        imag_fun = x->x,
-        title1 = L"Q(\theta,\varphi)", 
-        title2 = L"U(\theta,\varphi)",
-        vmin = nothing, vmax = nothing,
-    ) 
-    Tin = real(eltype_in(fieldtransform(QU))) 
-    tm  = EAZ2(Tin, θ, φ)
-    QUeaz = Xmap(tm, QU[:])
-    map_plot(QUeaz; imag_fun, title1, title2, vmin, vmax)
-end
-
-function map_plot_I(
-        Ifield;
-        θ, φ,
-        imag_fun = x->x,
-        title1 = L"I(\theta,\varphi)", 
-        vmin = nothing, vmax = nothing,
-    )
-    Tin = real(eltype_in(fieldtransform(Ifield)))
-    tm  = EAZ0(Tin, θ, φ)
-    Ieaz = Xmap(tm, Ifield[:])
-    map_plot(Ieaz; imag_fun, title1, vmin, vmax)
-end
-
-
 
 
 # fourier_power
@@ -226,23 +193,26 @@ function fourier_power(
         ℓs = vcat(ℓs1, ℓs2[ℓs2 .> maximum(ℓs1)])
     end
     for ℓₒ in ℓs
-        mv = 1:ℓₒ
-        θv = π .- acsc.(ℓₒ ./ mv)
-        rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
+        # mv = 1:ℓₒ
+        # θv = π .- acsc.(ℓₒ ./ mv)
+        # rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
+        θv  = θ
+        mv  = ℓₒ .* sin.(θv)
+        rng = k[1] .<= mv .<= k[end]
         if any(rng)   
             ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5")
             ax.annotate(
                 L"$\,\,\ell=%$ℓₒ\,\,$", 
-                xy=(Hz_or_m(mv[rng][end]), θv[rng][end]),  
-                xycoords="data", ha="center", va="bottom",
+                xy=(Hz_or_m(mv[rng][1]), θv[rng][1]),  
+                xycoords="data", ha="left", va="bottom",
                 fontsize=7
             )
             if !(eltype_in(fieldtransform(T)) <: Real)
                 ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5")
                 ax.annotate(
                     L"$\,\,\ell=%$ℓₒ\,\,$", 
-                    xy=(.-Hz_or_m(mv[rng][end]), θv[rng][end]),  
-                    xycoords="data", ha="center", va="bottom",
+                    xy=(.-Hz_or_m(mv[rng][1]), θv[rng][1]),  
+                    xycoords="data", ha="right", va="bottom",
                     fontsize=7
                 )            
             end
