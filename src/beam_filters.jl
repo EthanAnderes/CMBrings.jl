@@ -3,7 +3,7 @@
 
 # pix_diag_rad   = CC.geoβ.(tm0.θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
 
-
+# !!! this kernel have complex block diagonals in the fourier ▫ 
 function B̃eam1(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     sinθ₁, cosθ₁ = sincos(θ₁)
     sinθ₂, cosθ₂ = sincos(θ₂)
@@ -14,6 +14,7 @@ function B̃eam1(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     return exp( - (Δx^2 + Δy^2) / σ²θ₁θ₂ / 2 ) / σ²θ₁θ₂ / 2 / π
 end 
 
+# notice that this kernel will have real blockdiagonals in the fourier ▫
 function B̃eam2(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     sinθ₁ = sin(θ₁)
     sinθ₂ = sin(θ₂)
@@ -26,7 +27,7 @@ end
 function beam_Γ(eaz::EAZ{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz)) where {T}
     σ²θ = @. fwhmrad2σ².(fwhmθ_rad)
     σ²θ_spl = CC.Spline1D(EZ.θ(eaz), σ²θ, k=2)
-    (θ₁, θ₂, φ₁, φ⃗) -> complex.(B̃eam1.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
+    (θ₁, θ₂, φ₁, φ⃗) -> complex.(B̃eam2.(θ₁, θ₂, σ²θ_spl(θ₁), σ²θ_spl(θ₂), φ₁ .- φ⃗))
 end
 
 # TODO: is it worth it to add perm argument here?
@@ -63,7 +64,7 @@ function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ,
 
     # TODO: either make this so it shares memory with Σ0▫
     # or allow spin0 operators in fourier to multiply on q,u fields separately
-    nθ = eaz2.nθ
+    nθ = EZ.lengthθ(eaz2)
 
     Σ2▫ = map(Σ0▫) do B
         # M -> M2

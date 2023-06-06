@@ -69,9 +69,9 @@ cmb_file_, ghz = @sblock let cmb_file_root, data_file_root
 
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_right.fits"), 90
-    # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_minus_right_divided_by_two.fits"), 90
+    cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_minus_right_divided_by_two.fits"), 90
     # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_left_plus_right_divided_by_two.fits"), 90
-    cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
+    # cmb_file_, ghz =  joinpath(data_file_root, "bump_600_test_maps_noise.fits"), 90
 
     
     # filter on/off tests ...
@@ -122,7 +122,7 @@ eaz0, eaz2, ring_idx_rng = @sblock let Nside
     return eaz0, eaz2, ri 
 end;
 
-@sblock let eaz0, hide_plots=true
+@sblock let eaz0, hide_plots=false
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(eaz0.θ, rad2deg.(.√(EZ.Ωpix(eaz0)).*60), label="sqrt pixel area (arcmin)")
@@ -134,7 +134,7 @@ end;
     return nothing
 end
 
-@show (eaz0.nθ, eaz0.nφ)
+@show (EZ.lengthθ(eaz0), EZ.lengthφ(eaz0))
 @show extrema(rad2deg.(.√(EZ.Ωpix(eaz0)).*60))
 @show extrema(rad2deg.(EZ.Δθ(eaz0).*60))
 @show extrema(rad2deg.(sin.(eaz0.θ) .* EZ.Δφ(eaz0) .* 60))
@@ -244,8 +244,8 @@ CMBrings.map_plot(M0_hard.f);
 CMBrings.map_plot(
     # Mp0.f, title1="point source pixel mask",
     # Mu0.f, title1="uniform scan region pixel mask",
-    # M0.f, title1="full pixel mask",
-    M0_hard.f, title1="full pixel mask",
+    M0.f, title1="full pixel mask",
+    # M0_hard.f, title1="full pixel mask",
 );
 =#
  
@@ -258,16 +258,20 @@ LP2  = DiagOp(Xfourier(eaz2, exp.(.- (abs.(EZ.ell(eaz2))./ℓ_Lp).^6) ))
 HP0 = DiagOp(Xfourier(eaz0, abs.(EZ.ell(eaz0)) .> ℓ_Hp))
 HP2 = DiagOp(Xfourier(eaz2, abs.(EZ.ell(eaz2)) .> ℓ_Hp))
 
-using ClassicalOrthogonalPolynomials
-include(joinpath(CMBrings.module_dir,"examples/transfer-fun-est/LocalMethods.jl"))
-import .LocalMethods as LM
-Po_order  = 8
-t_pre = range(-1, 1; length=sum(Mu0[:][1,:].>0))
-t = zeros(eaz0.nφ)
-t[Mu0[:][1,:].>0] .= t_pre
-Pfilter   = Legendre() # Normalized(Legendre()) # Normalized(ChebyshevT()) #  
-X         = Pfilter[t, 1:(Po_order+1)]
-Poly = LM.RingDeprojector(X, M0_hard[:]);
+
+# ### poly filt
+# Po_order  = 9
+# # t   = range(-1, 1; length=eaz0.nφ)
+# t_pre = range(-1, 1; length=sum(Mu0[:][1,:].>0))
+# t = zeros(eaz0.nφ)
+# t[Mu0[:][1,:].>0] .= t_pre
+
+# using Polynomials, SpecialPolynomials
+# X = reduce(hcat, [basis(Legendre,n).(t) for n ∈ 0:Po_order])
+# # X = reduce(hcat, [basis(Chebyshev,n).(t) for n ∈ 0:Po_order])
+
+# X .*= Mu0[:][1,:].>0
+# Poly = LM.RingDeprojector(X, M0_hard[:]);
 
 
 

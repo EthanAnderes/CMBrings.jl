@@ -14,12 +14,12 @@
 # Modules
 # ==============================
 
-# using MKL
+using PyPlot
 
 using LinearAlgebra
 using FFTW
 # FFTW.set_num_threads(BLAS.get_num_threads())
-FFTW.set_num_threads(6)
+# FFTW.set_num_threads(6)
 
 using  CMBrings
 using  XFields
@@ -38,7 +38,6 @@ import LowRankCholesky as LRC
 using LBblocks: @sblock
 
 using SparseArrays
-using PyPlot
 using BenchmarkTools
 using ProgressMeter
 using BlockArrays
@@ -104,7 +103,7 @@ end
 
 # Plot Grid statistics
 
-@sblock let eaz0, hide_plots=false
+@sblock let eaz0, hide_plots
     hide_plots && return
     fig,ax = subplots(1, dpi=147)
     ax.plot(eaz0.θ, rad2deg.(.√(EZ.Ωpix(eaz0)).*60), label="sqrt pixel area")
@@ -117,7 +116,7 @@ end
     return nothing
 end
 
-@show (eaz0.nθ, eaz0.nφ)
+@show (EZ.lengthθ(eaz0), EZ.lengthφ(eaz0))
 @show extrema(rad2deg.(.√(EZ.Ωpix(eaz0)).*60))
 @show extrema(rad2deg.(EZ.Δθ(eaz0).*60))
 @show extrema(rad2deg.(sin.(eaz0.θ) .* EZ.Δφ(eaz0) .* 60))
@@ -129,13 +128,13 @@ end
 ## using Primes; factor(length(eaz0.θ)) # ; @assert nθ÷bks == nθ/bks
 
 bsd_nθ       = 100 # 50 # 50 # 100 #  150 # 161
-block_sizesθ = VF.block_split(eaz0.nθ, bsd_nθ) # |> sort
-# permθ        = 1:eaz0.nθ
+block_sizesθ = VF.block_split(EZ.lengthθ(eaz0), bsd_nθ) # |> sort
+# permθ        = 1:EZ.lengthθ(eaz0)
 
 # Spectral densities
 # ==============================
 
-φ_approx_nyq = eaz0.φfreq_mult * eaz0.nφ / minimum(sin.(eaz0.θ)) / 2
+φ_approx_nyq = EZ.intΔm(eaz0) * eaz0.nφ / minimum(sin.(eaz0.θ)) / 2
 θ_approx_nyq = π / minimum(EZ.Δθ(eaz0)) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
@@ -218,7 +217,7 @@ EB▫_test[end] |> Hermitian |> eigen |> x->x.vectors[:,2] |> plot
 eigen(Hermitian(Σ)).values |> semilogy
 eigen(Symmetric(real(Σ))).values |> semilogy
 
-nθ = eaz0.nθ
+nθ = EZ.lengthθ(eaz0)
 spin2perm = (reshape(1:2nθ, nθ, 2)')[:]
 Σ′ = Σ[spin2perm, spin2perm]
 
@@ -334,8 +333,8 @@ prθ, prφ  =  @sblock let eaz0
     ## θ part of the mask
     # ▮lθ, ▯lθ = 20, 60 
     ▮lθ, ▯lθ = 15, 50 
-    ▮rθ, ▯rθ = eaz0.nθ-▮lθ+1, eaz0.nθ-▯lθ+1 
-    prθ    = CMBrings.pixweight.(rT.(1:eaz0.nθ); ▮l=▮lθ, ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
+    ▮rθ, ▯rθ = EZ.lengthθ(eaz0)-▮lθ+1, EZ.lengthθ(eaz0)-▯lθ+1 
+    prθ    = CMBrings.pixweight.(rT.(1:EZ.lengthθ(eaz0)); ▮l=▮lθ, ▯l=▯lθ, ▯r=▯rθ, ▮r=▮rθ)
     
     ## φ part of the mask
     # ▮lφ, ▯lφ = 30, 60 
@@ -352,7 +351,7 @@ end;
 Mϕ = @sblock let eaz0, prθφ = prθ.*prφ'
     
     rT=real(eltype_in(eaz0))
-    nθ, nφ = eaz0.nθ, eaz0.nφ
+    nθ, nφ = EZ.lengthθ(eaz0), eaz0.nφ
 
     ## Set mϕx
     ## ... option: ...
@@ -476,7 +475,7 @@ M = DiagOp(Xmap(eaz2, prθ .* prφ' ));
 fwhmθ_rad = EZ.pix_diag_rad(eaz0) # pix_diag_rad # * 0.95
 ## -- option --
 # fwhm′ = 2.0 
-# fwhmθ_rad = fill(CMBrings.arcmin2rad(fwhm′), eaz0.nθ)
+# fwhmθ_rad = fill(CMBrings.arcmin2rad(fwhm′), EZ.lengthθ(eaz0))
 
 normalizeθ = :row_ave
 B▪ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ) |> CircOp;
@@ -584,11 +583,6 @@ CMBrings.fourier_power(
 
 # Mixflow operator
 # ============================
-
-# testing !!!! this doesn't work since we need to inflate the B mode directions ...
-# which requires some type of B projection ...
-# Can we use the B-mode projections to get E,B separation on each m 
-# then do variance diagonalization in that coordinate system??
 
 # the test will be looking at the power change in those coordaintes ... and it should isolate
 # the maximal amount of power change when toggling on/off lensing.
@@ -766,7 +760,7 @@ end;
 
 @time _A₁₁ᵍ▪, _A₂₂_A₂₁A₁₁ᵍA₁₂_ᵍ▪ = @sblock let B▪, ℓ, eeℓ, bbℓ, N▪⁺ᵍ, W▪, M, MWMᵀᵍ, normalizeθ, block_sizesθ, eaz2
     
-    nθ = eaz2.nθ
+    nθ = EZ.lengthθ(eaz2)
     
     Mθ     = M[:][:,end÷2] |> x->vcat(x,x)
     ## Mθ     = mean(eachcol(M[:])) |> x->vcat(x,x)
@@ -891,8 +885,8 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 # Now gradient moves
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
-    for otr = 1:50 # default
-    # for otr = 1:5 #
+    # for otr = 1:50 # default
+    for otr = 1:5 #
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1006,17 +1000,17 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    ϕ; title1=L"True $\phi$",
+    # ϕ; title1=L"True $\phi$",
     # Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
-    # Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
+    Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );
 
 
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
-    # f_cr;  title1=L"Estimated unlensed $Q$", title2=L"Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
-    f′_cr;  title1=L"Estimated lensed $Q$", title2=L"Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,
+    f_cr;  title1=L"Estimated unlensed $Q$", title2=L"Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
+    # f′_cr;  title1=L"Estimated lensed $Q$", title2=L"Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,
     # qu;  title1=L"Truth unlensed $Q$", title2=L"Truth unlensed $U$", # vmin = -0.15, vmax = 0.15,
     # qu - f_cr;  title1=L"Truth - Estimated unlensed $Q$", title2=L"Truth - Estimated unlensed $U$", # vmin = -0.15, vmax = 0.15,
     # M * (Ł(ϕ)*qu - Ł(ϕ_cr)*f_cr);  title1=L"Truth - Estimated lensed $Q$", title2=L"Truth - Estimated lensed $U$", # vmin = -0.15, vmax = 0.15,

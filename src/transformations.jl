@@ -82,7 +82,7 @@ end
 function regrid_hpix_ring(ring_map, first_φ, nφ_full)
     nφ     = length(ring_map) # should be 4*i, where i is the ring index counting from bottom
     krng   = 0:(nφ÷2)
-    shft   = @. cis(first_φ * krng) # shift left by the az location of the first ring pixel
+    shft   = @. cis(- first_φ * krng) # shift left by the az location of the first ring pixel
     ## shft   = @. cis((π/nφ) * krng) # shift left by "half a pix width" == 2π/nφ/2 
     mapk   = rfft(ring_map)
     mapk .*= shft 

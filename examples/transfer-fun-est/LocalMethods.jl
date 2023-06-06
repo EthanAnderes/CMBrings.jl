@@ -24,7 +24,7 @@ end
 
 ####################################
 #
-# RingDeprojector
+# RingDeprojector (TODO add Ring Deprojector to CMBrings/src...)
 #
 ####################################
 
