@@ -65,7 +65,11 @@ function map_plot(
         axx.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
     end 
 
-    φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    if φ[1] > φ[end] # not sure how to hangle the branch convention.
+        φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    else 
+        φ′ = rad2deg.(CC.in_0_2π.(φ)) 
+    end
     φi0 = length(φ′)÷2 + 1
     tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
     φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
@@ -118,7 +122,11 @@ function map_plot(
     ax.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=6)
     ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
 
-    φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    if φ[1] > φ[end] # not sure how to hangle the branch convention.
+        φ′ = rad2deg.(CC.in_negπ_π.(φ))
+    else 
+        φ′ = rad2deg.(CC.in_0_2π.(φ)) 
+    end
     φi0 = length(φ′)÷2 + 1
     tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
     φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
@@ -153,6 +161,12 @@ function fourier_power(
     vmin=nothing, vmax=nothing, 
     title1=L"$|I\,(\theta,\ell_\varphi)|$", 
     xaxis_units = :Hz, # or :m
+    ℓoutline_color="0.75", # "none" or "auto" or color (such as "0.8")
+    ℓoutline_width=0.5,
+    ℓha="right",
+    ℓva="bottom",
+    ℓalign=false,
+    ℓfontsize=7,
     )
 
     nφ = length(φ)
@@ -200,24 +214,38 @@ function fourier_power(
         mv  = ℓₒ .* sin.(θv)
         rng = k[1] .<= mv .<= k[end]
         if any(rng)   
-            ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5")
-            ax.annotate(
-                L"$\,\,\ell=%$ℓₒ\,\,$", 
-                xy=(Hz_or_m(mv[rng][1]), θv[rng][1]),  
-                xycoords="data", ha="left", va="bottom",
-                fontsize=7
-            )
+            ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5", label=L"$\,\,\ell=%$ℓₒ\,\,$")
+
+            # ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5")
+            # ax.annotate(
+            #     L"$\,\,\ell=%$ℓₒ\,\,$", 
+            #     xy=(Hz_or_m(mv[rng][1]), θv[rng][1]),  
+            #     xycoords="data", ha="left", va="bottom",
+            #     fontsize=7
+            # )
             if !(eltype_in(fieldtransform(T)) <: Real)
-                ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5")
-                ax.annotate(
-                    L"$\,\,\ell=%$ℓₒ\,\,$", 
-                    xy=(.-Hz_or_m(mv[rng][1]), θv[rng][1]),  
-                    xycoords="data", ha="right", va="bottom",
-                    fontsize=7
-                )            
+                ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5", label=L"$\,\,\ell=%$ℓₒ\,\,$")
+                # ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5")
+                # ax.annotate(
+                #     L"$\,\,\ell=%$ℓₒ\,\,$", 
+                #     xy=(.-Hz_or_m(mv[rng][1]), θv[rng][1]),  
+                #     xycoords="data", ha="right", va="bottom",
+                #     fontsize=7
+                # )            
             end
         end
     end
+
+    pyimport("labellines").labelLines(
+        ax.get_lines(), 
+        outline_color=ℓoutline_color,
+        outline_width=ℓoutline_width,
+        ha=ℓha,
+        va=ℓva,
+        align=ℓalign,
+        zorder=2.5,
+        fontsize=ℓfontsize, 
+    )
 
     cbar = fig.colorbar(img, ax=ax, location="bottom", shrink = 0.5) #, fraction=0.046*(nθ/nφ))
     cbar.ax.tick_params(labelsize=7)

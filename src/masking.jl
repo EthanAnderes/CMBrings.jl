@@ -25,7 +25,10 @@ function cosφ°Mask(φ°::T; lb, rb, Δl, Δr=Δl) where T<:Number
 end
 
 
-function pixweight(x::T; ▮l, ▯l, ▯r, ▮r) where T<:Number
+"""
+`pixweight(x::T; ▮l=-Inf, ▯l=▮l, ▮r=Inf, ▯r=▮r)` where `@assert ▮l ≤ ▯l ≤ ▯r ≤ ▮r`
+"""
+function pixweight(x::T; ▮l=-Inf, ▯l=▮l, ▮r=Inf, ▯r=▮r) where T<:Number
     @assert ▮l ≤ ▯l ≤ ▯r ≤ ▮r
     if ▯l ≤ x ≤ ▯r
         return one(T)
