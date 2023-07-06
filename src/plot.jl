@@ -35,6 +35,9 @@ function map_plot(
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
+    xylabel_fontsize=7,
+    title_fontsize=8,
+    ticklabel_fontsize=6, 
     ) 
 
     tm   = fieldtransform(QU)
@@ -61,8 +64,8 @@ function map_plot(
     # sort!(θ_trng)
     for axx in ax
         axx.set_yticks(θ_trng)
-        axx.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=6)
-        axx.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
+        axx.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=ticklabel_fontsize)
+        axx.set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
     end 
 
     if φ[1] > φ[end] # not sure how to hangle the branch convention.
@@ -76,17 +79,17 @@ function map_plot(
 
     for axx in ax
         axx.set_xticks(φ_trng)
-        axx.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=6)
-        axx.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=7)
+        axx.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=ticklabel_fontsize)
+        axx.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
     end 
 
-    ax[1].set_title(title1, fontsize=8)  
-    ax[2].set_title(title2, fontsize=8)  
+    ax[1].set_title(title1, fontsize=title_fontsize)  
+    ax[2].set_title(title2, fontsize=title_fontsize)  
 
     cbar1 = fig.colorbar(img1, ax=ax[1], fraction=0.046*(nθ/nφ), pad=0.04)
     cbar2 = fig.colorbar(img2, ax=ax[2], fraction=0.046*(nθ/nφ), pad=0.04)
-    cbar1.ax.tick_params(labelsize=6)
-    cbar2.ax.tick_params(labelsize=6)
+    cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
+    cbar2.ax.tick_params(labelsize=ticklabel_fontsize)
 
     fig.tight_layout()
 
@@ -100,6 +103,9 @@ function map_plot(
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
+    xylabel_fontsize=7,
+    title_fontsize=8,
+    ticklabel_fontsize=6, 
     ) 
 
     tm   = fieldtransform(Ifield)
@@ -119,8 +125,8 @@ function map_plot(
     ## push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
     ## sort!(θ_trng)
     ax.set_yticks(θ_trng)
-    ax.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=6)
-    ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=7)
+    ax.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=ticklabel_fontsize)
+    ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
 
     if φ[1] > φ[end] # not sure how to hangle the branch convention.
         φ′ = rad2deg.(CC.in_negπ_π.(φ))
@@ -131,13 +137,13 @@ function map_plot(
     tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
     φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
     ax.set_xticks(φ_trng)
-    ax.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=6)
-    ax.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=7)
+    ax.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=ticklabel_fontsize)
+    ax.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
 
-    ax.set_title(title1, fontsize=8)  
+    ax.set_title(title1, fontsize=title_fontsize)  
 
     cbar1 = fig.colorbar(img1, ax=ax, fraction=0.046*(nθ/nφ), pad=0.04)
-    cbar1.ax.tick_params(labelsize=6)
+    cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
 
     fig.tight_layout()
 
@@ -159,8 +165,12 @@ function fourier_power(
     imag_fun = x->abs2.(x),
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
-    title1=L"$|I\,(\theta,\ell_\varphi)|$", 
+    title1=L"$|I\,(\theta,\ell_\varphi)|$",
     xaxis_units = :Hz, # or :m
+    xylabel_fontsize=7,
+    title_fontsize=8, 
+    ticklabel_fontsize=6, 
+    ##
     ℓoutline_color="0.75", # "none" or "auto" or color (such as "0.8")
     ℓoutline_width=0.5,
     ℓha="right",
@@ -248,14 +258,14 @@ function fourier_power(
     )
 
     cbar = fig.colorbar(img, ax=ax, location="bottom", shrink = 0.5) #, fraction=0.046*(nθ/nφ))
-    cbar.ax.tick_params(labelsize=7)
+    cbar.ax.tick_params(labelsize=ticklabel_fontsize)
 
-    ax.tick_params(axis="x", labelsize=7)
-    ax.tick_params(axis="y", labelsize=7)
-    ax.set_ylabel("θ",fontsize=7)
-    ax.set_xlabel(xlabel_hz_or_m,fontsize=7)
+    ax.tick_params(axis="x", labelsize=ticklabel_fontsize)
+    ax.tick_params(axis="y", labelsize=ticklabel_fontsize)
+    ax.set_ylabel("θ",fontsize=xylabel_fontsize)
+    ax.set_xlabel(xlabel_hz_or_m,fontsize=xylabel_fontsize)
 
-    ax.set_title(title1, fontsize=8, pad=20)
+    ax.set_title(title1, fontsize=title_fontsize) # , pad=20)
 
     fig.tight_layout()
 
