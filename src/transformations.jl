@@ -14,17 +14,98 @@ function LinearAlgebra.dot(f::Xfield{T},g::Xfield{T}) where T<:EAZ
 end
 
 
-
-# =========
-
-
-
-# methods for GL pixel projection
-#region ================================================
-
-# Healpix -> EAZ grid projection
+# methods for slicing ... Xfield(EAZ)[5:end-10,:]
+# ===============================================
+# TODO: perhaps we should make these generic ...
 
 
+# methods for Healpix -> EAZ grid projection
+# ================================================
+# TODO: add methods which accept polarization ... and perhaps z-bounds
+# TODO: update examples ...
+# TODO: test eaz2hpx (take a look at Scratch/2023/m07_d01_bk_viz for comparision possibility)
+
+function rings_θs_φs(Nside::Int; θspan=(0,π))
+    θ, φ, idx, Δφ, nφ = HT.θ_φ_idx_4_rings(Nside)
+
+    ring_slices_full = map(idx, nφ) do firstPixIdx, numOfPixels
+        (firstPixIdx):(firstPixIdx+numOfPixels-1)
+    end
+
+    rings_θspan = θspan[1] .<= θ .<= θspan[2]
+    return ring_slices_full[rings_θspan], θ[rings_θspan], φ[rings_θspan]
+end
+
+function hpx2eaz(fhpx::Xfield{HT.ℍ0{T}}; θspan=(0,π)) where {T}
+    Nside = fieldtransform(fhpx).nside 
+    hpx   = fhpx[:]
+    @assert length(hpx) == 12Nside^2
+    rings, θs, φs = rings_θs_φs(Nside; θspan)
+    
+    φspan   = (0,2π)
+    nφ_eaz  = maximum(length.(rings))
+    eaz0    = EAZ0(T, θs, φspan, nφ_eaz)
+    mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rings
+
+    fft_plans = map(rings) do map_slice
+        npix = length(map_slice)
+        plan_rfft(Array{T}(undef, npix), num_threads=1)
+    end
+    
+    fft_hpx_rings = Vector{Vector{Complex{T}}}(undef,length(rings))
+    Threads.@threads for i=1:length(rings)
+        Nφ_hpx   = length(rings[i])
+        Nm_hpx  = Nφ_hpx÷2 + 1 
+        fft_mult = (√nφ_eaz ./ Nφ_hpx) .* cis.(- φs[i] .* mrng)  
+        # ↑ scale then shift left by the az location of the first ring pixel
+        fft_hpx_rings[i] = fft_mult[1:Nm_hpx] .* (fft_plans[i] * hpx[rings[i]])
+    end
+
+    # now stack these as rows of an eaz ...
+    feaz = Xfourier(eaz0,0)
+    @assert size(feaz.fd, 1) == length(fft_hpx_rings)
+    for i in 1:length(fft_hpx_rings)
+        nr   = length(fft_hpx_rings[i])
+        feaz.fd[i,1:nr] = fft_hpx_rings[i]
+    end
+
+    return feaz
+end
+
+function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside) where {T}
+    eaz0 = fieldtransform(feaz)
+    feaz_m = feaz[!]
+
+    rings, θs, φs = rings_θs_φs(Nside; θspan=eaz0.∂θ)
+    φspan   = (0,2π)
+    nφ_eaz  = maximum(length.(rings))
+    mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rings
+    
+    @assert θs     == eaz0.θ
+    @assert nφ_eaz == eaz0.nφ # TODO: extend this to eaz on eaz0.φspan ⊂ (0,2π)
+    @assert φspan  == eaz0.φspan
+
+    ifft_plans = map(rings) do map_slice
+        npix = length(map_slice)
+        plan_brfft(Array{Complex{T}}(undef, npix), num_threads=1)
+    end
+    
+    tmℍ0 = HT.ℍ0{T}(Nside)
+    hpx_map = Vector{T}(undef, HT.n_pix(tmℍ0))
+    Threads.@threads for i=1:length(rings)
+        Nφ_hpx  = length(rings[i])
+        Nm_hpx  = Nφ_hpx÷2 + 1 
+        ifft_mult = inv.((√nφ_eaz ./ Nφ_hpx) .* cis.(- φs[i] .* mrng))  
+        hpx_map[rings[i]] .= ifft_plans[i] * (ifft_mult .* feaz_m[1:Nm_hpx])
+    end
+
+    return Xmap(tmℍ0, hpx_map)
+end
+
+
+
+
+#=
 function hpix2equirect_patch(QU_hpix::Xmap{<:HT.ℍ2}; ring_idx_rng, φ, φ_full, lb, rb, Δl, Δr)
     tm = fieldtransform(QU_hpix)
     φ_hpix = HT.pix(tm)[2]
@@ -95,3 +176,4 @@ function regrid_hpix_ring(ring_map, first_φ, nφ_full)
     return mapx_pad 
 end
 
+=#
