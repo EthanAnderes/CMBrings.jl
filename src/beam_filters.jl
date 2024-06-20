@@ -3,7 +3,7 @@
 
 # pix_diag_rad   = CC.geoβ.(tm0.θ∂[2:end], θ∂[1:end-1], φ[1], φ[2]) # arclength of the pixel diagonals
 
-# !!! this kernel have complex block diagonals in the fourier ▫ 
+# !!! this kernel has negative values in the fourier ▫
 function B̃eam1(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     sinθ₁, cosθ₁ = sincos(θ₁)
     sinθ₂, cosθ₂ = sincos(θ₂)
@@ -14,7 +14,7 @@ function B̃eam1(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     return exp( - (Δx^2 + Δy^2) / σ²θ₁θ₂ / 2 ) / σ²θ₁θ₂ / 2 / π
 end 
 
-# notice that this kernel will have real blockdiagonals in the fourier ▫
+# notice that this kernel will have real and positive blockdiagonals in the fourier ▫
 function B̃eam2(θ₁, θ₂, σ²θ₁, σ²θ₂, Δφ)
     sinθ₁ = sin(θ₁)
     sinθ₂ = sin(θ₂)
@@ -31,7 +31,7 @@ function beam_Γ(eaz::EAZ{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz)) where {T}
 end
 
 # TODO: is it worth it to add perm argument here?
-function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ, normalizeθ = :row_ave) where {T}
+function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ) where {T}
 
     Γ = beam_Γ(eaz0; fwhmθ_rad)
 
@@ -40,25 +40,31 @@ function beam▫(eaz0::EAZ0{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz0), block_sizesθ,
         VF.vecchia_general(Σ, block_sizesθ)
     end
 
-    if normalizeθ == :none
-        return Σ▫ 
-    elseif normalizeθ == :row_ave
-        ## Adjust so row mean of the pixel kernel is 1
-        bws  = beamθ_weight_sum(eaz0; fwhmθ_rad)
-        Dw⁻¹ = Diagonal(inv.(bws))
-        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
-    elseif normalizeθ == :Ω
-        ## Adjust so left mult behaves like an integral operator
-        dΩ = EZ.Ωpix(eaz0)
-        DΩ = Diagonal(dΩ)
-        return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
-    else 
-        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
-    end
+    # if normalizeθ == :none
+    #     return Σ▫ 
+    # elseif normalizeθ == :row_ave
+    #     ## Adjust so row mean of the pixel kernel is 1
+    #     bws  = beamθ_weight_sum(eaz0; fwhmθ_rad)
+    #     Dw⁻¹ = Diagonal(inv.(bws))
+    #     return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ▫)
+    # elseif normalizeθ == :Ω
+    #     ## Adjust so left mult behaves like an integral operator
+    #     dΩ = EZ.Ωpix(eaz0)
+    #     DΩ = Diagonal(dΩ)
+    #     return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+    # else 
+    #     error("normalizeθ ∉ {:row_ave, :Ω, :none}")
+    # end
+
+    dΩ = EZ.Ωpix(eaz0)
+    # dΩ = CC.ΔΩ(eaz0.θ, eaz0.nφ) # upgrade to this one once you figure out how to work with cut sky
+    DΩ = Diagonal(dΩ)
+    return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+
 end
 
 # TODO: is it worth it to add perm argument here?
-function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ, normalizeθ = :row_ave) where {T}
+function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ) where {T}
 
     Σ0▫ = beam▫(EZ.spin0(eaz2); fwhmθ_rad, block_sizesθ, normalizeθ=:none)
 
@@ -82,26 +88,32 @@ function beam▫(eaz2::EAZ2{T}; fwhmθ_rad=EZ.pix_diag_rad(eaz2), block_sizesθ,
         invR2 * M2 * invR2'
     end
 
-    if normalizeθ == :none
-        return Σ2▫ 
-    elseif normalizeθ == :row_ave
-        ## Adjust so row mean of the pixel kernel is 1
-        bws     = beamθ_weight_sum(eaz2; fwhmθ_rad)
-        inv_bws = inv.(bws)
-        Dw⁻¹    = Diagonal(vcat(inv_bws,inv_bws))
-        return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ2▫)
-    elseif normalizeθ == :Ω
-        ## Adjust so left mult behaves like an integral operator
-        dΩ = EZ.Ωpix(eaz2)
-        DΩ = Diagonal(vcat(dΩ,dΩ))
-        return map(Σ▫i -> Σ▫i * DΩ, Σ2▫)
-    else 
-        error("normalizeθ ∉ {:row_ave, :Ω, :none}")
-    end
+    # if normalizeθ == :none
+    #     return Σ2▫ 
+    # elseif normalizeθ == :row_ave
+    #     ## Adjust so row mean of the pixel kernel is 1
+    #     bws     = beamθ_weight_sum(eaz2; fwhmθ_rad)
+    #     inv_bws = inv.(bws)
+    #     Dw⁻¹    = Diagonal(vcat(inv_bws,inv_bws))
+    #     return map(Σ▫i -> Dw⁻¹ * Σ▫i, Σ2▫)
+    # elseif normalizeθ == :Ω
+    #     ## Adjust so left mult behaves like an integral operator
+    #     dΩ = EZ.Ωpix(eaz2)
+    #     DΩ = Diagonal(vcat(dΩ,dΩ))
+    #     return map(Σ▫i -> Σ▫i * DΩ, Σ2▫)
+    # else 
+    #     error("normalizeθ ∉ {:row_ave, :Ω, :none}")
+    # end
+
+    dΩ = EZ.Ωpix(eaz0)
+    # dΩ = CC.ΔΩ(eaz0.θ, eaz0.nφ) # upgrade to this one once you figure out how to work with cut sky
+    DΩ = Diagonal(vcat(dΩ,dΩ))
+    return map(Σ▫i -> Σ▫i * DΩ, Σ▫)
+
 
 end  
 
-
+# Slated to be removed
 function beamθ_weight_sum(eaz::EAZ{T}; fwhmθ_rad) where {T}
 
     Γ = beam_Γ(eaz; fwhmθ_rad)

@@ -38,6 +38,7 @@ function map_plot(
     xylabel_fontsize=7,
     title_fontsize=8,
     ticklabel_fontsize=6, 
+    cbar_location="right",  
     ) 
 
     tm   = fieldtransform(QU)
@@ -86,8 +87,8 @@ function map_plot(
     ax[1].set_title(title1, fontsize=title_fontsize)  
     ax[2].set_title(title2, fontsize=title_fontsize)  
 
-    cbar1 = fig.colorbar(img1, ax=ax[1], fraction=0.046*(nθ/nφ), pad=0.04)
-    cbar2 = fig.colorbar(img2, ax=ax[2], fraction=0.046*(nθ/nφ), pad=0.04)
+    cbar1 = fig.colorbar(img1, ax=ax[1], location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
+    cbar2 = fig.colorbar(img2, ax=ax[2], location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
     cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
     cbar2.ax.tick_params(labelsize=ticklabel_fontsize)
 
@@ -105,7 +106,8 @@ function map_plot(
     vmin = nothing, vmax = nothing,
     xylabel_fontsize=7,
     title_fontsize=8,
-    ticklabel_fontsize=6, 
+    ticklabel_fontsize=6,
+    cbar_location="right",   
     ) 
 
     tm   = fieldtransform(Ifield)
@@ -142,7 +144,7 @@ function map_plot(
 
     ax.set_title(title1, fontsize=title_fontsize)  
 
-    cbar1 = fig.colorbar(img1, ax=ax, fraction=0.046*(nθ/nφ), pad=0.04)
+    cbar1 = fig.colorbar(img1, ax=ax, location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
     cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
 
     fig.tight_layout()
@@ -169,7 +171,8 @@ function fourier_power(
     xaxis_units = :Hz, # or :m
     xylabel_fontsize=7,
     title_fontsize=8, 
-    ticklabel_fontsize=6, 
+    ticklabel_fontsize=6,
+    cbar_location="bottom",  
     ##
     ℓoutline_color="0.75", # "none" or "auto" or color (such as "0.8")
     ℓoutline_width=0.5,
@@ -257,7 +260,7 @@ function fourier_power(
         fontsize=ℓfontsize, 
     )
 
-    cbar = fig.colorbar(img, ax=ax, location="bottom", shrink = 0.5) #, fraction=0.046*(nθ/nφ))
+    cbar = fig.colorbar(img, ax=ax, location=cbar_location, shrink = 0.5) #, fraction=0.046*(nθ/nφ))
     cbar.ax.tick_params(labelsize=ticklabel_fontsize)
 
     ax.tick_params(axis="x", labelsize=ticklabel_fontsize)

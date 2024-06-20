@@ -51,7 +51,7 @@ import .LocalMethods as LM
 
 save_jld2    = false # !!!!!!
 save_figures = false 
-hide_plots   = true
+hide_plots   = false
 polar_plots  = false
 # if isdefined(Main, :IJulia) && Main.IJulia.inited
 #     hide_plots = false
@@ -477,8 +477,7 @@ fwhmθ_rad = EZ.pix_diag_rad(eaz0) # pix_diag_rad # * 0.95
 # fwhm′ = 2.0 
 # fwhmθ_rad = fill(CMBrings.arcmin2rad(fwhm′), EZ.lengthθ(eaz0))
 
-normalizeθ = :row_ave
-B▪ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ, normalizeθ) |> CircOp;
+B▪ = CMBrings.beam▫(eaz2; fwhmθ_rad, block_sizesθ) |> CircOp;
 
 # Lensing operators
 # ============================
@@ -886,7 +885,7 @@ f′_cr = Ł(ϕ_cr) * (Ð▪⁻¹ \ f_cr)
 ϕ_cr, f_cr,  g_cr, f′_cr, reshist = let ϕ_cr=ϕ_cr, f_cr=f_cr,  g_cr=g_cr, f′_cr=f′_cr, reshist=reshist
 
     # for otr = 1:50 # default
-    for otr = 1:5 #
+    for otr = 1:25 #
 
         ## ------- update ϕ_cr (inputs are updated f′_cr and f_cr)
         @time gradϕ = CMBrings.∇ll_ϕf′_usingf(
@@ -1000,9 +999,9 @@ end
 ## different sign for e and b....this is noted in healpix doc 
 CMBrings.map_plot(
     # ϕ_cr; title1=L"Estimated $\phi$",
-    # ϕ; title1=L"True $\phi$",
+    ϕ; title1=L"True $\phi$",
     # Xmap(eaz0, kappa(ϕ_cr));  title1=L"Estimated $\kappa$", # vmin = -0.15, vmax = 0.15,
-    Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
+    # Xmap(eaz0, kappa(ϕ));  title1=L"Simulation truth $\kappa$", # vmin = -0.15, vmax = 0.15,
     # imag_fun=x->CMBrings.imag_blur(x;blur=2),
 );
 

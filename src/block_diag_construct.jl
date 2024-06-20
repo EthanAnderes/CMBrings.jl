@@ -219,7 +219,7 @@ function eaz_cov_btridiag(
     end
 
     ### Third part, put the permuation together so the blocks are interlaced
-    a2    = blocks(PseudoBlockArray(collect(1:2nθ), vcat(block_sizesθ, block_sizesθ))) # divide into blocks
+    a2    = blocks(BlockedArray(collect(1:2nθ), vcat(block_sizesθ, block_sizesθ))) # divide into blocks
     perm2 = a2 |> x->reshape(x,N,2) |> x->permutedims(x) |> vec |> x->vcat(x...) # interlace the blocks
     P     = VF.Piv(perm2)
 

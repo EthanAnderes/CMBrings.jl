@@ -83,7 +83,7 @@ end;
 # Spectral densities
 # ==============================
 
-φ_approx_nyq = eaz0.φfreq_mult * eaz0.nφ / minimum(sin.(eaz0.θ)) / 2
+φ_approx_nyq = EZ.intΔm(eaz0) * eaz0.nφ / minimum(sin.(eaz0.θ)) / 2
 θ_approx_nyq = π / minimum(EZ.Δθ(eaz0)) 
 @show approx_lmax = ceil(Int, sqrt(φ_approx_nyq^2 + θ_approx_nyq^2))
 
@@ -246,7 +246,7 @@ bw = T▪½  \ (BT▪½ * w0)
 
 # Full eaz beam operator
 Beam1▪  = let fℓ=beamℓ
-    DΩ = Diagonal(EZ.Ωpix(eaz0))
+    DΩ = Diagonal(CC.ΔΩ(eaz0.θ, eaz0.nφ))
     B_pre▫  = CMBrings.eaz_cov(eaz0, ℓ, fℓ)
     CircOp(B_pre▫) * DiagOp(Xfourier(eaz0, EZ.Ωpix(eaz0) .+ falses(size_out(eaz0))))
 end;
