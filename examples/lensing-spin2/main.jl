@@ -68,23 +68,23 @@ eaz0, eaz2, grid_type = @sblock let
 
     ## set φ grid parameters: φspan and nφ
     φspan = deg2rad.((-60,60)) # deg2rad.((-45, 45))
-    # nφ    = 2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
-    nφ    = 1575
+    nφ    = 2*2048 # 3072  # 1575 # 18000, 18000÷4, 768, 1536, 1575, 2048, 1024, 972,  1280
+    # nφ    = 1575
 
     ## set θ grid parameters: θ, θ∂
     ## ---- option
-    # type  = :healpix
-    # Nside = 2048 # 8192
-    # ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
-    # ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
-    # θ  = CC.θ_healpix(Nside)[ri]
-    # θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
+    type  = :healpix
+    Nside = 2048 # 8192
+    ri_offset_from_SP = round(Int, sqrt(3*Nside^2*(1+cos(2.8))))
+    ri = (3*Nside+1):1:(4*Nside-1 - ri_offset_from_SP)
+    θ  = CC.θ_healpix(Nside)[ri]
+    θ∂ = CC.θ_healpix(Nside)[ri.start:ri.step:ri.stop+ri.step]
     ## ---- option
-    type = :equicosθ # :equiθ # 
-    nθ     = 500 # 600 # 800
-    # nθ    = 400
-    θspan  = π/2 .+ deg2rad.((51,69)) # π/2 .+ deg2rad.((41.78,70.43))
-    θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
+    # type = :equicosθ # :equiθ # 
+    # nθ     = 500 # 600 # 800
+    # # nθ    = 400
+    # θspan  = π/2 .+ deg2rad.((41.78,70.43)) # π/2 .+ deg2rad.((51,69)) # 
+    # θ, θ∂  = CC.θ_grid(; θspan, N=nθ, type)
 
     ## Good smallish run settings
     # φspan = deg2rad.((-60,60))
