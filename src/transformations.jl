@@ -73,16 +73,15 @@ function hpx2eaz(fhpx::Xfield{HT.ℍ0{T}}; θspan=(0,π)) where {T}
 end
 
 function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
-    eaz0 = fieldtransform(feaz)
+    eaz0   = fieldtransform(feaz)
     feaz_m = feaz[!]
+    nφ_eaz = eaz0.nφ
+    mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rows of eaz
 
     rings, θs, φs = rings_θs_φs(Nside; θspan=extrema(eaz0.θ∂))
     φspan   = (0,2π)
-    nφ_eaz  = maximum(length.(rings))
-    mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rings
     
-    @assert θs     == eaz0.θ
-    @assert nφ_eaz == eaz0.nφ # TODO: extend this to eaz on eaz0.φspan ⊂ (0,2π)
+    @assert isapprox(θs, eaz0.θ)
     @assert φspan  == eaz0.φspan
 
     ifft_plans = map(rings) do map_slice
@@ -91,16 +90,56 @@ function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
     end
     
     tmℍ0 = HT.ℍ0{T}(Nside; lmax)
-    hpx_map = Vector{T}(undef, HT.n_pix(tmℍ0))
+    hpx_map = zeros(T, HT.n_pix(tmℍ0))
     Threads.@threads for i=1:length(rings)
         Nφ_hpx  = length(rings[i])
         Nm_hpx  = Nφ_hpx÷2 + 1 
+        Nm_eaz  = nφ_eaz÷2 + 1 
         ifft_mult = inv.((√nφ_eaz ./ Nφ_hpx) .* cis.(- φs[i] .* mrng)) ./ Nφ_hpx
-        hpx_map[rings[i]] .= ifft_plans[i] * (ifft_mult.*feaz_m[i,:])[1:Nm_hpx]
+        
+        eaz_row_fft = ifft_mult.*feaz_m[i,:]     # length is Nm_eaz 
+        hpx_row_fft = zeros(Complex{T}, Nm_hpx)  # length is Nm_hpx
+        if Nm_eaz ≥ Nm_hpx
+            hpx_row_fft .= eaz_row_fft[1:Nm_hpx] # case 1, just truncate the eaz fft
+        else
+            hpx_row_fft[1:Nm_eaz] .= eaz_row_fft # case 2, padd the eaz fft
+        end
+        hpx_map[rings[i]] .= ifft_plans[i] * hpx_row_fft
     end
 
     return Xmap(tmℍ0, hpx_map)
 end
+
+
+# function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
+#     eaz0 = fieldtransform(feaz)
+#     feaz_m = feaz[!]
+
+#     rings, θs, φs = rings_θs_φs(Nside; θspan=extrema(eaz0.θ∂))
+#     φspan   = (0,2π)
+#     nφ_eaz  = maximum(length.(rings))
+#     mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rings
+    
+#     @assert isapprox(θs, eaz0.θ)
+#     @assert nφ_eaz == eaz0.nφ # TODO: extend this to eaz on eaz0.φspan ⊂ (0,2π)
+#     @assert φspan  == eaz0.φspan
+
+#     ifft_plans = map(rings) do map_slice
+#         npix = length(map_slice)
+#         plan_brfft(Array{Complex{T}}(undef, npix÷2+1), npix, num_threads=1)
+#     end
+    
+#     tmℍ0 = HT.ℍ0{T}(Nside; lmax)
+#     hpx_map = Vector{T}(undef, HT.n_pix(tmℍ0))
+#     Threads.@threads for i=1:length(rings)
+#         Nφ_hpx  = length(rings[i])
+#         Nm_hpx  = Nφ_hpx÷2 + 1 
+#         ifft_mult = inv.((√nφ_eaz ./ Nφ_hpx) .* cis.(- φs[i] .* mrng)) ./ Nφ_hpx
+#         hpx_map[rings[i]] .= ifft_plans[i] * (ifft_mult.*feaz_m[i,:])[1:Nm_hpx]
+#     end
+
+#     return Xmap(tmℍ0, hpx_map)
+# end
 
 
 
