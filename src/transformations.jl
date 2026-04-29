@@ -110,36 +110,34 @@ function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
     return Xmap(tmℍ0, hpx_map)
 end
 
+# TODO: make this not such a hack
+# TODO: also make a hpx2eaz version
+function eaz2hpx(feaz::Xfield{EAZ2{T}}; Nside, lmax=2Nside) where {T}
+    eaz2 = EZ.fieldtransform(feaz)
+    eaz0 = EZ.spin0(eaz2)
+    qmap, umap = reim(feaz[:])
+    qeaz = Xmap(eaz0, qmap) 
+    ueaz = Xmap(eaz0, umap)
+    qhpx = eaz2hpx(qeaz; Nside, lmax=2Nside)
+    uhpx = eaz2hpx(ueaz; Nside, lmax=2Nside)
+    tmℍ2 = HT.ℍ2{T}(Nside; lmax)
+    return Xmap(tmℍ2, hcat(qhpx[:], uhpx[:]))
+end
 
-# function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
-#     eaz0 = fieldtransform(feaz)
-#     feaz_m = feaz[!]
-
-#     rings, θs, φs = rings_θs_φs(Nside; θspan=extrema(eaz0.θ∂))
-#     φspan   = (0,2π)
-#     nφ_eaz  = maximum(length.(rings))
-#     mrng    = 0:(nφ_eaz÷2) # fourier frequencies for real rings
-    
-#     @assert isapprox(θs, eaz0.θ)
-#     @assert nφ_eaz == eaz0.nφ # TODO: extend this to eaz on eaz0.φspan ⊂ (0,2π)
-#     @assert φspan  == eaz0.φspan
-
-#     ifft_plans = map(rings) do map_slice
-#         npix = length(map_slice)
-#         plan_brfft(Array{Complex{T}}(undef, npix÷2+1), npix, num_threads=1)
-#     end
-    
-#     tmℍ0 = HT.ℍ0{T}(Nside; lmax)
-#     hpx_map = Vector{T}(undef, HT.n_pix(tmℍ0))
-#     Threads.@threads for i=1:length(rings)
-#         Nφ_hpx  = length(rings[i])
-#         Nm_hpx  = Nφ_hpx÷2 + 1 
-#         ifft_mult = inv.((√nφ_eaz ./ Nφ_hpx) .* cis.(- φs[i] .* mrng)) ./ Nφ_hpx
-#         hpx_map[rings[i]] .= ifft_plans[i] * (ifft_mult.*feaz_m[i,:])[1:Nm_hpx]
-#     end
-
-#     return Xmap(tmℍ0, hpx_map)
-# end
+function eaz2hpx(feaz::Xfield{EAZ02{T}}; Nside, lmax=2Nside) where {T}
+    eaz02 = EZ.fieldtransform(feaz)
+    eaz0  = EZ.spin0(eaz2)
+    fmap  = feaz[:]
+    tmap, qmap, umap = fmap[:,:,1], fmap[:,:,2], fmap[:,:,3]
+    teaz = Xmap(eaz0, tmap) 
+    qeaz = Xmap(eaz0, qmap) 
+    ueaz = Xmap(eaz0, umap)
+    thpx = eaz2hpx(teaz; Nside, lmax=2Nside)
+    qhpx = eaz2hpx(qeaz; Nside, lmax=2Nside)
+    uhpx = eaz2hpx(ueaz; Nside, lmax=2Nside)
+    tmℍ02 = HT.ℍ02{T}(Nside; lmax)
+    return Xmap(tmℍ2, hcat(thpx[:], qhpx[:], uhpx[:]))
+end
 
 
 
