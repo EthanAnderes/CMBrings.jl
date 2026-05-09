@@ -157,9 +157,6 @@ end
 # fourier_power
 # ===================================
 
-# for example 
-# using ImageFiltering
-# imag_fun = x -> imfilter(x, Kernel.gaussian(blur.*(1,(nφ÷2)/nθ)), "circular")
 function fourier_power(
     T; 
     θ=pix(fieldtransform(T))[1], 
@@ -167,12 +164,13 @@ function fourier_power(
     imag_fun = x->abs2.(x),
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
-    title1=L"$|I\,(\theta,\ell_\varphi)|$",
+    title1=L"field $|f\,(\theta,m)|^2$",
     xaxis_units = :Hz, # or :m
-    xylabel_fontsize=7,
-    title_fontsize=8, 
-    ticklabel_fontsize=6,
-    cbar_location="bottom",  
+    xylabel_fontsize=10,
+    title_fontsize=10, 
+    ticklabel_fontsize=8,
+    # cbar_location="bottom", 
+    cmap="viridis", # "viridis", "RdBu_r", "seismic"
     ##
     ℓoutline_color="0.75", # "none" or "auto" or color (such as "0.8")
     ℓoutline_width=0.5,
@@ -181,6 +179,7 @@ function fourier_power(
     ℓalign=false,
     ℓfontsize=7,
     )
+
 
     nφ = length(φ)
     nθ = length(θ)
@@ -203,15 +202,30 @@ function fourier_power(
         xlabel_hz_or_m = L"azmuthal frequency $m$"
     end
 
-    fig, ax = subplots(1,dpi=147)
-    img = ax.imshow(f1k, cmap="viridis", 
-        vmin=vmin, vmax=vmax, 
-        extent=[Hz_or_m(k[1]), Hz_or_m(k[end]), θ[end], θ[1]],
-        origin="upper"
+    fig, ax = subplots(1,dpi=147, figsize=(8,4))
+    img1 = ax.pcolormesh(
+        Hz_or_m.(k),
+        θ,
+        f1k, 
+        cmap=cmap,
+        vmin=vmin, 
+        vmax=vmax, 
     )
+    ax.invert_yaxis() # needed for pcolormesh in this case since otherwise it wants to order the dec axis ascending
     ax.set_aspect("auto") 
+    ax.set_ylabel(L"\theta\, [rad]", fontsize=xylabel_fontsize)
+    ax.set_xlabel(xaxis_units==:Hz ? L"hz" : L"m", fontsize=xylabel_fontsize)
+    ax.set_title(title1,fontsize=title_fontsize) 
+    cbar = fig.colorbar(
+        img1, 
+        ax=ax, 
+        location="right", 
+        fraction=0.01,
+        pad=0.04,
+    )
+    fig.tight_layout()
 
-    
+
     ms_trng = round.(Int,range(1, length(k), 10)[2:end])
     ms = round.(Int, k[ms_trng])
     if isempty(ℓs)
@@ -220,31 +234,13 @@ function fourier_power(
         ℓs = vcat(ℓs1, ℓs2[ℓs2 .> maximum(ℓs1)])
     end
     for ℓₒ in ℓs
-        # mv = 1:ℓₒ
-        # θv = π .- acsc.(ℓₒ ./ mv)
-        # rng = (θ[1] .<= θv .<= θ[end]) .& (k[1] .<= mv .<= k[end]) 
         θv  = θ
         mv  = ℓₒ .* sin.(θv)
         rng = k[1] .<= mv .<= k[end]
         if any(rng)   
             ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5", label=L"$\,\,\ell=%$ℓₒ\,\,$")
-
-            # ax.plot(Hz_or_m.(mv[rng]), θv[rng], c="0.5")
-            # ax.annotate(
-            #     L"$\,\,\ell=%$ℓₒ\,\,$", 
-            #     xy=(Hz_or_m(mv[rng][1]), θv[rng][1]),  
-            #     xycoords="data", ha="left", va="bottom",
-            #     fontsize=7
-            # )
             if !(eltype_in(fieldtransform(T)) <: Real)
                 ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5", label=L"$\,\,\ell=%$ℓₒ\,\,$")
-                # ax.plot(.- Hz_or_m.(mv[rng]), θv[rng], c="0.5")
-                # ax.annotate(
-                #     L"$\,\,\ell=%$ℓₒ\,\,$", 
-                #     xy=(.-Hz_or_m(mv[rng][1]), θv[rng][1]),  
-                #     xycoords="data", ha="right", va="bottom",
-                #     fontsize=7
-                # )            
             end
         end
     end
@@ -260,20 +256,11 @@ function fourier_power(
         fontsize=ℓfontsize, 
     )
 
-    cbar = fig.colorbar(img, ax=ax, location=cbar_location, shrink = 0.5) #, fraction=0.046*(nθ/nφ))
-    cbar.ax.tick_params(labelsize=ticklabel_fontsize)
-
-    ax.tick_params(axis="x", labelsize=ticklabel_fontsize)
-    ax.tick_params(axis="y", labelsize=ticklabel_fontsize)
-    ax.set_ylabel("θ",fontsize=xylabel_fontsize)
-    ax.set_xlabel(xlabel_hz_or_m,fontsize=xylabel_fontsize)
-
-    ax.set_title(title1, fontsize=title_fontsize) # , pad=20)
-
-    fig.tight_layout()
-
     return fig, ax
 end
+
+
+
 
 ####################
 # TODO: update this ...
