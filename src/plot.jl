@@ -29,16 +29,17 @@ end
 # map space view
 # ==============================
 
+
 function map_plot(
     QU::Xfield{<:EAZ2}; 
     imag_fun = x->x,
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
-    xylabel_fontsize=7,
-    title_fontsize=8,
-    ticklabel_fontsize=6, 
-    cbar_location="right",  
+    cmap="RdBu_r", # "viridis", "seismic",
+    xylabel_fontsize=10,
+    title_fontsize=10, 
+    ticklabel_fontsize=8,
     ) 
 
     tm   = fieldtransform(QU)
@@ -46,52 +47,33 @@ function map_plot(
     nθ = length(θ)
     nφ = length(φ)
 
-    Q, U = QU[:] |> x->(real(x), imag(x))
-    
-    f1k = Q |> imag_fun
-    f2k = U |> imag_fun
-    
-    fig, ax = subplots(2,1,dpi=147) # , figsize=(8,5))
-    ax[1].set_aspect("auto") # , adjustable="box")
-    ax[2].set_aspect("auto") # , adjustable="box")
-    ax[1].set_xlim(1, length(φ))
-    ax[2].set_xlim(1, length(φ))
-
-    img1 = ax[1].imshow(f1k, vmin=vmin, vmax=vmax, origin="upper")
-    img2 = ax[2].imshow(f2k, vmin=vmin, vmax=vmax,  origin="upper")
-    
-    θ_trng = round.(Int,range(1, nθ, 7))
-    # push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
-    # sort!(θ_trng)
-    for axx in ax
-        axx.set_yticks(θ_trng)
-        axx.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=ticklabel_fontsize)
-        axx.set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
-    end 
-
     if φ[1] > φ[end] # not sure how to hangle the branch convention.
         φ′ = rad2deg.(CC.in_negπ_π.(φ))
     else 
         φ′ = rad2deg.(CC.in_0_2π.(φ)) 
     end
-    φi0 = length(φ′)÷2 + 1
-    tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
-    φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
 
-    for axx in ax
-        axx.set_xticks(φ_trng)
-        axx.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=ticklabel_fontsize)
-        axx.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
-    end 
+    Qx, Ux = QU[:] |> x->(imag_fun(real(x)), imag_fun(imag(x)))
 
-    ax[1].set_title(title1, fontsize=title_fontsize)  
-    ax[2].set_title(title2, fontsize=title_fontsize)  
+    fig, ax = plt.subplots(2, 1, dpi=147, figsize=(8,8))
 
-    cbar1 = fig.colorbar(img1, ax=ax[1], location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
-    cbar2 = fig.colorbar(img2, ax=ax[2], location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
+    img1 = ax[1].pcolormesh(φ′,θ,Qx, cmap=cmap,vmin=vmin, vmax=vmax)
+    img2 = ax[2].pcolormesh(φ′,θ,Ux, cmap=cmap,vmin=vmin, vmax=vmax)
+
+    ax[1].invert_yaxis() # needed for pcolormesh in this case since otherwise it wants to order the dec axis ascending
+    ax[2].invert_yaxis() # needed for pcolormesh in this case since otherwise it wants to order the dec axis ascending
+    ax[1].set_aspect("auto")
+    ax[2].set_aspect("auto")
+    ax[1].set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
+    ax[2].set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
+    ax[1].set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
+    ax[2].set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
+    ax[1].set_title(title1, fontsize=title_fontsize)
+    ax[2].set_title(title2, fontsize=title_fontsize)
+    cbar1 = fig.colorbar(img1, ax=ax[1], location="right", fraction=0.02, pad=0.04)
+    cbar2 = fig.colorbar(img2, ax=ax[2], location="right", fraction=0.02, pad=0.04)
     cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
     cbar2.ax.tick_params(labelsize=ticklabel_fontsize)
-
     fig.tight_layout()
 
     return fig, ax
@@ -104,10 +86,10 @@ function map_plot(
     title1 = L"Q(\theta,\varphi)", 
     title2 = L"U(\theta,\varphi)",
     vmin = nothing, vmax = nothing,
-    xylabel_fontsize=7,
-    title_fontsize=8,
-    ticklabel_fontsize=6,
-    cbar_location="right",   
+    cmap="RdBu_r", # "viridis", "seismic",
+    xylabel_fontsize=10,
+    title_fontsize=10, 
+    ticklabel_fontsize=8,
     ) 
 
     tm   = fieldtransform(Ifield)
@@ -115,42 +97,42 @@ function map_plot(
     nθ = length(θ)
     nφ = length(φ)
 
-    fx = Ifield[:] |> imag_fun
-    
-    fig, ax = subplots(1,dpi=147) # , figsize=(8,5))
-    ax.set_aspect("auto") # , adjustable="box")
-    ax.set_xlim(1, length(φ))
-
-    img1 = ax.imshow(fx, vmin=vmin, vmax=vmax, origin="upper")
-
-    θ_trng = round.(Int,range(1, nθ, 7))
-    ## push!(θ_trng, findmin(abs.(θ .- 2.445))[2])
-    ## sort!(θ_trng)
-    ax.set_yticks(θ_trng)
-    ax.set_yticklabels(round.(θ[θ_trng], digits=2),fontsize=ticklabel_fontsize)
-    ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
 
     if φ[1] > φ[end] # not sure how to hangle the branch convention.
         φ′ = rad2deg.(CC.in_negπ_π.(φ))
     else 
         φ′ = rad2deg.(CC.in_0_2π.(φ)) 
     end
-    φi0 = length(φ′)÷2 + 1
-    tti = round.(Int,range(0,length(φ′)÷2,6)[2:end-1])
-    φ_trng = vcat(φi0 .- tti[end:-1:1], φi0, φi0 .+ tti)
-    ax.set_xticks(φ_trng)
-    ax.set_xticklabels(round.(Int, φ′[φ_trng]),fontsize=ticklabel_fontsize)
+
+    fx = Ifield[:] |> imag_fun
+    
+    fig, ax = plt.subplots(1,dpi=147, figsize=(8,4))
+
+    img1 = ax.pcolormesh(
+        φ′,
+        θ,
+        fx, 
+        cmap=cmap,
+        vmin=vmin, vmax=vmax,
+    )
+    ax.invert_yaxis() # needed for pcolormesh in this case since otherwise it wants to order the dec axis ascending
+    ax.set_aspect("auto")
+    ax.set_ylabel(L"polar $\theta$ [rad]",fontsize=xylabel_fontsize)
     ax.set_xlabel(L"azimuth $\varphi$ [deg]",fontsize=xylabel_fontsize)
-
-    ax.set_title(title1, fontsize=title_fontsize)  
-
-    cbar1 = fig.colorbar(img1, ax=ax, location=cbar_location, fraction=0.046*(nθ/nφ), pad=0.04)
+    ax.set_title(title1, fontsize=title_fontsize)
+    cbar1 = fig.colorbar(
+        img1, 
+        ax=ax, 
+        location="right", 
+        fraction=0.02,
+        pad=0.04,
+    )
     cbar1.ax.tick_params(labelsize=ticklabel_fontsize)
-
     fig.tight_layout()
 
     return fig, ax
 end
+
 
 
 
@@ -164,14 +146,12 @@ function fourier_power(
     imag_fun = x->abs2.(x),
     ℓs = Int[], 
     vmin=nothing, vmax=nothing, 
+    cmap="viridis", # "viridis", "RdBu_r", "seismic"
     title1=L"field $|f\,(\theta,m)|^2$",
     xaxis_units = :Hz, # or :m
     xylabel_fontsize=10,
     title_fontsize=10, 
     ticklabel_fontsize=8,
-    # cbar_location="bottom", 
-    cmap="viridis", # "viridis", "RdBu_r", "seismic"
-    ##
     ℓoutline_color="0.75", # "none" or "auto" or color (such as "0.8")
     ℓoutline_width=0.5,
     ℓha="right",
@@ -196,7 +176,7 @@ function fourier_power(
 
     if xaxis_units == :Hz
         Hz_or_m = m -> CMBrings.m2hz(m)
-        xlabel_hz_or_m = L"$f$ [Hz] (for scan rate of $1^o$ per second)"
+        xlabel_hz_or_m = L"$hz$ (for scan rate of $1^o$ per second)"
     elseif xaxis_units == :m 
         Hz_or_m = m -> m
         xlabel_hz_or_m = L"azmuthal frequency $m$"
@@ -213,18 +193,16 @@ function fourier_power(
     )
     ax.invert_yaxis() # needed for pcolormesh in this case since otherwise it wants to order the dec axis ascending
     ax.set_aspect("auto") 
-    ax.set_ylabel(L"\theta\, [rad]", fontsize=xylabel_fontsize)
-    ax.set_xlabel(xaxis_units==:Hz ? L"hz" : L"m", fontsize=xylabel_fontsize)
+    ax.set_ylabel(L"polar $\theta$ [rad]", fontsize=xylabel_fontsize)
+    ax.set_xlabel(xlabel_hz_or_m, fontsize=xylabel_fontsize)
     ax.set_title(title1,fontsize=title_fontsize) 
     cbar = fig.colorbar(
         img1, 
         ax=ax, 
         location="right", 
-        fraction=0.01,
+        fraction=0.02,
         pad=0.04,
     )
-    fig.tight_layout()
-
 
     ms_trng = round.(Int,range(1, length(k), 10)[2:end])
     ms = round.(Int, k[ms_trng])
