@@ -30,10 +30,11 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Spectra = "8da7f3c5-fb1b-42d3-91b9-3c2bc450b4c2"
 SphereTransforms = "b2109e22-118d-4f27-a5aa-3a6f7f43afc7"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-XFields = "6b266097-e72c-4055-8154-82a0a0b3a8e0"
 VecchiaFactorization = "766796f2-a851-4db4-b814-5102eb0274c5"
+XFields = "6b266097-e72c-4055-8154-82a0a0b3a8e0"
 
 [compat]
+FastTransforms = "0.15"
 julia = "1.7"
 
 [extras]
