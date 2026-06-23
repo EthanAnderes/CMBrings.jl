@@ -207,9 +207,7 @@ function fourier_power(
     ms_trng = round.(Int,range(1, length(k), 10)[2:end])
     ms = round.(Int, k[ms_trng])
     if isempty(ℓs)
-        ℓs1 = round.(Int, ms[ms .> 0] * csc.(θ[end÷4]))
-        ℓs2 = round.(Int, ms[ms .> 0] * csc.(θ[3*end÷4]))
-        ℓs = vcat(ℓs1, ℓs2[ℓs2 .> maximum(ℓs1)])
+        return fig, ax
     end
     for ℓₒ in ℓs
         θv  = θ

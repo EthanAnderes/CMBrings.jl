@@ -152,7 +152,7 @@ function ring_regressor(X, maskOp=modeMask)
         fmapᵀ = Matrix(transpose(f[:]))
         for (v,m) in zip(eachcol(fmapᵀ), eachcol(maskᵀ))
             Xm   = X .* m
-            v  .-= Xm * (Xm \ v) 
+            v  .-= X * (Xm \ v) 
         end
         Xmap(fieldtransform(f), Matrix(transpose(fmapᵀ)))
     end
@@ -165,9 +165,13 @@ function ring_stepwise_regressor(X, maskOp=modeMask)
         fmapᵀ = Matrix(transpose(f[:]))
         for (v,m) in zip(eachcol(fmapᵀ), eachcol(maskᵀ))
             Xm   = X .* m
-            for x in eachcol(Xm)
-                v  .-= x .* (sum_kbn(x .* v) / sum_kbn(abs2.(x)))
+            for (x, xm) in zip(eachcol(X), eachcol(Xm))
+                sxm2 = sum_kbn(abs2.(xm))
+                if sxm2 > 0
+                    v  .-= x * (sum_kbn(xm .* v) / sxm2) 
+                end
             end
+
         end
         Xmap(fieldtransform(f), Matrix(transpose(fmapᵀ)))
     end

@@ -36,6 +36,10 @@ function rings_θs_φs(Nside::Int; θspan=(0,π))
     return ring_slices_full[rings_θspan], θ[rings_θspan], φ[rings_θspan]
 end
 
+# ----------------------
+# hpx2eaz
+# ----------------------
+
 function hpx2eaz(fhpx::Xfield{HT.ℍ0{T}}; θspan=(0,π)) where {T}
     Nside = fieldtransform(fhpx).nside 
     hpx   = fhpx[:]
@@ -71,6 +75,40 @@ function hpx2eaz(fhpx::Xfield{HT.ℍ0{T}}; θspan=(0,π)) where {T}
 
     return feaz
 end
+
+function hpx2eaz(fhpx::Xfield{HT.ℍ2{T}}; θspan=(0,π)) where {T}
+    H2  = fieldtransform(fhpx)
+    H0  = HT.spin0(H2)
+    qu  = Array.(eachcol(fhpx[:]))
+    qmap, umap = qu[1], qu[2]
+    qH0  = Xmap(H0, qmap) 
+    uH0  = Xmap(H0, umap)
+    qeaz = hpx2eaz(qH0; θspan)
+    ueaz = hpx2eaz(uH0; θspan)
+    eaz0 = fieldtransform(qeaz)
+    return Xmap(EZ.spin2(eaz0), complex.(qeaz[:], ueaz[:]))
+end
+
+function hpx2eaz(fhpx::Xfield{HT.ℍ02{T}}; θspan=(0,π)) where {T}
+    H02  = fieldtransform(fhpx)
+    H0   = HT.spin02(H2)
+    tqu  = Array.(eachcol(fhpx[:]))
+    tmap, qmap, umap = tqu[1], tqu[2], tqu[3]
+    tH0  = Xmap(H0, tmap) 
+    qH0  = Xmap(H0, qmap) 
+    uH0  = Xmap(H0, umap)
+    teaz = hpx2eaz(tH0; θspan)
+    qeaz = hpx2eaz(qH0; θspan)
+    ueaz = hpx2eaz(uH0; θspan)
+    eaz0 = fieldtransform(teaz)
+    return Xmap(EZ.spin02(eaz0), stack((teaz, qeaz, ueaz)))
+end
+
+
+# ----------------------
+# eaz2hpx
+# ----------------------
+
 
 function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
     eaz0   = fieldtransform(feaz)
@@ -110,8 +148,6 @@ function eaz2hpx(feaz::Xfield{EAZ0{T}}; Nside, lmax=2Nside) where {T}
     return Xmap(tmℍ0, hpx_map)
 end
 
-# TODO: make this not such a hack
-# TODO: also make a hpx2eaz version
 function eaz2hpx(feaz::Xfield{EAZ2{T}}; Nside, lmax=2Nside) where {T}
     eaz2 = EZ.fieldtransform(feaz)
     eaz0 = EZ.spin0(eaz2)
